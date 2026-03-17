@@ -14,7 +14,7 @@ module load Python/3.12.3-GCCcore-13.3.0
 
 source ~/disk/venvs/pnw-2/bin/activate 
 
-GET_CONFIG="python3 Agents/src/utils/config.py"
+GET_CONFIG="python Agents/src/utils/config.py"
 
 MY_DISK=$($GET_CONFIG paths.base_path)
 PROMPTS_DIR=$MY_DISK/$($GET_CONFIG paths.prompts_dir) 

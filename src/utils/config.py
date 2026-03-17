@@ -3,7 +3,7 @@ import sys
 import yaml
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 
 def load_config(config_path: Path = CONFIG_PATH) -> dict:
