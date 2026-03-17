@@ -1,0 +1,4 @@
+config/config.yaml
+data/prompts/
+**/__pycache__/
+.env
