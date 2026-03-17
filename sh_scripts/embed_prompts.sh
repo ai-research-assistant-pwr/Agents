@@ -27,6 +27,8 @@ export FLASHINFER_CACHE_DIR=$MY_DISK/.cache/flashinfer
 export TORCH_EXTENSIONS_DIR=$MY_DISK/.cache/torch_extensions
 export XDG_CACHE_HOME=$MY_DISK/.cache
 
+export HF_HUB_OFFLINE=1
+
 echo "Configuration Loaded:"
 echo "  Agents Root Path: $MY_DISK"
 echo "  VLLM Compile Cache: $VLLM_CACHE_ROOT"
@@ -40,6 +42,5 @@ echo "====================================="
 echo "Starting Prompts Embedding..."
 echo "====================================="
 
-python3 Agents/src/embed_prompts.py
 ~/disk/venvs/pnw-2/bin/python Agents/src/embed_prompts.py
 echo "Done!"

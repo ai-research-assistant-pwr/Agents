@@ -22,8 +22,7 @@ EMBEDDINGS_OUTPUT_PATH = os.path.join(PROMPTS_DIR, CONFIG['files']['prompt_embed
 DISK_DIR = os.path.dirname(ABS_BASE_PATH)
 MODELS_DIR = os.path.join(DISK_DIR, 'models')
 
-EMBED_MODEL_NAME = CONFIG['models']['embedding_model']
-EMBED_MODEL = os.path.join(MODELS_DIR, EMBED_MODEL_NAME)
+EMBED_MODEL = CONFIG['models']['embedding_model']
 
 COMPILE_CACHE_PATH = os.path.join(ABS_BASE_PATH, ".cache", "vllm")
 os.makedirs(COMPILE_CACHE_PATH, exist_ok=True)
@@ -47,6 +46,7 @@ if __name__ == "__main__":
         enforce_eager=True, 
         gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
         tensor_parallel_size=NUM_GPUS,
+        download_dir=MODELS_DIR,
         compilation_config=CompilationConfig(cache_dir=COMPILE_CACHE_PATH, local_cache_dir=COMPILE_CACHE_PATH)
     )
 

@@ -2,6 +2,7 @@ paths:
   base_path: "."
   prompts_dir: "data/prompts"
   articles_dir: "../articles"
+  models_dir: "../models"
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
