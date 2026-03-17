@@ -3,7 +3,7 @@ import sys
 import yaml
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 
 def load_config(config_path: Path = CONFIG_PATH) -> dict:
@@ -26,6 +26,8 @@ def load_config(config_path: Path = CONFIG_PATH) -> dict:
 
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
+    if config.get('paths', {}).get('base_path') == ".":
+        config['paths']['base_path'] = str(PROJECT_ROOT)
     return config
 
 

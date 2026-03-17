@@ -1,17 +1,23 @@
 paths:
-  base_path: "C:/Users/tympe/Studia/Magisterka/Agents"
+  base_path: "."
   prompts_dir: "data/prompts"
-  articles_dir: "data/articles"
-  hypotheses_dir: "data/hypotheses"
+  articles_dir: "../articles"
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
   prompts: "generated_prompts_gemini.csv"
+  prompt_embeddings: "prompt_embeddings.pkl"
 
 inference:
   temperature: 0.7
   semaphore_size: 5
   target_prompt_count: 500
+  batch_size_encode: 64
 
 models:
   generation_model: "gemini-2.5-flash"
+  embedding_model: "models--Qwen--Qwen3-Embedding-8B"
+
+hardware:
+  num_gpus: 1
+  gpu_memory_utilization: 0.90
