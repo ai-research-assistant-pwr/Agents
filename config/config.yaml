@@ -17,7 +17,7 @@ inference:
 
 models:
   generation_model: "gemini-2.5-flash"
-  embedding_model: "models--Qwen--Qwen3-Embedding-8B"
+  embedding_model: "Qwen/Qwen3-Embedding-8B"
 
 hardware:
   num_gpus: 1
