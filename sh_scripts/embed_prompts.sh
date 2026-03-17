@@ -10,7 +10,6 @@
 #SBATCH --gres=gpu:hopper:1
 
 source /usr/local/sbin/modules.sh
-module load Python/3.12.3-GCCcore-13.3.0
 
 source ~/disk/venvs/pnw-2/bin/activate 
 
