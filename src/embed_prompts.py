@@ -46,7 +46,6 @@ if __name__ == "__main__":
         enforce_eager=True, 
         gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
         tensor_parallel_size=NUM_GPUS,
-        download_dir=MODELS_DIR,
         compilation_config=CompilationConfig(cache_dir=COMPILE_CACHE_PATH, local_cache_dir=COMPILE_CACHE_PATH)
     )
 
