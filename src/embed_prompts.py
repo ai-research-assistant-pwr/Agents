@@ -22,7 +22,8 @@ EMBEDDINGS_OUTPUT_PATH = os.path.join(PROMPTS_DIR, CONFIG['files']['prompt_embed
 DISK_DIR = os.path.dirname(ABS_BASE_PATH)
 MODELS_DIR = os.path.join(DISK_DIR, 'models')
 
-EMBED_MODEL = CONFIG['models']['embedding_model']
+# EMBED_MODEL = CONFIG['models']['embedding_model']
+EMBED_MODEL = "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
 
 COMPILE_CACHE_PATH = os.path.join(ABS_BASE_PATH, ".cache", "vllm")
 os.makedirs(COMPILE_CACHE_PATH, exist_ok=True)

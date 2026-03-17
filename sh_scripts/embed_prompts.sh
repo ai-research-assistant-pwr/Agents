@@ -14,41 +14,10 @@ module load Python/3.12.3-GCCcore-13.3.0
 
 source ~/disk/venvs/pnw-2/bin/activate 
 
-GET_CONFIG="python3 Agents/src/utils/config.py"
+GET_CONFIG="~/disk/venvs/pnw-2/bin/python Agents/src/utils/config.py"
 
-echo "====================================="
-echo "🔍 PATH DEBUGGER START"
-echo "====================================="
-echo "1. Obecna lokalizacja (pwd): $(pwd)"
-echo "2. Użytkownik: $(whoami)"
-echo "3. Czy venv python istnieje? $(ls -l $VENV_PYTHON 2>/dev/null || echo 'NIE ZNALEZIONO!')"
-
-# Próba wyciągnięcia ścieżek z configu
 MY_DISK=$($GET_CONFIG paths.base_path)
-EMBED_MODEL_CFG=$($GET_CONFIG models.embedding_model)
-
-echo "4. MY_DISK z configu: $MY_DISK"
-echo "5. Ścieżka modelu z configu: $EMBED_MODEL_CFG"
-
-echo "6. Sprawdzam czy model fizycznie tam jest:"
-if [ -d "$EMBED_MODEL_CFG" ]; then
-    echo "   ✅ FOLDER MODELU ISTNIEJE"
-    echo "   📄 Zawartość folderu (szukamy config.json):"
-    ls -F "$EMBED_MODEL_CFG" | head -n 5
-else
-    echo "   ❌ BŁĄD: Folder modelu NIE ISTNIEJE pod tą ścieżką!"
-    echo "   🔍 Szukam gdziekolwiek folderu 'snapshots' w models:"
-    find ~/disk/models -name "snapshots" -type d 2>/dev/null | head -n 3
-fi
-
-echo "7. Sprawdzam plik z promptami:"
-PROMPTS_FILE="$MY_DISK/data/prompts/generated_prompts_gemini.csv"
-if [ -f "$PROMPTS_FILE" ]; then
-    echo "   ✅ PLIK PROMPTÓW ISTNIEJE ($PROMPTS_FILE)"
-else
-    echo "   ❌ BŁĄD: Plik promptów NIE ISTNIEJE w $PROMPTS_FILE"
-fi
-echo "====================================="
+PROMPTS_DIR=$MY_DISK/$($GET_CONFIG paths.prompts_dir) 
 
 export TORCHINDUCTOR_CACHE_DIR=$MY_DISK/.cache/torch_inductor
 export VLLM_CACHE_ROOT=$MY_DISK/.cache/vllm
