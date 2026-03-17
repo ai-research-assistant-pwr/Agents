@@ -12,7 +12,7 @@
 source /usr/local/sbin/modules.sh
 module load Python/3.12.3-GCCcore-13.3.0
 
-source ~/disk/venvs/pnw/bin/activate 
+source ~/disk/venvs/pnw-2/bin/activate 
 
 GET_CONFIG="python3 Agents/src/utils/config.py"
 
@@ -41,5 +41,5 @@ echo "Starting Prompts Embedding..."
 echo "====================================="
 
 python3 Agents/src/embed_prompts.py
-
+~/disk/venvs/pnw-2/bin/python Agents/src/embed_prompts.py
 echo "Done!"
