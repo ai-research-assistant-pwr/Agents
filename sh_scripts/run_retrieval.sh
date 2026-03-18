@@ -24,5 +24,5 @@ echo "====================================="
 echo "Starting Dense Retrieval..."
 echo "====================================="
 
-python3 $AGENTS_DIR/src/retrieval.py
+python3 $AGENTS_DIR/src/run_retrieval.py
 echo "Done!"
