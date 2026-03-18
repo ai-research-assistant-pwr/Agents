@@ -33,8 +33,6 @@ export TRITON_CACHE_DIR=$MY_DISK/.cache/triton
 export FLASHINFER_CACHE_DIR=$MY_DISK/.cache/flashinfer
 export TORCH_EXTENSIONS_DIR=$MY_DISK/.cache/torch_extensions
 
-export HF_HUB_OFFLINE=1
-
 echo "Configuration Loaded:"
 echo "  Disk Root Path: $MY_DISK"
 echo "  Agents Path: $AGENTS_DIR"
