@@ -24,6 +24,6 @@ echo "====================================="
 echo "Starting Dense Retrieval..."
 echo "====================================="
 
-python3 pip install faiss-gpu
+python3 -m pip install faiss-gpu
 python3 $AGENTS_DIR/src/run_retrieval.py
 echo "Done!"
