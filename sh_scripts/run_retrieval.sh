@@ -12,7 +12,7 @@
 source /usr/local/sbin/modules.sh
 module load Python/3.12.3-GCCcore-13.3.0
 
-source ~/disk/venvs/pnw/bin/activate
+source ~/disk/venvs/pnw-2/bin/activate
 
 MY_DISK="$HOME/disk"
 AGENTS_DIR="$MY_DISK/Agents"
@@ -24,5 +24,6 @@ echo "====================================="
 echo "Starting Dense Retrieval..."
 echo "====================================="
 
+python3 pip install faiss-gpu
 python3 $AGENTS_DIR/src/run_retrieval.py
 echo "Done!"
