@@ -24,7 +24,8 @@ EMBEDDINGS_OUTPUT_PATH = os.path.join(EMBEDDINGS_DIR, CONFIG['files']['prompt_em
 COMPILE_CACHE_PATH = os.path.join(DISK_DIR, ".cache", "vllm")
 MODELS_DIR = os.path.join(DISK_DIR, "models")
 
-EMBED_MODEL = "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
+# EMBED_MODEL = "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
+EMBED_MODEL = "Qwen/Qwen3-Embedding-8B"
 
 os.makedirs(COMPILE_CACHE_PATH, exist_ok=True)
 os.makedirs(PROMPTS_DIR, exist_ok=True)
@@ -47,6 +48,7 @@ if __name__ == "__main__":
         enforce_eager=True, 
         gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
         tensor_parallel_size=NUM_GPUS,
+        download_dir=MODELS_DIR,
         compilation_config=CompilationConfig(cache_dir=COMPILE_CACHE_PATH, local_cache_dir=COMPILE_CACHE_PATH)
     )
 
