@@ -3,6 +3,8 @@ import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
+DISK_DIR = os.path.dirname(AGENTS_DIR)
+
 if AGENTS_DIR not in sys.path:
     sys.path.append(AGENTS_DIR)
 
@@ -13,24 +15,17 @@ from vllm import LLM
 from vllm.config.compilation import CompilationConfig
 from utils.config import CONFIG
 
-ABS_BASE_PATH = os.path.expanduser(CONFIG['paths']['base_path'])
-ABS_AGENTS_PATH = os.path.expanduser(CONFIG['paths']['base_path_agents'])
-
-# 2. Ścieżki do promptów (klejone tylko do korzenia Agents!)
-PROMPTS_DIR = os.path.join(ABS_AGENTS_PATH, CONFIG['paths']['prompts_dir_agents'])
+PROMPTS_DIR = os.path.join(AGENTS_DIR, "data", "prompts")
 QUERIES_FILE = os.path.join(PROMPTS_DIR, CONFIG['files']['prompts'])
 
-# 3. Ścieżki do embeddingów, cache i modeli (klejone tylko do korzenia Dysk!)
-EMBEDDINGS_DIR = os.path.join(ABS_BASE_PATH, CONFIG['paths']['embeddings_dir'])
+EMBEDDINGS_DIR = os.path.join(DISK_DIR, "embeddings")
 EMBEDDINGS_OUTPUT_PATH = os.path.join(EMBEDDINGS_DIR, CONFIG['files']['prompt_embeddings'])
 
-COMPILE_CACHE_PATH = os.path.join(ABS_BASE_PATH, CONFIG['paths'].get('cache_dir', '.cache'), "vllm")
-MODELS_DIR = os.path.join(ABS_BASE_PATH, CONFIG['paths'].get('models_dir', 'models'))
+COMPILE_CACHE_PATH = os.path.join(DISK_DIR, ".cache", "vllm")
+MODELS_DIR = os.path.join(DISK_DIR, "models")
 
-# EMBED_MODEL = CONFIG['models']['embedding_model']
 EMBED_MODEL = "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
 
-COMPILE_CACHE_PATH = os.path.join(ABS_BASE_PATH, CONFIG['paths']['cache_dir'], "vllm")
 os.makedirs(COMPILE_CACHE_PATH, exist_ok=True)
 os.makedirs(PROMPTS_DIR, exist_ok=True)
 
