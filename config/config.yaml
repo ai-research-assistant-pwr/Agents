@@ -14,11 +14,17 @@ files:
   prompts: "generated_prompts_gemini.csv"
   prompt_embeddings: "prompt_embeddings.pkl"
 
+  index: "chunks"
+  retrieved_contexts: "retrieved_contexts.pkl"
+
 inference:
   temperature: 0.7
   semaphore_size: 5
   target_prompt_count: 500
   batch_size_encode: 64
+
+retrieval:
+  top_k: 10
 
 models:
   generation_model: "gemini-2.5-flash"
