@@ -1,8 +1,13 @@
 paths:
-  base_path: "."
+  base_path: "~/disk"
+  base_path_agents: "~/disk/Agents"
+  
+  prompts_dir_agents: "data/prompts"
+  embeddings_dir: "embeddings"
+  
   prompts_dir: "data/prompts"
-  articles_dir: "../articles"
-  models_dir: "../models"
+  articles_dir: "articles"
+  models_dir: "models"
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
