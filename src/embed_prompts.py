@@ -16,7 +16,10 @@ from utils.config import CONFIG
 RAW_BASE_PATH = CONFIG['paths']['base_path']
 ABS_BASE_PATH = os.path.expanduser(RAW_BASE_PATH)
 
-PROMPTS_DIR = os.path.join(ABS_BASE_PATH, CONFIG['paths']['prompts_dir'])
+RAW_AGENTS_PATH = CONFIG['paths']['base_path_agents']
+ABS_AGENTS_PATH = os.path.expanduser(RAW_AGENTS_PATH)
+
+PROMPTS_DIR = os.path.join(ABS_AGENTS_PATH, CONFIG['paths']['prompts_dir_agents'])
 QUERIES_FILE = os.path.join(PROMPTS_DIR, CONFIG['files']['prompts'])
 EMBEDDINGS_DIR = os.path.join(ABS_BASE_PATH, CONFIG['paths']['embeddings_dir'])
 EMBEDDINGS_OUTPUT_PATH = os.path.join(EMBEDDINGS_DIR, CONFIG['files']['prompt_embeddings'])

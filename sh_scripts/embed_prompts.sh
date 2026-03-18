@@ -49,5 +49,5 @@ echo "====================================="
 echo "Starting Prompts Embedding..."
 echo "====================================="
 
-$VENV_PYTHON $MY_DISK/src/embed_prompts.py
+$VENV_PYTHON $AGENTS_DIR/src/embed_prompts.py
 echo "Done!"
