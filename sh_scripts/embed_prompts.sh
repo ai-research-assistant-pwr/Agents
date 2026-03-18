@@ -17,10 +17,11 @@ source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
 VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
 GET_CONFIG="$VENV_PYTHON Agents/src/utils/config.py"
 
-MY_DISK="/lustre/pd03/hpc-patswi3426-1763133915/Agents"
+MY_DISK=$($GET_CONFIG paths.base_path)
+AGENTS_DIR=$($GET_CONFIG paths.base_path_agents)
 
-PROMPTS_DIR_RELATIVE=$($GET_CONFIG paths.prompts_dir)
-PROMPTS_DIR="$MY_DISK/$PROMPTS_DIR_RELATIVE"
+PROMPTS_DIR=$AGENTS_DIR/$($GET_CONFIG paths.prompts_dir_agents)
+EMBEDDINGS_DIR=$MY_DISK/$($GET_CONFIG paths.embeddings_dir)
 
 export XDG_CACHE_HOME=$MY_DISK/.cache
 export HOME=$MY_DISK
@@ -35,7 +36,8 @@ export TORCH_EXTENSIONS_DIR=$MY_DISK/.cache/torch_extensions
 export HF_HUB_OFFLINE=1
 
 echo "Configuration Loaded:"
-echo "  Agents Root Path: $MY_DISK"
+echo "  Disk Root Path: $MY_DISK"
+echo "  Agents Path: $AGENTS_DIR"
 echo "  VLLM Compile Cache: $VLLM_CACHE_ROOT"
 echo "  Prompts Path: $PROMPTS_DIR"
 

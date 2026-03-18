@@ -3,7 +3,8 @@ import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
-sys.path.append(AGENTS_DIR)
+if AGENTS_DIR not in sys.path:
+    sys.path.append(AGENTS_DIR)
 
 import gc
 import numpy as np
@@ -17,7 +18,8 @@ ABS_BASE_PATH = os.path.expanduser(RAW_BASE_PATH)
 
 PROMPTS_DIR = os.path.join(ABS_BASE_PATH, CONFIG['paths']['prompts_dir'])
 QUERIES_FILE = os.path.join(PROMPTS_DIR, CONFIG['files']['prompts'])
-EMBEDDINGS_OUTPUT_PATH = os.path.join(PROMPTS_DIR, CONFIG['files']['prompt_embeddings'])
+EMBEDDINGS_DIR = os.path.join(ABS_BASE_PATH, CONFIG['paths']['embeddings_dir'])
+EMBEDDINGS_OUTPUT_PATH = os.path.join(EMBEDDINGS_DIR, CONFIG['files']['prompt_embeddings'])
 
 DISK_DIR = os.path.dirname(ABS_BASE_PATH)
 MODELS_DIR = os.path.join(DISK_DIR, 'models')
@@ -25,7 +27,7 @@ MODELS_DIR = os.path.join(DISK_DIR, 'models')
 # EMBED_MODEL = CONFIG['models']['embedding_model']
 EMBED_MODEL = "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
 
-COMPILE_CACHE_PATH = os.path.join(ABS_BASE_PATH, ".cache", "vllm")
+COMPILE_CACHE_PATH = os.path.join(ABS_BASE_PATH, CONFIG['paths']['cache_dir'], "vllm")
 os.makedirs(COMPILE_CACHE_PATH, exist_ok=True)
 os.makedirs(PROMPTS_DIR, exist_ok=True)
 
