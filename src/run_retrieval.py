@@ -21,7 +21,8 @@ INDEX_PATH = os.path.join(ARTICLES_DIR, CONFIG['files']['index'])
 
 EMBEDDINGS_DIR = os.path.join(DISK_DIR, "embeddings")
 PROMPT_EMBEDDINGS = os.path.join(EMBEDDINGS_DIR, CONFIG['files']['prompt_embeddings'])
-OUTPUT_PATH = os.path.join(EMBEDDINGS_DIR, CONFIG['files'].get('retrieved_contexts', 'retrieved_contexts.pkl'))
+RETRIEVAL_DIR = os.path.join(AGENTS_DIR, "data", "retrieval")
+OUTPUT_PATH = os.path.join(RETRIEVAL_DIR, CONFIG['files']['retrieved_contexts'])
 
 RETRIEVAL_K = CONFIG['retrieval']['top_k']
 
