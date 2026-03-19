@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from vllm import LLM
 from vllm.config.compilation import CompilationConfig
-from utils.config import CONFIG
+from src.utils.config import CONFIG
 
 PROMPTS_DIR = os.path.join(AGENTS_DIR, "data", "prompts")
 QUERIES_FILE = os.path.join(PROMPTS_DIR, CONFIG['files']['prompts'])

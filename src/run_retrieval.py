@@ -12,7 +12,7 @@ import torch
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from utils.config import CONFIG
+from src.utils.config import CONFIG
 from retrieval.index import DenseInMemoryIndex
 from retrieval.embedding_retriever import EmbeddingRetriever
 
