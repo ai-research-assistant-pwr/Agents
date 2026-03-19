@@ -13,11 +13,11 @@ paths:
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
   prompts: "generated_prompts_gemini_v2.csv"
-  prompt_embeddings: "data/embeddings/prompt_embeddings.pkl"
-  synthetic_sft_dataset: "data/datasets/synthetic_sft_dataset.jsonl"
+  prompt_embeddings: "data/embeddings/prompt_embeddings_v2.pkl"
+  synthetic_sft_dataset: "data/datasets/synthetic_sft_dataset_v2.jsonl"
 
   index: "chunks"
-  retrieved_contexts: "data/retrieval/retrieved_contexts.pkl"
+  retrieved_contexts: "data/retrieval/retrieved_contexts_v2.pkl"
 
 inference:
   temperature: 0.4
