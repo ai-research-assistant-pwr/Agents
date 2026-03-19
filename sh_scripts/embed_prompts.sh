@@ -49,33 +49,6 @@ echo "====================================="
 echo "Starting Prompts Embedding..."
 echo "====================================="
 
-# $VENV_PYTHON $AGENTS_DIR/src/embed_prompts.py
-
-echo "======================================================"
-echo "      PEŁNA WERYFIKACJA PROCESU Z CONFIG.YAML"
-echo "======================================================"
-
-echo ""
-echo "--- 1. KATALOGI GŁÓWNE ---"
-echo "Dysk bazowy (base_path):          $($GET_CONFIG paths.base_path)"
-echo "Katalog Agents:                   $($GET_CONFIG paths.base_path_agents)"
-echo "Katalog artykułów (articles_dir): $($GET_CONFIG paths.articles_dir)"
-echo "Katalog wektorów (embeddings_dir):$($GET_CONFIG paths.embeddings_dir)"
-
-echo ""
-echo "--- 2. UŻYWANE MODELE ---"
-echo "Model generujący (LLM):           $($GET_CONFIG models.generation_model)"
-echo "Model wektorujący (Embeddings):   $($GET_CONFIG models.embedding_model)"
-
-echo ""
-echo "--- 3. BAZA WIEDZY (RAG) ---"
-echo "Katalog z indeksami wektorów:     $($GET_CONFIG files.index)"
-
-echo ""
-echo "--- 4. PLIKI W POTOKU (PIPELINE) ---"
-echo "ETAP 1 (Wejście) - Prompty:       $($GET_CONFIG files.prompts)"
-echo "ETAP 2 (Wyjście) - Wektory:       $($GET_CONFIG files.prompt_embeddings)"
-echo "ETAP 3 (Wyjście) - Konteksty RAG: $($GET_CONFIG files.retrieved_contexts)"
-echo "ETAP 4 (Wyjście) - Zbiór SFT:     $($GET_CONFIG files.synthetic_sft_dataset)"
+$VENV_PYTHON $AGENTS_DIR/src/embed_prompts.py
 
 echo "Done!"
