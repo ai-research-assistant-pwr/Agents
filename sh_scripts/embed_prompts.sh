@@ -20,6 +20,8 @@ GET_CONFIG="$VENV_PYTHON Agents/src/utils/config.py"
 MY_DISK=$($GET_CONFIG paths.base_path)
 AGENTS_DIR=$($GET_CONFIG paths.base_path_agents)
 
+export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
+
 PROMPTS_DIR=$AGENTS_DIR/$($GET_CONFIG paths.prompts_dir_agents)
 EMBEDDINGS_DIR=$MY_DISK/$($GET_CONFIG paths.embeddings_dir)
 

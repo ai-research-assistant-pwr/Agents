@@ -6,7 +6,7 @@ AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
 DISK_DIR = os.path.dirname(AGENTS_DIR)
 
 if AGENTS_DIR not in sys.path:
-    sys.path.append(AGENTS_DIR)
+    sys.path.insert(0, AGENTS_DIR)
 
 import gc
 import numpy as np

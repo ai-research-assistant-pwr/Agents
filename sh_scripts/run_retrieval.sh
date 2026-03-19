@@ -17,6 +17,8 @@ source ~/disk/venvs/pnw-2/bin/activate
 MY_DISK="$HOME/disk"
 AGENTS_DIR="$MY_DISK/Agents"
 
+export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
+
 export HOME=$MY_DISK
 export XDG_CACHE_HOME=$MY_DISK/.cache
 
