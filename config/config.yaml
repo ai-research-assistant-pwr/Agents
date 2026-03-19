@@ -17,7 +17,7 @@ files:
   synthetic_sft_dataset: "data/datasets/synthetic_sft_dataset_v2.jsonl"
 
   index: "chunks"
-  retrieved_contexts: "data/retrieval/retrieved_contexts_v2.pkl"
+  retrieved_contexts: "retrieved_contexts_v2.pkl"
 
 inference:
   temperature: 0.4
