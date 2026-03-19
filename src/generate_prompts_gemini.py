@@ -17,7 +17,7 @@ sys.path.append(PROJECT_ROOT)
 from dotenv import load_dotenv
 env_path = os.path.join(PROJECT_ROOT, '.env')
 load_dotenv(env_path)
-RAW_BASE_PATH = CONFIG['paths']['base_path']
+RAW_BASE_PATH = CONFIG['paths']['base_path_local']
 ABS_BASE_PATH = os.path.expanduser(RAW_BASE_PATH)
 
 PROMPTS_DIR = os.path.join(ABS_BASE_PATH, CONFIG['paths']['prompts_dir'])
@@ -43,7 +43,7 @@ llm = ChatGoogleGenerativeAI(
 
 system_template = """A 
 You are an expert user simulator for a scientific AI system.
-Your goal is to generate a realistic, prompt that a professional AI scientist or researcher would type into a system.
+Your goal is to generate a realistic, prompt that a professional AI scientist or researcher would type into a system used to generate scientific hypotheses.
 
 **ROLEPLAYING INSTRUCTIONS:**
 1. Analyze the provided Scientific Topic, its Discipline, and its Subtopics.

@@ -1,6 +1,7 @@
 paths:
   base_path: "~/disk"
   base_path_agents: "~/disk/Agents"
+  base_path_local: "./"
   
   prompts_dir_agents: "data/prompts"
   embeddings_dir: "embeddings"
@@ -11,14 +12,15 @@ paths:
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
-  prompts: "generated_prompts_gemini.csv"
-  prompt_embeddings: "prompt_embeddings.pkl"
+  prompts: "generated_prompts_gemini_v2.csv"
+  prompt_embeddings: "data/embeddings/prompt_embeddings.pkl"
+  synthetic_sft_dataset: "data/datasets/synthetic_sft_dataset.jsonl"
 
   index: "chunks"
-  retrieved_contexts: "retrieved_contexts.pkl"
+  retrieved_contexts: "data/retrieval/retrieved_contexts.pkl"
 
 inference:
-  temperature: 0.7
+  temperature: 0.4
   semaphore_size: 5
   target_prompt_count: 500
   batch_size_encode: 64
