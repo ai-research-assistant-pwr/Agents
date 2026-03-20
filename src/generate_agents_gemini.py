@@ -34,6 +34,11 @@ SEMAPHORE_SIZE = CONFIG['inference'].get('semaphore_size', 5)
 GEN_MODEL = CONFIG['models'].get('generation_model', 'gemini-1.5-pro')
 TEMPERATURE = CONFIG['inference'].get('temperature', 0.4)
 
+# list all paths to verify
+print(f"Prompt Embeddings Path: {PROMPT_EMBEDDINGS_FILE}")
+print(f"Retrieved Contexts Path: {RETRIEVED_CONTEXTS_FILE}")
+print(f"Output JSONL Path: {OUTPUT_FILE_JSONL}")
+print(f"Output CSV Path: {OUTPUT_FILE_CSV}")
 
 class RetrieverMessage(BaseModel):
     reasoning: str = Field(
@@ -161,7 +166,6 @@ async def process_item(row, semaphore: asyncio.Semaphore, csv_writer, f_csv, f_j
                 "generator_falsification": generator_output.falsification_criteria
             }
 
-            # Podwójny zapis do obu plików na raz
             csv_writer.writerow(record)
             f_csv.flush()
             
@@ -208,7 +212,6 @@ async def main():
 
     file_exists_csv = os.path.isfile(OUTPUT_FILE_CSV) and os.path.getsize(OUTPUT_FILE_CSV) > 0
 
-    # Otwieramy i trzymamy oba pliki jednocześnie
     with open(OUTPUT_FILE_JSONL, 'a', encoding='utf-8') as f_jsonl, \
          open(OUTPUT_FILE_CSV, 'a', newline='', encoding='utf-8') as f_csv:
          

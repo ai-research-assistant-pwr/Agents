@@ -9,12 +9,15 @@ paths:
   prompts_dir: "data/prompts"
   articles_dir: "articles"
   models_dir: "models"
+  models_output_dir: "models_output"
+
+  datasets: "data/datasets"
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
   prompts: "generated_prompts_gemini_v2.csv"
   prompt_embeddings: "prompt_embeddings_v2.pkl"
-  synthetic_sft_dataset: "data/datasets/synthetic_sft_dataset_v2.jsonl"
+  synthetic_sft_dataset: "synthetic_sft_dataset_v2.jsonl"
 
   index: "chunks"
   retrieved_contexts: "retrieved_contexts_v2.pkl"
