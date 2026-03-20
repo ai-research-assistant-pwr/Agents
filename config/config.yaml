@@ -1,0 +1,40 @@
+paths:
+  base_path: "~/disk"
+  base_path_agents: "~/disk/Agents"
+  base_path_local: "./"
+  
+  prompts_dir_agents: "data/prompts"
+  embeddings_dir: "embeddings"
+  
+  prompts_dir: "data/prompts"
+  articles_dir: "articles"
+  models_dir: "models"
+  models_output_dir: "models_output"
+
+  datasets: "data/datasets"
+
+files:
+  prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
+  prompts: "generated_prompts_gemini_v2.csv"
+  prompt_embeddings: "prompt_embeddings_v2.pkl"
+  synthetic_sft_dataset: "synthetic_sft_dataset_v2.jsonl"
+
+  index: "chunks"
+  retrieved_contexts: "retrieved_contexts_v2.pkl"
+
+inference:
+  temperature: 0.4
+  semaphore_size: 5
+  target_prompt_count: 500
+  batch_size_encode: 64
+
+retrieval:
+  top_k: 10
+
+models:
+  generation_model: "gemini-2.5-flash"
+  embedding_model: "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
+
+hardware:
+  num_gpus: 1
+  gpu_memory_utilization: 0.90
