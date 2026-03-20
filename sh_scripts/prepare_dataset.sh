@@ -33,6 +33,6 @@ echo "====================================="
 echo "Starting SFT Dataset Preparation..."
 echo "====================================="
 
-$VENV_PYTHON $AGENTS_DIR/src/train/prepare_dataset.py
+$VENV_PYTHON $AGENTS_DIR/src/sft_train/prepare_dataset.py
 
 echo "Done!"
