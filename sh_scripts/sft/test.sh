@@ -21,7 +21,7 @@ export PYTHONPATH="$AGENTS_DIR/src:$PYTHONPATH"
 
 VENV_PYTHON="$MY_DISK/venvs/pnw-2/bin/python"
 
-GET_CONFIG="$VENV_PYTHON $AGENTS_DIR/src/agents/utils/config.py"
+GET_CONFIG="$VENV_PYTHON $AGENTS_DIR/src/sft/utils/config.py"
 
 echo "======================================================"
 echo "      PEŁNA WERYFIKACJA PROCESU Z CONFIG.YAML"

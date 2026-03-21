@@ -14,7 +14,7 @@ module load Python/3.12.3-GCCcore-13.3.0
 source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
 
 VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
-GET_CONFIG="$VENV_PYTHON Agents/src/agents/utils/config.py"
+GET_CONFIG="$VENV_PYTHON Agents/src/sft/utils/config.py"
 
 MY_DISK=$($GET_CONFIG paths.base_path)
 AGENTS_DIR=$($GET_CONFIG paths.base_path_agents)
@@ -33,6 +33,6 @@ echo "====================================="
 echo "Starting SFT Dataset Preparation..."
 echo "====================================="
 
-$VENV_PYTHON -m agents.sft_train.prepare_dataset
+$VENV_PYTHON -m sft.sft_train.prepare_dataset
 
 echo "Done!"
