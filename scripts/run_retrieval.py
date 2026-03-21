@@ -5,14 +5,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
 DISK_DIR = os.path.dirname(AGENTS_DIR)
 
-if AGENTS_DIR not in sys.path:
-    sys.path.insert(0, AGENTS_DIR)
-
 import torch
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from src.utils.config import CONFIG
+from agents.utils.config import CONFIG
 from retrieval.index import DenseInMemoryIndex
 from retrieval.embedding_retriever import EmbeddingRetriever
 

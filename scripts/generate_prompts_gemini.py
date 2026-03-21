@@ -9,10 +9,9 @@ from pydantic import BaseModel, Field
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from src.utils.config import CONFIG
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(PROJECT_ROOT)
+from agents.utils.config import CONFIG
 
 from dotenv import load_dotenv
 env_path = os.path.join(PROJECT_ROOT, '.env')

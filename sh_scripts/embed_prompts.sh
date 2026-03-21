@@ -15,12 +15,12 @@ module load Python/3.12.3-GCCcore-13.3.0
 source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
 
 VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
-GET_CONFIG="$VENV_PYTHON Agents/src/utils/config.py"
+GET_CONFIG="$VENV_PYTHON Agents/src/agents/utils/config.py"
 
 MY_DISK=$($GET_CONFIG paths.base_path)
 AGENTS_DIR=$($GET_CONFIG paths.base_path_agents)
 
-export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
+export PYTHONPATH="$AGENTS_DIR/src:$PYTHONPATH"
 
 PROMPTS_DIR=$AGENTS_DIR/$($GET_CONFIG paths.prompts_dir_agents)
 EMBEDDINGS_DIR=$MY_DISK/$($GET_CONFIG paths.embeddings_dir)
@@ -49,6 +49,6 @@ echo "====================================="
 echo "Starting Prompts Embedding..."
 echo "====================================="
 
-$VENV_PYTHON $AGENTS_DIR/src/embed_prompts.py
+$VENV_PYTHON $AGENTS_DIR/scripts/embed_prompts.py
 
 echo "Done!"
