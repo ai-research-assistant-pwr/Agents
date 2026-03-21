@@ -17,7 +17,7 @@ source ~/disk/venvs/pnw-2/bin/activate
 MY_DISK="$HOME/disk"
 AGENTS_DIR="$MY_DISK/Agents"
 
-export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
+export PYTHONPATH="$AGENTS_DIR/src:$PYTHONPATH"
 
 export HOME=$MY_DISK
 export XDG_CACHE_HOME=$MY_DISK/.cache
@@ -27,5 +27,5 @@ echo "Starting Dense Retrieval..."
 echo "====================================="
 
 python3 -m pip install faiss-cpu
-python3 $AGENTS_DIR/src/run_retrieval.py
+python3 $AGENTS_DIR/scripts/run_retrieval.py
 echo "Done!"

@@ -17,11 +17,11 @@ source ~/disk/venvs/pnw-2/bin/activate
 MY_DISK="$HOME/disk"
 AGENTS_DIR="$MY_DISK/Agents"
 
-export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
+export PYTHONPATH="$AGENTS_DIR/src:$PYTHONPATH"
 
 VENV_PYTHON="$MY_DISK/venvs/pnw-2/bin/python"
 
-GET_CONFIG="$VENV_PYTHON $AGENTS_DIR/src/utils/config.py"
+GET_CONFIG="$VENV_PYTHON $AGENTS_DIR/src/agents/utils/config.py"
 
 echo "======================================================"
 echo "      PEŁNA WERYFIKACJA PROCESU Z CONFIG.YAML"

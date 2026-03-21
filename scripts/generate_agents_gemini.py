@@ -10,13 +10,11 @@ from pydantic import BaseModel, Field
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
 
-if AGENTS_DIR not in sys.path:
-    sys.path.insert(0, AGENTS_DIR)
+from agents.utils.config import CONFIG
 
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from src.utils.config import CONFIG
 
 load_dotenv(os.path.join(AGENTS_DIR, '.env'))
 

@@ -3,17 +3,14 @@ import sys
 import json
 import random
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TRAIN_DIR = SCRIPT_DIR
-SRC_DIR = os.path.dirname(TRAIN_DIR)
-AGENTS_DIR = os.path.dirname(SRC_DIR)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) 
+PKG_DIR = os.path.dirname(SCRIPT_DIR)
+SRC_DIR = os.path.dirname(PKG_DIR)
+PROJECT_ROOT = os.path.dirname(SRC_DIR)
 
-if AGENTS_DIR not in sys.path:
-    sys.path.insert(0, AGENTS_DIR)
+from agents.utils.config import CONFIG
 
-from src.utils.config import CONFIG
-
-DATASETS_DIR = os.path.join(AGENTS_DIR, "data", "datasets")
+DATASETS_DIR = os.path.join(PROJECT_ROOT, "data", "datasets")
 os.makedirs(DATASETS_DIR, exist_ok=True)
 
 INPUT_FILE = os.path.join(DATASETS_DIR, CONFIG['files']['synthetic_sft_dataset'])
