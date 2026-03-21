@@ -27,5 +27,5 @@ echo "Starting Dense Retrieval..."
 echo "====================================="
 
 python3 -m pip install faiss-cpu
-python3 $AGENTS_DIR/scripts/run_retrieval.py
+python3 $AGENTS_DIR/scripts/sft/run_retrieval.py
 echo "Done!"
