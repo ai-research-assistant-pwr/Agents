@@ -20,3 +20,18 @@ class BaseGenerator(ABC):
             A list of hypothesis strings.
         """
         ...
+
+    @abstractmethod
+    def provide_feedback(self, prompt: str, retriever_output: str) -> str:
+        """Review retriever output and request refinements.
+
+        Called during multi-turn refinement between the retriever and generator.
+
+        Args:
+            prompt: The user's research prompt / question.
+            retriever_output: Current context from the retriever.
+
+        Returns:
+            A feedback string describing what information is missing or needs change.
+        """
+        ...

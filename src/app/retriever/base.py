@@ -20,3 +20,19 @@ class BaseRetriever(ABC):
             A string containing the most important filtered information.
         """
         ...
+
+    @abstractmethod
+    def refine(self, prompt: str, current_context: str, generator_feedback: str) -> str:
+        """Refine retrieved context based on feedback from the generator.
+
+        Called during multi-turn refinement between the retriever and generator.
+
+        Args:
+            prompt: The user's research prompt / question.
+            current_context: The current retriever output being refined.
+            generator_feedback: Feedback string from the generator requesting changes.
+
+        Returns:
+            A refined context string.
+        """
+        ...

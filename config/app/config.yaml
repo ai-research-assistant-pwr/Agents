@@ -1,3 +1,6 @@
+pipeline:
+  refinement_turns: 0  # number of retriever<->generator refinement rounds (0 = single pass)
+
 explorer:
   type: "placeholder_explorer"
   knowledge_graph_uri: "bolt://localhost:7687"
