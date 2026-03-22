@@ -35,8 +35,7 @@ export TORCHINDUCTOR_CACHE_DIR=$MY_DISK/.cache/torch_inductor
 
 export WANDB_API_KEY=$WANDB_API_KEY
 export WANDB_MODE="offline" 
-export TRANSFORMERS_OFFLINE=1 
-export HF_DATASETS_OFFLINE=1
+export TRANSFORMERS_OFFLINE=0
 
 echo "================================================="
 echo "TESTING CONFIGURATION BEFORE SFT TRAINING"
