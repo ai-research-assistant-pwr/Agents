@@ -16,7 +16,7 @@ import torch
 from datasets import load_dataset
 from peft import LoraConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
-from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
+from trl import SFTTrainer, SFTConfig
 import wandb
 
 def parse_args():
@@ -80,12 +80,18 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         
-    def formatting_prompts_func(example):
-        return [tokenizer.apply_chat_template(msg, tokenize=False) for msg in example['messages']]
+    def format_to_prompt_completion(example):
+        messages = example['messages']
 
-    # Loss masking
-    response_template = "<|im_start|>assistant\n"
-    collator = DataCollatorForCompletionOnlyLM(response_template=response_template, tokenizer=tokenizer)
+        prompt_msgs = messages[:-1]
+        assistant_msg = messages[-1]['content']
+        
+        prompt = tokenizer.apply_chat_template(prompt_msgs, tokenize=False, add_generation_prompt=True)
+        completion = assistant_msg + tokenizer.eos_token
+        
+        return {"prompt": prompt, "completion": completion}
+
+    dataset = dataset.map(format_to_prompt_completion, remove_columns=dataset["train"].column_names)
 
     print("Loading model to VRAM...")
     model = AutoModelForCausalLM.from_pretrained(
@@ -105,14 +111,14 @@ def main():
         task_type="CAUSAL_LM",
     )
 
-    training_args = TrainingArguments(
+    training_args = SFTConfig(
         output_dir=OUTPUT_DIR,
         per_device_train_batch_size=CONFIG["training"]["per_device_train_batch_size"],
         gradient_accumulation_steps=CONFIG["training"]["gradient_accumulation_steps"],
         learning_rate=float(CONFIG["training"]["learning_rate"]),
         num_train_epochs=CONFIG["training"]["num_train_epochs"],
         logging_steps=1,
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         eval_steps=10,
         save_strategy="epoch",
         bf16=True,
@@ -121,6 +127,8 @@ def main():
         run_name=run_name,
         lr_scheduler_type="cosine",
         warmup_ratio=0.1,
+        max_seq_length=CONFIG["training"]["max_seq_length"],
+        completion_only_loss=True,
     )
 
     trainer = SFTTrainer(
@@ -128,9 +136,6 @@ def main():
         train_dataset=dataset["train"],
         eval_dataset=dataset["test"],
         peft_config=peft_config,
-        formatting_func=formatting_prompts_func,
-        data_collator=collator,
-        max_seq_length=CONFIG["training"]["max_seq_length"],
         tokenizer=tokenizer,
         args=training_args,
     )
