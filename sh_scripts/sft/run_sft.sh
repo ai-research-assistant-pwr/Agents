@@ -30,7 +30,7 @@ export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 
 echo "================================================="
-echo "TESTOWANIE ŚCIEŻEK BEZWZGLĘDNYCH PRZED STARTEM "
+echo "TESTING CONFIGURATION BEFORE SFT TRAINING"
 echo "================================================="
 
 DIRS_TO_CHECK=(
@@ -41,10 +41,10 @@ DIRS_TO_CHECK=(
 
 for DIR in "${DIRS_TO_CHECK[@]}"; do
     if [ ! -d "$DIR" ]; then
-        echo "BŁĄD KRYTYCZNY: Nie znaleziono katalogu: $DIR"
+        echo "CRITICAL ERROR: Directory not found: $DIR"
         exit 1
     else
-        echo "Katalog istnieje: $DIR"
+        echo "Directory exists: $DIR"
     fi
 done
 
@@ -56,24 +56,21 @@ FILES_TO_CHECK=(
 
 for FILE in "${FILES_TO_CHECK[@]}"; do
     if [ ! -f "$FILE" ]; then
-        echo "BŁĄD KRYTYCZNY: Nie znaleziono pliku: $FILE"
+        echo "CRITICAL ERROR: File not found: $FILE"
         exit 1
     else
-        echo "Plik istnieje: $FILE"
+        echo "File exists: $FILE"
     fi
 done
 
-# echo "================================================="
-# echo "Wszystkie ścieżki poprawne! Uruchamiam procesy GPU."
-# echo "================================================="
+echo "================================================="
+echo "All paths verified successfully. Starting SFT training..."
+echo "================================================="
 
-# echo "====================================="
-# echo "Starting SFT Training..."
-# echo "====================================="
 
-# $VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/run_sft.py --task retriever
-# $VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/run_sft.py --task generator
+$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/run_sft.py --task retriever
+$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/run_sft.py --task generator
 
-# echo "====================================="
-# echo "Training completed successfully!"
-# echo "====================================="
+echo "====================================="
+echo "Training completed successfully!"
+echo "====================================="
