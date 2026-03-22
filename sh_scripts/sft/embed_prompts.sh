@@ -13,15 +13,14 @@ source /usr/local/sbin/modules.sh
 module load Python/3.12.3-GCCcore-13.3.0
 
 source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
-
 VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
-GET_CONFIG="$VENV_PYTHON Agents/src/sft/utils/config.py"
+
+AGENTS_DIR="$HOME/disk/Agents"
+export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
+
+GET_CONFIG="$VENV_PYTHON $AGENTS_DIR/src/sft/utils/config.py"
 
 MY_DISK=$($GET_CONFIG paths.base_path)
-AGENTS_DIR=$($GET_CONFIG paths.base_path_agents)
-
-export PYTHONPATH="$AGENTS_DIR/src:$PYTHONPATH"
-
 PROMPTS_DIR=$AGENTS_DIR/$($GET_CONFIG paths.prompts_dir_agents)
 EMBEDDINGS_DIR=$MY_DISK/$($GET_CONFIG paths.embeddings_dir)
 

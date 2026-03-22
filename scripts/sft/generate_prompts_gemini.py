@@ -10,19 +10,22 @@ from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
-PROJECT_ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-)
-from sft.utils.config import CONFIG
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
+
+if AGENTS_DIR not in sys.path:
+    sys.path.insert(0, AGENTS_DIR)
+
+from src.sft.utils.config import CONFIG
 
 from dotenv import load_dotenv
 
-env_path = os.path.join(PROJECT_ROOT, ".env")
+env_path = os.path.join(AGENTS_DIR, ".env")
 load_dotenv(env_path)
 RAW_BASE_PATH = CONFIG["paths"]["base_path_local"]
 ABS_BASE_PATH = os.path.expanduser(RAW_BASE_PATH)
 
-PROMPTS_DIR = os.path.join(ABS_BASE_PATH, CONFIG["paths"]["prompts_dir"])
+PROMPTS_DIR = os.path.join(AGENTS_DIR, "data", "prompts")
 TOPICS_FILE = os.path.join(PROMPTS_DIR, CONFIG["files"]["prompt_topics"])
 PROMPTS_FILE = os.path.join(PROMPTS_DIR, CONFIG["files"]["prompts"])
 

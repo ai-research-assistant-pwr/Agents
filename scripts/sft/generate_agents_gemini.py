@@ -8,9 +8,14 @@ from tqdm import tqdm
 from pydantic import BaseModel, Field
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-AGENTS_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
+DISK_DIR = os.path.dirname(AGENTS_DIR)
 
-from sft.utils.config import CONFIG
+if AGENTS_DIR not in sys.path:
+    sys.path.insert(0, AGENTS_DIR)
+
+# IMPORT Z NOWEJ ŚCIEŻKI
+from src.sft.utils.config import CONFIG
 
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -20,19 +25,12 @@ load_dotenv(os.path.join(AGENTS_DIR, ".env"))
 
 LOCAL_BASE = os.path.abspath(CONFIG["paths"].get("base_path_local", "./"))
 
-PROMPT_EMBEDDINGS_FILE = os.path.join(LOCAL_BASE, CONFIG["files"]["prompt_embeddings"])
-RETRIEVED_CONTEXTS_FILE = os.path.join(
-    LOCAL_BASE, CONFIG["files"]["retrieved_contexts"]
-)
-OUTPUT_BASE = os.path.join(LOCAL_BASE, CONFIG["files"]["synthetic_sft_dataset"])
-OUTPUT_FILE_JSONL = (
-    OUTPUT_BASE if OUTPUT_BASE.endswith(".jsonl") else OUTPUT_BASE + ".jsonl"
-)
-OUTPUT_FILE_CSV = (
-    OUTPUT_BASE.replace(".jsonl", ".csv")
-    if OUTPUT_BASE.endswith(".jsonl")
-    else OUTPUT_BASE + ".csv"
-)
+PROMPT_EMBEDDINGS_FILE = os.path.join(DISK_DIR, "embeddings", CONFIG["files"]["prompt_embeddings"])
+RETRIEVED_CONTEXTS_FILE = os.path.join(AGENTS_DIR, "data", "retrieval", CONFIG["files"]["retrieved_contexts"])
+
+OUTPUT_BASE = os.path.join(AGENTS_DIR, "data", "datasets", CONFIG["files"]["synthetic_sft_dataset"])
+OUTPUT_FILE_JSONL = OUTPUT_BASE if OUTPUT_BASE.endswith(".jsonl") else OUTPUT_BASE + ".jsonl"
+OUTPUT_FILE_CSV = OUTPUT_BASE.replace(".jsonl", ".csv") if OUTPUT_BASE.endswith(".jsonl") else OUTPUT_BASE + ".csv"
 
 os.makedirs(os.path.dirname(OUTPUT_FILE_JSONL), exist_ok=True)
 

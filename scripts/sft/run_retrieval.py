@@ -2,8 +2,13 @@ import os
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-AGENTS_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
 DISK_DIR = os.path.dirname(AGENTS_DIR)
+
+if AGENTS_DIR not in sys.path:
+    sys.path.insert(0, AGENTS_DIR)
+
+from src.sft.utils.config import CONFIG
 
 import torch
 import numpy as np
@@ -18,7 +23,9 @@ INDEX_PATH = os.path.join(ARTICLES_DIR, CONFIG["files"]["index"])
 
 EMBEDDINGS_DIR = os.path.join(DISK_DIR, "embeddings")
 PROMPT_EMBEDDINGS = os.path.join(EMBEDDINGS_DIR, CONFIG["files"]["prompt_embeddings"])
+
 RETRIEVAL_DIR = os.path.join(AGENTS_DIR, "data", "retrieval")
+os.makedirs(RETRIEVAL_DIR, exist_ok=True)
 OUTPUT_PATH = os.path.join(RETRIEVAL_DIR, CONFIG["files"]["retrieved_contexts"])
 
 RETRIEVAL_K = CONFIG["retrieval"]["top_k"]

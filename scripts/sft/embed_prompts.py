@@ -2,10 +2,13 @@ import os
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-AGENTS_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
 DISK_DIR = os.path.dirname(AGENTS_DIR)
 
-from sft.utils.config import CONFIG
+if AGENTS_DIR not in sys.path:
+    sys.path.insert(0, AGENTS_DIR)
+
+from src.sft.utils.config import CONFIG
 
 import gc
 import numpy as np
@@ -17,9 +20,7 @@ PROMPTS_DIR = os.path.join(AGENTS_DIR, "data", "prompts")
 QUERIES_FILE = os.path.join(PROMPTS_DIR, CONFIG["files"]["prompts"])
 
 EMBEDDINGS_DIR = os.path.join(DISK_DIR, "embeddings")
-EMBEDDINGS_OUTPUT_PATH = os.path.join(
-    EMBEDDINGS_DIR, CONFIG["files"]["prompt_embeddings"]
-)
+EMBEDDINGS_OUTPUT_PATH = os.path.join(EMBEDDINGS_DIR, CONFIG["files"]["prompt_embeddings"])
 
 COMPILE_CACHE_PATH = os.path.join(DISK_DIR, ".cache", "vllm")
 MODELS_DIR = os.path.join(DISK_DIR, "models")
@@ -29,6 +30,7 @@ EMBED_MODEL = "Qwen/Qwen3-Embedding-8B"
 
 os.makedirs(COMPILE_CACHE_PATH, exist_ok=True)
 os.makedirs(PROMPTS_DIR, exist_ok=True)
+os.makedirs(EMBEDDINGS_DIR, exist_ok=True)
 
 NUM_GPUS = CONFIG["hardware"]["num_gpus"]
 GPU_MEMORY_UTILIZATION = CONFIG["hardware"]["gpu_memory_utilization"]

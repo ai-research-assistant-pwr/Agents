@@ -9,15 +9,14 @@
 #SBATCH -p lem-gpu-short
 #SBATCH --gres=gpu:hopper:1
 
-source /usr/local/sbin/modules.sh
-module load Python/3.12.3-GCCcore-13.3.0
+source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
+VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
 
-source ~/disk/venvs/pnw-2/bin/activate
+AGENTS_DIR="$HOME/disk/Agents"
+export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
 
-MY_DISK="$HOME/disk"
-AGENTS_DIR="$MY_DISK/Agents"
-
-export PYTHONPATH="$AGENTS_DIR/src:$PYTHONPATH"
+GET_CONFIG="$VENV_PYTHON $AGENTS_DIR/src/sft/utils/config.py"
+MY_DISK=$($GET_CONFIG paths.base_path)
 
 export HOME=$MY_DISK
 export XDG_CACHE_HOME=$MY_DISK/.cache
