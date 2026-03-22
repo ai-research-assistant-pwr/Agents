@@ -1,15 +1,20 @@
 pipeline:
   refinement_turns: 0  # number of retriever<->generator refinement rounds (0 = single pass)
+  save_steps: false     # save intermediate results to disk
+  save_dir: "outputs"   # directory for saved step outputs (relative to project root)
+
+api_client:
+  type: "google"
+  model: "gemini-2.5-flash"
 
 explorer:
-  type: "placeholder_explorer"
-  knowledge_graph_uri: "bolt://localhost:7687"
+  type: "const"
+  const_text: "No knowledge graph connected. Using placeholder context."
 
 retriever:
-  type: "placeholder_retriever"
+  type: "llm"
   top_k: 5
 
 generator:
-  type: "placeholder_generator"
-  model_name: "gemini-2.5-flash"
+  type: "llm"
   temperature: 0.7

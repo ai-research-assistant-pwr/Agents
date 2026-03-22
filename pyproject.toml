@@ -18,7 +18,8 @@ dependencies = [
     "langchain-core",
     "langchain-google-genai",
     "torch",
-    "pyyaml"
+    "pyyaml",
+    "google-genai"
 ]
 
 [tool.setuptools.packages.find]

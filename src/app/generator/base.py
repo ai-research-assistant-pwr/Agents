@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+from app.models import GeneratorResult, RetrieverResult
+
 
 class BaseGenerator(ABC):
     """Abstract base class for hypothesis generators.
@@ -9,7 +11,9 @@ class BaseGenerator(ABC):
     """
 
     @abstractmethod
-    def generate(self, prompt: str, retriever_output: str) -> list[str]:
+    def generate(
+        self, prompt: str, retriever_output: RetrieverResult
+    ) -> GeneratorResult:
         """Generate scientific hypotheses based on the prompt and retrieved context.
 
         Args:
@@ -17,19 +21,19 @@ class BaseGenerator(ABC):
             retriever_output: Filtered information from the retriever.
 
         Returns:
-            A list of hypothesis strings.
+            A GeneratorResult containing the list of hypotheses and metadata.
         """
         ...
 
     @abstractmethod
-    def provide_feedback(self, prompt: str, retriever_output: str) -> str:
+    def provide_feedback(self, prompt: str, retriever_output: RetrieverResult) -> str:
         """Review retriever output and request refinements.
 
         Called during multi-turn refinement between the retriever and generator.
 
         Args:
             prompt: The user's research prompt / question.
-            retriever_output: Current context from the retriever.
+            retriever_output: Current result from the retriever.
 
         Returns:
             A feedback string describing what information is missing or needs change.
