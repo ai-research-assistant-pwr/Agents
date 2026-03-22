@@ -7,8 +7,11 @@ Usage:
 
 The script wires up:
     - ConstExplorer          (placeholder knowledge graph)
-    - APILLMRetriever        (Gemini via Google API)
-    - APILLMGenerator        (Gemini via Google API, structured output)
+    - APILLMRetriever        (routed via RandomAPIClient)
+    - APILLMGenerator        (routed via RandomAPIClient, structured output)
+
+The API client randomly selects a model on each call weighted by the MODELS
+table below. Add or adjust entries there to change the pool.
 
 Requires GOOGLE_API_KEY to be set in the environment or in a .env file at the
 project root.
@@ -31,6 +34,7 @@ load_dotenv(env_path)
 
 from app import App
 from app.api_client.google_client import GoogleAPIClient
+from app.api_client.random_client import RandomAPIClient
 from app.explorer.const_explorer import ConstExplorer
 from app.generator.api_llm_generator import APILLMGenerator
 from app.retriever.api_llm_retriever import APILLMRetriever
@@ -40,6 +44,18 @@ DEFAULT_QUERY = (
     "What are the mechanisms by which transformer attention heads specialize "
     "during pre-training, and how does this relate to emergent capabilities?"
 )
+
+# Provider classes available for random routing.
+PROVIDERS: dict[str, type] = {
+    "google": GoogleAPIClient,
+}
+
+# Model pool used by RandomAPIClient.
+# weight controls relative selection probability (higher = more likely).
+MODELS: dict[str, dict] = {
+    "gemini-3-flash-preview": {"provider": "google", "weight": 7},
+    "gemini-3.1-flash-lite-preview": {"provider": "google", "weight": 30},
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,12 +67,6 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=DEFAULT_QUERY,
         help="Research question to generate hypotheses for.",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="gemini-3-flash-preview",
-        help="Google Gemini model to use (default: gemini-3-flash-preview).",
     )
     parser.add_argument(
         "--save-steps",
@@ -82,14 +92,15 @@ def main() -> None:
         )
         sys.exit(1)
 
-    print(f"Model        : {args.model}")
+    model_pool = ", ".join(f"{name}(w={cfg['weight']})" for name, cfg in MODELS.items())
+    print(f"Model pool   : {model_pool}")
     print(f"Refinements  : {args.refinement_turns}")
     print(f"Save steps   : {args.save_steps}")
     print(f"Query        : {args.query}")
     print()
 
     # Wire up the pipeline components
-    api_client = GoogleAPIClient(model=args.model)
+    api_client = RandomAPIClient(providers=PROVIDERS, models=MODELS)
     explorer = ConstExplorer()
     retriever = APILLMRetriever(api_client=api_client)
     generator = APILLMGenerator(api_client=api_client)
@@ -111,6 +122,8 @@ def main() -> None:
 
     result = app.run(args.query)
 
+    print(f"Model used   : {result.metadata.get('model', 'unknown')}")
+    print()
     print("Generated hypotheses:")
     print("-" * 60)
     for i, hypothesis in enumerate(result.hypotheses, start=1):

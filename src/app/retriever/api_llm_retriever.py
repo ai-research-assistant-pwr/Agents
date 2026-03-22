@@ -34,13 +34,13 @@ class APILLMRetriever(BaseRetriever):
             Message(role="user", content=user_content),
         ]
 
-        response = self.api_client.call(messages)
+        result = self.api_client.call(messages)
 
         return RetrieverResult(
-            content=response,
+            content=result.content,
             metadata={
                 "source": "api_llm_retriever",
-                "model": self.api_client.model,
+                "model": result.model,
             },
         )
 
@@ -70,13 +70,13 @@ class APILLMRetriever(BaseRetriever):
             Message(role="user", content=user_content),
         ]
 
-        response = self.api_client.call(messages)
+        result = self.api_client.call(messages)
 
         return RetrieverResult(
-            content=response,
+            content=result.content,
             metadata={
                 "source": "api_llm_retriever",
-                "model": self.api_client.model,
+                "model": result.model,
                 "step": "refine",
             },
         )

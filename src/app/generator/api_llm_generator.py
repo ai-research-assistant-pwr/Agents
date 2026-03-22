@@ -37,15 +37,13 @@ class APILLMGenerator(BaseGenerator):
             Message(role="user", content=user_content),
         ]
 
-        response: HypothesesResponse = self.api_client.call(
-            messages, response_schema=HypothesesResponse
-        )
+        result = self.api_client.call(messages, response_schema=HypothesesResponse)
 
         return GeneratorResult(
-            hypotheses=response.hypotheses,
+            hypotheses=result.content.hypotheses,
             metadata={
                 "source": "api_llm_generator",
-                "model": self.api_client.model,
+                "model": result.model,
             },
         )
 
@@ -68,4 +66,4 @@ class APILLMGenerator(BaseGenerator):
             Message(role="user", content=user_content),
         ]
 
-        return self.api_client.call(messages)
+        return self.api_client.call(messages).content

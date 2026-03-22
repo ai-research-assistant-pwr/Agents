@@ -6,7 +6,7 @@ from typing import TypeVar
 from google import genai
 from google.genai import types
 
-from app.api_client.base import BaseAPIClient, Message
+from app.api_client.base import BaseAPIClient, CallResult, Message
 
 T = TypeVar("T")
 
@@ -18,7 +18,7 @@ class GoogleAPIClient(BaseAPIClient):
     """
 
     def __init__(self, model: str = "gemini-2.5-flash") -> None:
-        super().__init__(model=model)
+        self.model = model
         api_key = os.environ.get("GOOGLE_API_KEY")
         if api_key is None:
             raise ValueError(
@@ -29,7 +29,7 @@ class GoogleAPIClient(BaseAPIClient):
 
     def call(  # type: ignore[override]
         self, messages: list[Message], response_schema: type[T] | None = None
-    ) -> str | T:
+    ) -> CallResult[str] | CallResult[T]:
         """Send messages to the Google Gemini model.
 
         Args:
@@ -41,8 +41,9 @@ class GoogleAPIClient(BaseAPIClient):
                 Gemini's native structured output (JSON mode).
 
         Returns:
-            A plain string when response_schema is None, or a parsed instance of
-            response_schema otherwise.
+            A CallResult with .model set to the Gemini model identifier.
+            .content is a plain string when response_schema is None, or a
+            parsed instance of response_schema otherwise.
         """
         system_parts: list[str] = []
         contents: list[types.Content] = []
@@ -79,8 +80,8 @@ class GoogleAPIClient(BaseAPIClient):
                     "Google API returned an empty structured response. "
                     "Check that the model supports structured output."
                 )
-            return response.parsed  # type: ignore[return-value]
+            return CallResult(content=response.parsed, model=self.model)  # type: ignore[return-value]
 
         if response.text is None:
             raise RuntimeError("Google API returned an empty response.")
-        return response.text
+        return CallResult(content=response.text, model=self.model)
