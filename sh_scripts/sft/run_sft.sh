@@ -9,6 +9,14 @@
 #SBATCH -p lem-gpu-short
 #SBATCH --gres=gpu:hopper:1
 
+WANDB_API_KEY=$1
+
+if [ -z "$WANDB_API_KEY" ]; then
+    echo "Error: No WANDB API key provided."
+    echo "Usage: sbatch run_sft.sh YOUR_SECRET_API_KEY"
+    exit 1
+fi
+
 source /usr/local/sbin/modules.sh
 module load Python/3.12.3-GCCcore-13.3.0
 source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
@@ -25,6 +33,7 @@ export HOME=$MY_DISK
 export HF_HOME=$MY_DISK/.cache/hf
 export TORCHINDUCTOR_CACHE_DIR=$MY_DISK/.cache/torch_inductor
 
+export WANDB_API_KEY=$WANDB_API_KEY
 export WANDB_MODE="offline" 
 export TRANSFORMERS_OFFLINE=1 
 export HF_DATASETS_OFFLINE=1

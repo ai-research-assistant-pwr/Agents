@@ -43,6 +43,7 @@ training:
   lora_alpha: 32
   lora_target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
   wandb_project: "agents_sft_training"
+  wandb_entity: "tymson170-politechnika-wroc-awska"
 
 
 models:

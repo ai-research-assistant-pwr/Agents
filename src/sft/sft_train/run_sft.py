@@ -57,9 +57,20 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # W&B CONFIG
-    os.environ["WANDB_PROJECT"] = CONFIG["training"].get("wandb_project", "sft-agents")
-    os.environ["WANDB_LOG_MODEL"] = "false"
     run_name = f"{task}-sft-{safe_model_name}-lr{CONFIG['training']['learning_rate']}"
+    local_rank = int(os.environ.get("LOCAL_RANK", -1))
+
+    if local_rank <= 0:
+        wandb.init(
+            project=CONFIG["training"].get("wandb_project", "agents_sft_training"),
+            name=run_name,
+            tags=["sft", task, "emergent-comm"],
+            config=CONFIG,
+            reinit=True
+        )
+
+    os.environ["WANDB_LOG_MODEL"] = "false"
+    os.environ["WANDB_WATCH"] = "false"
 
     print(f"Loading data from {DATASETS_DIR}...")
     dataset = load_dataset("json", data_files={"train": TRAIN_FILE, "test": EVAL_FILE})
