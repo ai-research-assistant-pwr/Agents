@@ -17,7 +17,8 @@ dependencies = [
     "python-dotenv",
     "langchain-core",
     "langchain-google-genai",
-    "torch"
+    "torch",
+    "pyyaml"
 ]
 
 [tool.setuptools.packages.find]

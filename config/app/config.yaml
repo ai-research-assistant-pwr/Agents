@@ -1,0 +1,12 @@
+explorer:
+  type: "placeholder_explorer"
+  knowledge_graph_uri: "bolt://localhost:7687"
+
+retriever:
+  type: "placeholder_retriever"
+  top_k: 5
+
+generator:
+  type: "placeholder_generator"
+  model_name: "gemini-2.5-flash"
+  temperature: 0.7
