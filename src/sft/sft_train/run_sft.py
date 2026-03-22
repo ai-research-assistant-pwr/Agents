@@ -127,8 +127,6 @@ def main():
         run_name=run_name,
         lr_scheduler_type="cosine",
         warmup_ratio=0.1,
-        max_seq_length=CONFIG["training"]["max_seq_length"],
-        completion_only_loss=True,
     )
 
     trainer = SFTTrainer(
@@ -138,6 +136,7 @@ def main():
         peft_config=peft_config,
         tokenizer=tokenizer,
         args=training_args,
+        max_seq_length=CONFIG["training"]["max_seq_length"], 
     )
 
     print("Starting training...")
