@@ -134,7 +134,6 @@ def main():
         train_dataset=dataset["train"],
         eval_dataset=dataset["test"],
         peft_config=peft_config,
-        tokenizer=tokenizer,
         args=training_args,
         max_seq_length=CONFIG["training"]["max_seq_length"], 
     )
