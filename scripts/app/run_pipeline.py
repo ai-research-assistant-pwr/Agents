@@ -55,8 +55,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        default="gemini-2.5-flash",
-        help="Google Gemini model to use (default: gemini-2.5-flash).",
+        default="gemini-3-flash-preview",
+        help="Google Gemini model to use (default: gemini-3-flash-preview).",
     )
     parser.add_argument(
         "--save-steps",
