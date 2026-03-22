@@ -31,6 +31,20 @@ inference:
 retrieval:
   top_k: 10
 
+training:
+  retriever_base_model: Qwen/Qwen3-4B-Instruct-2507
+  generator_base_model: Qwen/Qwen3-4B-Instruct-2507
+  learning_rate: 2e-5
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8
+  max_seq_length: 4096
+  lora_r: 16
+  lora_alpha: 32
+  lora_target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  wandb_project: "agents_sft_training"
+
+
 models:
   generation_model: "gemini-2.5-flash"
   embedding_model: "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
