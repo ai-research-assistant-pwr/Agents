@@ -135,7 +135,7 @@ def main():
         eval_dataset=dataset["test"],
         peft_config=peft_config,
         args=training_args,
-        max_seq_length=CONFIG["training"]["max_seq_length"], 
+        max_length=CONFIG["training"]["max_seq_length"], 
     )
 
     print("Starting training...")
