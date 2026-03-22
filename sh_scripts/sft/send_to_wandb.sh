@@ -1,5 +1,14 @@
 #!/bin/bash
 
+#SBATCH -N 1
+#SBATCH -c 4
+#SBATCH --mem=32gb
+#SBATCH --time=0-00:30:00
+#SBATCH --job-name=dense_retrieval
+#SBATCH --output=Agents/out/test.out
+#SBATCH -p lem-gpu-short
+#SBATCH --gres=gpu:hopper:1
+
 
 WANDB_API_KEY=$1
 RELATIVE_LOG_PATH=$2
