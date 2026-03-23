@@ -42,8 +42,7 @@ from app.retriever.api_llm_retriever import APILLMRetriever
 
 CONFIG_PATH = "config/app/config.yaml"
 DEFAULT_QUERY = (
-    "What are the mechanisms by which transformer attention heads specialize "
-    "during pre-training, and how does this relate to emergent capabilities?"
+    "I am interested in Mixtures of Experts (MoE) models for efficient inference. What are some recent research papers on this topic, and what hypotheses can we generate about future directions in this area?"
 )
 
 # Provider classes available for random routing.
