@@ -8,7 +8,15 @@ api_client:
   model: "gemini-3-flash-preview"
 
 explorer:
-  type: "const"
+  type: "weaviate"
+  weaviate:
+    url: "http://localhost:8080"       # Weaviate endpoint (tunnelled from local machine)
+    collection: "ResearchPapers"       # Weaviate collection name
+    top_k: 10                           # number of nearest-neighbour results to return
+    embedding_model: "Qwen/Qwen3-Embedding-8B"  # HuggingFace model for query embedding
+    max_tokens: 8192
+    grpc_port: 50051                    # Weaviate gRPC port (used by weaviate-client v4)                    # max token length for embedding input
+  # fallback for when type == "const"
   const_text: "No knowledge graph connected. Using placeholder context."
 
 retriever:

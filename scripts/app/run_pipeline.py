@@ -5,10 +5,9 @@ Usage:
     python scripts/app/run_pipeline.py --query "Your research question" --save-steps
     python scripts/app/run_pipeline.py  # uses default query
 
-The script wires up:
-    - ConstExplorer          (placeholder knowledge graph)
-    - APILLMRetriever        (routed via RandomAPIClient)
-    - APILLMGenerator        (routed via RandomAPIClient, structured output)
+Explorer is selected from config (explorer.type):
+    - "weaviate"  WeaviateExplorer  (Qwen3-Embedding-8B + Weaviate vector DB)
+    - "const"     ConstExplorer     (placeholder, for testing without a DB)
 
 The API client randomly selects a model on each call weighted by the MODELS
 table below. Add or adjust entries there to change the pool.
@@ -35,7 +34,9 @@ load_dotenv(env_path)
 from app import App
 from app.api_client.google_client import GoogleAPIClient
 from app.api_client.random_client import RandomAPIClient
+from app.config import load_config
 from app.explorer.const_explorer import ConstExplorer
+from app.explorer.weaviate_explorer import WeaviateExplorer
 from app.generator.api_llm_generator import APILLMGenerator
 from app.retriever.api_llm_retriever import APILLMRetriever
 
@@ -56,6 +57,17 @@ MODELS: dict[str, dict] = {
     "gemini-3-flash-preview": {"provider": "google", "weight": 7},
     "gemini-3.1-flash-lite-preview": {"provider": "google", "weight": 30},
 }
+
+
+def build_explorer(config: dict):
+    """Instantiate the explorer specified by config[explorer][type]."""
+    explorer_type = config.get("explorer", {}).get("type", "const")
+    if explorer_type == "weaviate":
+        return WeaviateExplorer(config)
+    if explorer_type == "const":
+        const_text = config.get("explorer", {}).get("const_text")
+        return ConstExplorer(text=const_text)
+    raise ValueError(f"Unknown explorer type: {explorer_type!r}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -92,7 +104,11 @@ def main() -> None:
         )
         sys.exit(1)
 
+    config = load_config(CONFIG_PATH)
+    explorer_type = config.get("explorer", {}).get("type", "const")
+
     model_pool = ", ".join(f"{name}(w={cfg['weight']})" for name, cfg in MODELS.items())
+    print(f"Explorer     : {explorer_type}")
     print(f"Model pool   : {model_pool}")
     print(f"Refinements  : {args.refinement_turns}")
     print(f"Save steps   : {args.save_steps}")
@@ -101,7 +117,7 @@ def main() -> None:
 
     # Wire up the pipeline components
     api_client = RandomAPIClient(providers=PROVIDERS, models=MODELS)
-    explorer = ConstExplorer()
+    explorer = build_explorer(config)
     retriever = APILLMRetriever(api_client=api_client)
     generator = APILLMGenerator(api_client=api_client)
 
