@@ -1,7 +1,5 @@
 """Weaviate vector-database explorer using Qwen3-Embedding-8B."""
 
-from __future__ import annotations
-
 import logging
 from urllib.parse import urlparse
 
@@ -53,7 +51,12 @@ class WeaviateExplorer(BaseExplorer):
         http_port = parsed.port or 8080
         grpc_port = weaviate_cfg.get("grpc_port", 50051)
 
-        logger.info("Connecting to Weaviate at %s:%d (gRPC :%d)", http_host, http_port, grpc_port)
+        logger.info(
+            "Connecting to Weaviate at %s:%d (gRPC :%d)",
+            http_host,
+            http_port,
+            grpc_port,
+        )
         self._client = weaviate.connect_to_custom(
             http_host=http_host,
             http_port=http_port,
@@ -93,7 +96,9 @@ class WeaviateExplorer(BaseExplorer):
         ).to(self.device)
         with torch.no_grad():
             outputs = self.model(**inputs)
-        embedding = _last_token_pool(outputs.last_hidden_state, inputs["attention_mask"])
+        embedding = _last_token_pool(
+            outputs.last_hidden_state, inputs["attention_mask"]
+        )
         embedding = F.normalize(embedding, p=2, dim=1)
         return embedding[0].cpu().float().tolist()
 
@@ -109,7 +114,9 @@ class WeaviateExplorer(BaseExplorer):
         logger.info("Embedding query (%d chars)", len(prompt))
         vector = self._embed(prompt)
 
-        logger.info("Querying Weaviate collection=%s top_k=%d", self.collection_name, self.top_k)
+        logger.info(
+            "Querying Weaviate collection=%s top_k=%d", self.collection_name, self.top_k
+        )
         response = self._collection.query.near_vector(
             near_vector=vector,
             limit=self.top_k,
@@ -125,9 +132,7 @@ class WeaviateExplorer(BaseExplorer):
             sections.append(f"{header}\n{p.get('content', '')}")
 
         full_content = (
-            "\n\n---\n\n".join(sections)
-            if sections
-            else "No relevant papers found."
+            "\n\n---\n\n".join(sections) if sections else "No relevant papers found."
         )
 
         return ExplorerResult(
