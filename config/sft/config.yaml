@@ -29,7 +29,8 @@ inference:
   batch_size_encode: 64
 
 retrieval:
-  top_k: 10
+  top_k: 40
+  rerank_top_k: 5
 
 training:
   retriever_base_model: Qwen/Qwen3-4B-Instruct-2507
