@@ -17,13 +17,13 @@ files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
   prompts: "synthetic_prompts_gemini-3-flash-preview_simplest_sample.csv"
   prompt_embeddings: "prompt_embeddings_simple_gemini_sample.pkl"
-  synthetic_sft_dataset: "synthetic_sft_dataset_v2.jsonl"
+  synthetic_sft_dataset: "synthetic_sft_dataset_simple_gemini_sample.jsonl"
 
   index: "chunks"
   retrieved_contexts: "retrieved_contexts_simple_gemini_sample.pkl"
 
 inference:
-  temperature: 0.4
+  temperature: 0.25
   semaphore_size: 5
   target_prompt_count: 500
   batch_size_encode: 64
@@ -48,7 +48,7 @@ training:
 
 
 models:
-  generation_model: "gemini-2.5-flash"
+  generation_model: "gemini-3-flash-preview"
   embedding_model: "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
   reranker_model: "Qwen/Qwen3-Reranker-8B"
   vllm_api_url: "http://localhost"

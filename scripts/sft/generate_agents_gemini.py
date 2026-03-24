@@ -6,6 +6,7 @@ import csv
 import json
 from tqdm import tqdm
 from pydantic import BaseModel, Field
+from typing import List
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENTS_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
@@ -14,7 +15,6 @@ DISK_DIR = os.path.dirname(AGENTS_DIR)
 if AGENTS_DIR not in sys.path:
     sys.path.insert(0, AGENTS_DIR)
 
-# IMPORT Z NOWEJ ŚCIEŻKI
 from src.sft.utils.config import CONFIG
 
 from dotenv import load_dotenv
@@ -25,7 +25,7 @@ load_dotenv(os.path.join(AGENTS_DIR, ".env"))
 
 LOCAL_BASE = os.path.abspath(CONFIG["paths"].get("base_path_local", "./"))
 
-PROMPT_EMBEDDINGS_FILE = os.path.join(DISK_DIR, "embeddings", CONFIG["files"]["prompt_embeddings"])
+PROMPT_EMBEDDINGS_FILE = os.path.join(AGENTS_DIR, "data", "embeddings", CONFIG["files"]["prompt_embeddings"])
 RETRIEVED_CONTEXTS_FILE = os.path.join(AGENTS_DIR, "data", "retrieval", CONFIG["files"]["retrieved_contexts"])
 
 OUTPUT_BASE = os.path.join(AGENTS_DIR, "data", "datasets", CONFIG["files"]["synthetic_sft_dataset"])
@@ -35,7 +35,7 @@ OUTPUT_FILE_CSV = OUTPUT_BASE.replace(".jsonl", ".csv") if OUTPUT_BASE.endswith(
 os.makedirs(os.path.dirname(OUTPUT_FILE_JSONL), exist_ok=True)
 
 SEMAPHORE_SIZE = CONFIG["inference"].get("semaphore_size", 5)
-GEN_MODEL = CONFIG["models"].get("generation_model", "gemini-1.5-pro")
+GEN_MODEL = CONFIG["models"].get("generation_model")
 TEMPERATURE = CONFIG["inference"].get("temperature", 0.4)
 
 # list all paths to verify
@@ -45,36 +45,31 @@ print(f"Output JSONL Path: {OUTPUT_FILE_JSONL}")
 print(f"Output CSV Path: {OUTPUT_FILE_CSV}")
 
 
-class RetrieverMessage(BaseModel):
-    reasoning: str = Field(
-        description="Step-by-step reasoning explaining how the context relates to the query. Identify relevant vs irrelevant parts and explain mechanisms."
-    )
-    extracted_information: str = Field(
-        description="Structured extraction of key variables, relationships, mechanisms, and data points relevant to the query."
-    )
+class ExtractedInformation(BaseModel):
+    variables: List[str]
+    relationships: List[str]
+    mechanisms: List[str]
+    evidence: List[str]
 
+class RetrieverMessage(BaseModel):
+    is_sufficient: bool
+    reasoning: str
+    extracted_information: ExtractedInformation
 
 class GeneratorHypothesis(BaseModel):
-    is_answerable: bool = Field(
-        description="True ONLY if the retriever output contains enough grounded information."
-    )
-    reasoning: str = Field(
-        description="Scientific reasoning explaining how extracted information leads to the hypothesis."
-    )
-    hypothesis_statement: str = Field(
-        description="MUST follow: 'If [Independent Variable] changes, then [Dependent Variable] will [direction], because [Mechanism].'"
-    )
-    falsification_criteria: str = Field(
-        description="A specific, measurable experimental result that would prove the hypothesis WRONG."
-    )
+    is_answerable: bool
+    reasoning: str
+    hypothesis_statement: str
+    natural_hypothesis: str
+    falsification_criteria: str
 
 
 llm_retriever = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", temperature=0.1, max_retries=5
+    model="gemini-3-flash-preview", temperature=0.1, max_retries=5
 ).with_structured_output(RetrieverMessage)
 
 llm_generator = ChatGoogleGenerativeAI(
-    model="gemini-2.5-pro", temperature=TEMPERATURE, max_retries=5
+    model="gemini-3-pro-preview", temperature=TEMPERATURE, max_retries=5
 ).with_structured_output(GeneratorHypothesis)
 
 retriever_prompt = ChatPromptTemplate.from_messages(
@@ -83,31 +78,31 @@ retriever_prompt = ChatPromptTemplate.from_messages(
             "system",
             """You are an Expert Scientific Retriever Agent.
 
-Your job is to analyze raw scientific context and prepare structured knowledge for hypothesis generation.
+Return:
 
-Your output MUST contain:
+1. is_sufficient:
+- True if enough info for hypothesis
+- False otherwise
 
-1. Reasoning:
-- Step-by-step explanation of how the context relates to the query
-- Identify relevant vs irrelevant parts
-- Explain mechanisms and relationships
+2. reasoning:
+- Step-by-step explanation of relevance
 
-2. Extracted Information:
-- Key variables
-- Relationships
-- Mechanisms
-- Data points (if available)
+3. extracted_information:
+- variables: list
+- relationships: list
+- mechanisms: list
+- evidence: list
 
 IMPORTANT:
 - Do NOT generate hypotheses
-- If context is insufficient, clearly state it in reasoning and extracted information""",
+- Be strict: mark insufficient if unsure""",
         ),
         (
             "human",
-            """**RESEARCH QUERY:**
+            """RESEARCH QUERY:
 {query}
 
-**RAW RETRIEVED CONTEXT:**
+RAW CONTEXT:
 {context}""",
         ),
     ]
@@ -117,45 +112,57 @@ generator_prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            """You are an AI Research Scientist generating scientific hypotheses.
+            """You are an AI Research Scientist generating hypotheses.
 
 You will receive:
 - Research Query
+- Raw Context
 - Retriever Reasoning
 - Extracted Information
+- Sufficiency flag
 
-Your output MUST contain:
+Return:
 
-1. Reasoning:
-- Step-by-step scientific reasoning
-- Explain how extracted information leads to the hypothesis
+1. reasoning:
+- Explain how info leads to hypothesis
 
-2. Hypothesis:
-- Write it in a natural, highly professional academic style.
-- Clearly state the proposed relationships, effects, or mechanisms.
-- Do NOT use rigid school templates (like "If... then..."). Write like a PhD researcher.
+2. hypothesis_statement (STRUCTURED):
+- MUST follow:
+  "If [IV] changes, then [DV] will [effect], because [mechanism]."
 
-3. Falsification criteria:
-- A specific measurable condition that would disprove the hypothesis.
+3. natural_hypothesis:
+- Same hypothesis written in natural academic style
+
+4. falsification_criteria:
+- Specific measurable condition that disproves hypothesis
 
 IMPORTANT:
-- Hypothesis must be grounded in extracted information.
-- Do NOT introduce new variables.
-- If information is insufficient, set is_answerable = False.""",
+- Use ONLY variables from extracted information
+- Do NOT invent new variables
+- If insufficient → is_answerable = False
+- If is_sufficient = False, you MUST set is_answerable = False.""",
         ),
         (
             "human",
-            """**RESEARCH QUERY:**
+            """RESEARCH QUERY:
 {query}
 
-**RETRIEVER REASONING:**
+RAW CONTEXT:
+{raw_context}
+
+RETRIEVER SUFFICIENCY:
+{is_sufficient}
+
+RETRIEVER REASONING:
 {retriever_reasoning}
 
-**EXTRACTED INFORMATION:**
+EXTRACTED INFORMATION:
 {retrieved_info}""",
         ),
     ]
 )
+
+write_lock = asyncio.Lock()
 
 
 async def process_item(row, semaphore: asyncio.Semaphore, csv_writer, f_csv, f_jsonl):
@@ -166,15 +173,19 @@ async def process_item(row, semaphore: asyncio.Semaphore, csv_writer, f_csv, f_j
 
         try:
             retriever_inputs = {"query": query_text, "context": raw_context}
+
             retriever_output = await (retriever_prompt | llm_retriever).ainvoke(
                 retriever_inputs
             )
 
             generator_inputs = {
                 "query": query_text,
+                "raw_context": raw_context,
+                "is_sufficient": retriever_output.is_sufficient,
                 "retriever_reasoning": retriever_output.reasoning,
-                "retrieved_info": retriever_output.extracted_information,
+                "retrieved_info": retriever_output.extracted_information.model_dump(),
             }
+
             generator_output = await (generator_prompt | llm_generator).ainvoke(
                 generator_inputs
             )
@@ -183,19 +194,25 @@ async def process_item(row, semaphore: asyncio.Semaphore, csv_writer, f_csv, f_j
                 "prompt_id": int(prompt_id),
                 "user_query": query_text,
                 "raw_context": raw_context,
+                "retriever_is_sufficient": retriever_output.is_sufficient,
                 "retriever_reasoning": retriever_output.reasoning,
-                "retriever_extracted_info": retriever_output.extracted_information,
+                "retriever_extracted_info": json.dumps(
+                    retriever_output.extracted_information.model_dump(),
+                    ensure_ascii=False
+                ),
                 "generator_is_answerable": generator_output.is_answerable,
                 "generator_reasoning": generator_output.reasoning,
                 "generator_hypothesis": generator_output.hypothesis_statement,
+                "generator_natural_hypothesis": generator_output.natural_hypothesis,
                 "generator_falsification": generator_output.falsification_criteria,
             }
 
-            csv_writer.writerow(record)
-            f_csv.flush()
+            async with write_lock:
+                csv_writer.writerow(record)
+                f_csv.flush()
 
-            f_jsonl.write(json.dumps(record, ensure_ascii=False) + "\n")
-            f_jsonl.flush()
+                f_jsonl.write(json.dumps(record, ensure_ascii=False) + "\n")
+                f_jsonl.flush()
 
             return True
 
@@ -231,11 +248,13 @@ async def main():
         "prompt_id",
         "user_query",
         "raw_context",
+        "retriever_is_sufficient",
         "retriever_reasoning",
         "retriever_extracted_info",
         "generator_is_answerable",
         "generator_reasoning",
         "generator_hypothesis",
+        "generator_natural_hypothesis",
         "generator_falsification",
     ]
 
