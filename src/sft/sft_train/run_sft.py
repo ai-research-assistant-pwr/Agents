@@ -127,6 +127,7 @@ def main():
         eval_dataset=dataset["test"],
         peft_config=peft_config,
         args=training_args,
+        processing_class=tokenizer,
     )
 
     print("Starting training...")
