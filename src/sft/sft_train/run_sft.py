@@ -80,7 +80,7 @@ def main():
     dataset = load_dataset("json", data_files={"train": TRAIN_FILE, "test": EVAL_FILE})
 
     # Loading Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
