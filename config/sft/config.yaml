@@ -49,7 +49,7 @@ training:
 models:
   generation_model: "gemini-2.5-flash"
   embedding_model: "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
-  reranker_model: "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Reranker-8B/snapshots/5fa94080caafeaa45a15d11f969d7978e087a3db"
+  reranker_model: "Qwen/Qwen3-Reranker-8B"
   vllm_api_url: "http://localhost"
   vllm_api_key: "EMPTY"
   reranker_port: 8002
