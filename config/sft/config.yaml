@@ -15,8 +15,8 @@ paths:
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
-  prompts: "synthetic_prompts_gemini-3-flash-preview_simplest.csv"
-  prompt_embeddings: "prompt_embeddings_simple_gemini.pkl"
+  prompts: "synthetic_prompts_gemini-3-flash-preview_simplest_sample.csv"
+  prompt_embeddings: "prompt_embeddings_simple_gemini_sample.pkl"
   synthetic_sft_dataset: "synthetic_sft_dataset_v2.jsonl"
 
   index: "chunks"
