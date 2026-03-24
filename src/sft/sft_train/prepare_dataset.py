@@ -19,10 +19,10 @@ os.makedirs(OUTPUT_DATASET_DIR, exist_ok=True)
 
 INPUT_FILE = os.path.join(DATASETS_DIR, CONFIG["files"]["synthetic_sft_dataset"])
 
-RETRIEVER_TRAIN = os.path.join(DATASETS_DIR, "retriever_train.jsonl")
-RETRIEVER_EVAL = os.path.join(DATASETS_DIR, "retriever_eval.jsonl")
-GENERATOR_TRAIN = os.path.join(DATASETS_DIR, "generator_train.jsonl")
-GENERATOR_EVAL = os.path.join(DATASETS_DIR, "generator_eval.jsonl")
+RETRIEVER_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "retriever_train.jsonl")
+RETRIEVER_EVAL = os.path.join(OUTPUT_DATASET_DIR, "retriever_eval.jsonl")
+GENERATOR_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "generator_train.jsonl")
+GENERATOR_EVAL = os.path.join(OUTPUT_DATASET_DIR, "generator_eval.jsonl")
 
 RETRIEVER_SYSTEM_PROMPT = """You are an Expert Scientific Retriever Agent.
 

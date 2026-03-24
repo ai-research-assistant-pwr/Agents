@@ -33,7 +33,7 @@ def main():
     print(f" Running SFT Training for: {task.upper()}")
     print(f"{'='*50}\n")
 
-    DATASETS_DIR = os.path.join(AGENTS_DIR, CONFIG["paths"]["datasets_prepped"])
+    DATASETS_DIR = os.path.join(AGENTS_DIR, CONFIG["paths"]["dataset_prepped"])
     TRAIN_FILE = os.path.join(DATASETS_DIR, f"{task}_train.jsonl")
     EVAL_FILE = os.path.join(DATASETS_DIR, f"{task}_eval.jsonl")
     
@@ -83,19 +83,6 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-        
-    def format_to_prompt_completion(example):
-        messages = example['messages']
-
-        prompt_msgs = messages[:-1]
-        assistant_msg = messages[-1]['content']
-        
-        prompt = tokenizer.apply_chat_template(prompt_msgs, tokenize=False, add_generation_prompt=True)
-        completion = assistant_msg + tokenizer.eos_token
-        
-        return {"prompt": prompt, "completion": completion}
-
-    dataset = dataset.map(format_to_prompt_completion, remove_columns=dataset["train"].column_names)
 
     print("Loading model to VRAM...")
     model = AutoModelForCausalLM.from_pretrained(
