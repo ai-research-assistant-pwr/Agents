@@ -15,8 +15,8 @@ paths:
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
-  prompts: "generated_prompts_gemini_v2.csv"
-  prompt_embeddings: "prompt_embeddings_v2.pkl"
+  prompts: "synthetic_prompts_gemini-3-flash-preview_simplest.csv"
+  prompt_embeddings: "prompt_embeddings_simple_gemini.pkl"
   synthetic_sft_dataset: "synthetic_sft_dataset_v2.jsonl"
 
   index: "chunks"
@@ -49,6 +49,10 @@ training:
 models:
   generation_model: "gemini-2.5-flash"
   embedding_model: "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
+  reranker_model: "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Reranker-8B/snapshots/5fa94080caafeaa45a15d11f969d7978e087a3db"
+  vllm_api_url: "http://localhost"
+  vllm_api_key: "EMPTY"
+  reranker_port: 8002
 
 hardware:
   num_gpus: 1

@@ -164,7 +164,7 @@ def main():
                 )
             )
 
-            generator_user = f"**RESEARCH QUERY:**\n{data['user_query']}\n\n**RETRIEVER REASONING:**\n{data['retriever_reasoning']}\n\n**EXTRACTED INFORMATION:**\n{data['retriever_extracted_info']}"
+            generator_user = f"**RESEARCH QUERY:**\n{data['user_query']}\n\n**EXTRACTED INFORMATION:**\n{data['retriever_extracted_info']}"
             generator_assistant = f"<is_answerable>\n{data['generator_is_answerable']}\n</is_answerable>\n\n<reasoning>\n{data['generator_reasoning']}\n</reasoning>\n\n<hypothesis>\n{data['generator_hypothesis']}\n</hypothesis>\n\n<falsification_criteria>\n{data['generator_falsification']}\n</falsification_criteria>"
 
             generator_records.append(
