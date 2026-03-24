@@ -20,7 +20,7 @@ files:
   synthetic_sft_dataset: "synthetic_sft_dataset_v2.jsonl"
 
   index: "chunks"
-  retrieved_contexts: "retrieved_contexts_v2.pkl"
+  retrieved_contexts: "retrieved_contexts_simple_gemini_sample.pkl"
 
 inference:
   temperature: 0.4
