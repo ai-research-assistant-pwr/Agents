@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
+AGENTS_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 DISK_DIR = os.path.dirname(AGENTS_DIR)
 
 if AGENTS_DIR not in sys.path:

@@ -11,7 +11,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-AGENTS_DIR = os.path.dirname(SCRIPT_DIR)
+AGENTS_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 
 if AGENTS_DIR not in sys.path:
     sys.path.insert(0, AGENTS_DIR)
