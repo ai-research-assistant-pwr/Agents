@@ -9,6 +9,9 @@
 #SBATCH -p lem-gpu-short
 #SBATCH --gres=gpu:hopper:1
 
+source /usr/local/sbin/modules.sh
+module load Python/3.12.3-GCCcore-13.3.0
+
 source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
 VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
 
