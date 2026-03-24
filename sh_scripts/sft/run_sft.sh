@@ -22,14 +22,18 @@ module load Python/3.12.3-GCCcore-13.3.0
 source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
 VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
 
-AGENTS_DIR="$HOME/disk/Agents"
+MY_DISK="/home/tymrom7227/disk"
+AGENTS_DIR="$MY_DISK/Agents"
+
+export WANDB_DIR="$AGENTS_DIR/wandb"
+mkdir -p "$WANDB_DIR"
+
 export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
 
 GET_CONFIG="$VENV_PYTHON $AGENTS_DIR/src/sft/utils/config.py"
 MY_DISK=$($GET_CONFIG paths.base_path)
 
 export XDG_CACHE_HOME=$MY_DISK/.cache
-export HOME=$MY_DISK
 export HF_HOME=$MY_DISK/.cache/hf
 export TORCHINDUCTOR_CACHE_DIR=$MY_DISK/.cache/torch_inductor
 

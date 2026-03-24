@@ -1,6 +1,6 @@
 paths:
-  base_path: "~/disk"
-  base_path_agents: "~/disk/Agents"
+  base_path: "/home/tymrom7227/disk"
+  base_path_agents: "/home/tymrom7227/disk/Agents"
   base_path_local: "./"
   
   prompts_dir_agents: "data/prompts"
@@ -12,6 +12,7 @@ paths:
   models_output_dir: "models_output"
 
   datasets: "data/datasets"
+  dataset_prepped: "data/datasets/gemini_simple_sample"
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"

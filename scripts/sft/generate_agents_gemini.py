@@ -178,6 +178,9 @@ async def process_item(row, semaphore: asyncio.Semaphore, csv_writer, f_csv, f_j
                 retriever_inputs
             )
 
+            if len(retriever_output.extracted_information.variables) == 0:
+                retriever_output.is_sufficient = False
+
             generator_inputs = {
                 "query": query_text,
                 "raw_context": raw_context,

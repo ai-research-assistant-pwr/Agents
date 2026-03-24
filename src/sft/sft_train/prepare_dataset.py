@@ -14,9 +14,10 @@ if AGENTS_DIR not in sys.path:
 from src.sft.utils.config import CONFIG
 
 DATASETS_DIR = os.path.join(AGENTS_DIR, "data", "datasets")
-os.makedirs(DATASETS_DIR, exist_ok=True)
+OUTPUT_DATASET_DIR = os.path.join(DATASETS_DIR, CONFIG["files"]["dataset_prepped"])
+os.makedirs(OUTPUT_DATASET_DIR, exist_ok=True)
 
-INPUT_FILE = os.path.join(DATASETS_DIR, CONFIG["files"]["synthetic_sft_dataset"])
+INPUT_FILE = os.path.join(DATASETS_DIR, CONFIG["paths"]["synthetic_sft_dataset"])
 
 RETRIEVER_TRAIN = os.path.join(DATASETS_DIR, "retriever_train.jsonl")
 RETRIEVER_EVAL = os.path.join(DATASETS_DIR, "retriever_eval.jsonl")
@@ -47,6 +48,8 @@ GENERATOR_SYSTEM_PROMPT = """You are an AI Research Scientist generating scienti
 
 You will receive:
 - Research Query
+- Raw Context
+- Retriever Sufficiency
 - Retriever Reasoning
 - Extracted Information
 
@@ -64,8 +67,11 @@ True ONLY if the retriever output contains enough grounded information. (Answer 
 <hypothesis>
 - Write it in a natural, highly professional academic style.
 - Clearly state the proposed relationships, effects, or mechanisms.
-- Do NOT use rigid school templates (like "If... then..."). Write like a PhD researcher.
 </hypothesis>
+
+<natural_hypothesis>
+- Same hypothesis written in natural academic style
+</natural_hypothesis>
 
 <falsification_criteria>
 - A specific, measurable experimental result or condition that would prove the hypothesis WRONG.
@@ -74,7 +80,9 @@ True ONLY if the retriever output contains enough grounded information. (Answer 
 IMPORTANT:
 - Hypothesis must be grounded in extracted information.
 - Do NOT introduce new variables.
-- If information is insufficient, set <is_answerable>False</is_answerable>."""
+- If information is insufficient, set <is_answerable>False</is_answerable>.
+- If RETRIEVER SUFFICIENCY is False, you MUST set <is_answerable>False</is_answerable>.  # 🔥 FIX
+"""
 
 
 def create_chatml_record(prompt_id, system_msg, user_msg, assistant_msg):
@@ -152,8 +160,22 @@ def main():
             data = json.loads(line)
             prompt_id = data.get("prompt_id", "unknown")
 
-            retriever_user = f"**RESEARCH QUERY:**\n{data['user_query']}\n\n**RAW RETRIEVED CONTEXT:**\n{data['raw_context']}"
-            retriever_assistant = f"<reasoning>\n{data['retriever_reasoning']}\n</reasoning>\n\n<extracted_information>\n{data['retriever_extracted_info']}\n</extracted_information>"
+            # =========================
+            # RETRIEVER
+            # =========================
+            retriever_user = f"""RESEARCH QUERY:
+{data['user_query']}
+
+RAW CONTEXT:
+{data['raw_context']}"""
+
+            retriever_assistant = f"""<reasoning>
+{data['retriever_reasoning']}
+</reasoning>
+
+<extracted_information>
+{data['retriever_extracted_info']}
+</extracted_information>"""
 
             retriever_records.append(
                 create_chatml_record(
@@ -164,8 +186,43 @@ def main():
                 )
             )
 
-            generator_user = f"**RESEARCH QUERY:**\n{data['user_query']}\n\n**EXTRACTED INFORMATION:**\n{data['retriever_extracted_info']}"
-            generator_assistant = f"<is_answerable>\n{data['generator_is_answerable']}\n</is_answerable>\n\n<reasoning>\n{data['generator_reasoning']}\n</reasoning>\n\n<hypothesis>\n{data['generator_hypothesis']}\n</hypothesis>\n\n<falsification_criteria>\n{data['generator_falsification']}\n</falsification_criteria>"
+            # =========================
+            # GENERATOR
+            # =========================
+            generator_user = f"""RESEARCH QUERY:
+{data['user_query']}
+
+RAW CONTEXT:
+{data['raw_context']}
+
+RETRIEVER SUFFICIENCY:
+{data['retriever_is_sufficient']}
+
+RETRIEVER REASONING:
+{data['retriever_reasoning']}
+
+EXTRACTED INFORMATION:
+{data['retriever_extracted_info']}""" 
+
+            generator_assistant = f"""<is_answerable>
+{data['generator_is_answerable']}
+</is_answerable>
+
+<reasoning>
+{data['generator_reasoning']}
+</reasoning>
+
+<hypothesis>
+{data['generator_hypothesis']}
+</hypothesis>
+
+<natural_hypothesis>
+{data['generator_natural_hypothesis']}
+</natural_hypothesis>
+
+<falsification_criteria>
+{data['generator_falsification']}
+</falsification_criteria>"""
 
             generator_records.append(
                 create_chatml_record(
@@ -176,7 +233,7 @@ def main():
                 )
             )
 
-    print(f"Przetworzono {len(retriever_records)} oryginalnych rekordów.")
+    print(f"Processed {len(retriever_records)} records.")
 
     combined = list(zip(retriever_records, generator_records))
     random.seed(42)
@@ -186,30 +243,25 @@ def main():
     retriever_records = list(retriever_records)
     generator_records = list(generator_records)
 
-    # Split 90/10
     split_idx = int(len(retriever_records) * 0.9)
 
     r_train, r_eval = retriever_records[:split_idx], retriever_records[split_idx:]
     g_train, g_eval = generator_records[:split_idx], generator_records[split_idx:]
 
-    # Running tests before saving
     run_tests(r_train, r_eval, g_train, g_eval)
 
     def save_jsonl(records, filepath):
         with open(filepath, "w", encoding="utf-8") as f:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
-        print(f"Saved {len(records)} records to: {os.path.basename(filepath)}")
+        print(f"Saved {len(records)} -> {os.path.basename(filepath)}")
 
-    print("\nSaving datasets for Retriever...")
     save_jsonl(r_train, RETRIEVER_TRAIN)
     save_jsonl(r_eval, RETRIEVER_EVAL)
-
-    print("\nSaving datasets for Generator...")
     save_jsonl(g_train, GENERATOR_TRAIN)
     save_jsonl(g_eval, GENERATOR_EVAL)
 
-    print("\nDone! SFT datasets prepared for training.")
+    print("\nDataset ready for SFT.")
 
 
 if __name__ == "__main__":

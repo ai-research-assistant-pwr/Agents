@@ -5,7 +5,7 @@ import argparse
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SFT_DIR = os.path.dirname(SCRIPT_DIR)
 SRC_DIR = os.path.dirname(SFT_DIR)
-AGENTS_DIR = os.path.dirname(SRC_DIR)
+AGENTS_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 
 if AGENTS_DIR not in sys.path:
     sys.path.insert(0, AGENTS_DIR)
@@ -33,7 +33,7 @@ def main():
     print(f" Running SFT Training for: {task.upper()}")
     print(f"{'='*50}\n")
 
-    DATASETS_DIR = os.path.join(AGENTS_DIR, "data", "datasets")
+    DATASETS_DIR = os.path.join(AGENTS_DIR, CONFIG["paths"]["datasets_prepped"])
     TRAIN_FILE = os.path.join(DATASETS_DIR, f"{task}_train.jsonl")
     EVAL_FILE = os.path.join(DATASETS_DIR, f"{task}_eval.jsonl")
     
@@ -50,11 +50,14 @@ def main():
         print(f"Didn't find local model at {MODEL_PATH}. Will attempt to load from Hugging Face Hub: {BASE_MODEL_ID}")
         MODEL_PATH = BASE_MODEL_ID
     else:
-        print(f"✅ Found local base model: {MODEL_PATH}")
+        print(f"Found local base model: {MODEL_PATH}")
        
     safe_model_name = BASE_MODEL_ID.split("/")[-1]
     OUTPUT_DIR = os.path.join(CONFIG["paths"]["base_path"], CONFIG["paths"]["models_output_dir"], f"lora_{task}_{safe_model_name}")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    WANDB_LOGS_DIR = os.path.join(AGENTS_DIR, "wandb")
+    os.makedirs(WANDB_LOGS_DIR, exist_ok=True)
 
     # W&B CONFIG
     run_name = f"{task}-sft-{safe_model_name}-lr{CONFIG['training']['learning_rate']}"
@@ -64,6 +67,7 @@ def main():
         wandb.init(
             project=CONFIG["training"].get("wandb_project", "agents_sft_training"),
             name=run_name,
+            dir=WANDB_LOGS_DIR,
             tags=["sft", task, "emergent-comm"],
             config=CONFIG,
             reinit=True
