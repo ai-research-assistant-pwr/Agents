@@ -27,6 +27,8 @@ export XDG_CACHE_HOME=$MY_DISK/.cache
 RERANKER_PORT=$($GET_CONFIG models.reranker_port)
 RERANKER_MODEL=$($GET_CONFIG models.reranker_model)
 
+HF_HUB_CACHE=/home/tymrom7227/disk/models huggingface-cli download Qwen/Qwen3-Reranker-8B
+
 echo "====================================="
 echo "Starting vLLM Reranker Server..."
 echo "====================================="
