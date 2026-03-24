@@ -24,6 +24,13 @@ MY_DISK=$($GET_CONFIG paths.base_path)
 export HOME=$MY_DISK
 export XDG_CACHE_HOME=$MY_DISK/.cache
 
+export TORCHINDUCTOR_CACHE_DIR=$MY_DISK/.cache/torch_inductor
+export VLLM_CACHE_ROOT=$MY_DISK/.cache/vllm
+export HF_HOME=$MY_DISK/.cache/hf
+export TRITON_CACHE_DIR=$MY_DISK/.cache/triton
+export FLASHINFER_CACHE_DIR=$MY_DISK/.cache/flashinfer
+export TORCH_EXTENSIONS_DIR=$MY_DISK/.cache/torch_extensions
+
 RERANKER_PORT=$($GET_CONFIG models.reranker_port)
 RERANKER_MODEL=$($GET_CONFIG models.reranker_model)
 
