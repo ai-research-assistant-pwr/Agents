@@ -14,7 +14,7 @@ if AGENTS_DIR not in sys.path:
 from src.sft.utils.config import CONFIG
 
 DATASETS_DIR = os.path.join(AGENTS_DIR, "data", "datasets")
-OUTPUT_DATASET_DIR = os.path.join(DATASETS_DIR, CONFIG["paths"]["dataset_prepped"])
+OUTPUT_DATASET_DIR = os.path.join(AGENTS_DIR, CONFIG["paths"]["dataset_prepped"])
 os.makedirs(OUTPUT_DATASET_DIR, exist_ok=True)
 
 INPUT_FILE = os.path.join(DATASETS_DIR, CONFIG["paths"]["synthetic_sft_dataset"])
