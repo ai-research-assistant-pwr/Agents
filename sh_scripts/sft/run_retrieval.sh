@@ -46,7 +46,10 @@ CUDA_VISIBLE_DEVICES=0 vllm serve $RERANKER_MODEL \
     --port $RERANKER_PORT \
     --gpu-memory-utilization 0.5 \
     --max-model-len 4096 \
-    --dtype bfloat16 &
+    --dtype bfloat16 \
+    --download-dir "$MODELS_DIR" \
+    --trust-remote-code \
+    --enforce-eager &
 
 VLLM_PID=$!
 
