@@ -21,8 +21,11 @@ INPUT_FILE = os.path.join(DATASETS_DIR, CONFIG["files"]["synthetic_sft_dataset"]
 
 RETRIEVER_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "retriever_train.jsonl")
 RETRIEVER_EVAL = os.path.join(OUTPUT_DATASET_DIR, "retriever_eval.jsonl")
+RETRIEVER_TEST = os.path.join(OUTPUT_DATASET_DIR, "retriever_test.jsonl")
+
 GENERATOR_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "generator_train.jsonl")
 GENERATOR_EVAL = os.path.join(OUTPUT_DATASET_DIR, "generator_eval.jsonl")
+GENERATOR_TEST = os.path.join(OUTPUT_DATASET_DIR, "generator_test.jsonl")
 
 RETRIEVER_SYSTEM_PROMPT = """You are an Expert Scientific Retriever Agent.
 
@@ -96,7 +99,7 @@ def create_chatml_record(prompt_id, system_msg, user_msg, assistant_msg):
     }
 
 
-def run_tests(r_train, r_eval, g_train, g_eval):
+def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
     print("\n" + "=" * 50)
     print(" Running Dataset Integrity Tests...")
     print("=" * 50)
@@ -104,39 +107,48 @@ def run_tests(r_train, r_eval, g_train, g_eval):
     # ID extraction for leakage and alignment tests
     r_train_ids = set(r["prompt_id"] for r in r_train)
     r_eval_ids = set(r["prompt_id"] for r in r_eval)
+    r_test_ids = set(r["prompt_id"] for r in r_test)
+    
     g_train_ids = set(r["prompt_id"] for r in g_train)
     g_eval_ids = set(r["prompt_id"] for r in g_eval)
+    g_test_ids = set(r["prompt_id"] for r in g_test)
 
     tests_passed = True
 
     # Test 1: Record counts
-    print("1. Checking record counts (Train/Eval)...", end=" ")
-    if len(r_train) == len(g_train) and len(r_eval) == len(g_eval):
+    print("1. Checking record counts (Train/Eval/Test)...", end=" ")
+    if len(r_train) == len(g_train) and len(r_eval) == len(g_eval) and len(r_test) == len(g_test):
         print("OK!")
     else:
-        print(f"\n   ERROR! R_train: {len(r_train)}, G_train: {len(g_train)}")
+        print(f"\n   ERROR! R_train: {len(r_train)}, G_train: {len(g_train)} | R_eval: {len(r_eval)}, G_eval: {len(g_eval)} | R_test: {len(r_test)}, G_test: {len(g_test)}")
         tests_passed = False
 
-    # Test 2: Data leakage check
-    print("2. Checking for data leakage (Data Leakage)...", end=" ")
-    leakage = r_train_ids.intersection(r_eval_ids)
-    if not leakage:
+    # Test 2: Data leakage check across all three sets
+    print("2. Checking for data leakage...", end=" ")
+    leakage_train_eval = r_train_ids.intersection(r_eval_ids)
+    leakage_train_test = r_train_ids.intersection(r_test_ids)
+    leakage_eval_test = r_eval_ids.intersection(r_test_ids)
+    
+    if not any([leakage_train_eval, leakage_train_test, leakage_eval_test]):
         print("OK!")
     else:
-        print(f"\n   ERROR! Found common IDs in Train and Eval: {leakage}")
+        print("\n   ERROR! Found common IDs:")
+        if leakage_train_eval: print(f"     Train & Eval leakage: {leakage_train_eval}")
+        if leakage_train_test: print(f"     Train & Test leakage: {leakage_train_test}")
+        if leakage_eval_test: print(f"     Eval & Test leakage: {leakage_eval_test}")
         tests_passed = False
 
     # Test 3: Prompt alignment check
     print("3. Checking prompt alignment (Alignment)...", end=" ")
-    if r_train_ids == g_train_ids and r_eval_ids == g_eval_ids:
+    if r_train_ids == g_train_ids and r_eval_ids == g_eval_ids and r_test_ids == g_test_ids:
         print("OK!")
     else:
-        print("\n   ERROR! Generator and Retriever have different sets of IDs!")
+        print("\n   ERROR! Generator and Retriever have different sets of IDs in the splits!")
         tests_passed = False
 
     print("-" * 50)
     if tests_passed:
-        print("Result: All tests PASSED! Dataset is ready for training.")
+        print("Result: All tests PASSED! Dataset is ready for training and evaluation.")
     else:
         print("Result: Tests FAILED! Check the dataset partitioning logic.")
         sys.exit(1)
@@ -243,10 +255,19 @@ EXTRACTED INFORMATION:
     retriever_records = list(retriever_records)
     generator_records = list(generator_records)
 
-    split_idx = int(len(retriever_records) * 0.9)
+    total_len = len(retriever_records)
+    train_idx = int(total_len * 0.8)
+    eval_idx = int(total_len * 0.9)
 
-    r_train, r_eval = retriever_records[:split_idx], retriever_records[split_idx:]
-    g_train, g_eval = generator_records[:split_idx], generator_records[split_idx:]
+    r_train = retriever_records[:train_idx]
+    r_eval = retriever_records[train_idx:eval_idx]
+    r_test = retriever_records[eval_idx:]
+
+    g_train = generator_records[:train_idx]
+    g_eval = generator_records[train_idx:eval_idx]
+    g_test = generator_records[eval_idx:]
+
+    run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test)
 
     run_tests(r_train, r_eval, g_train, g_eval)
 
@@ -258,8 +279,11 @@ EXTRACTED INFORMATION:
 
     save_jsonl(r_train, RETRIEVER_TRAIN)
     save_jsonl(r_eval, RETRIEVER_EVAL)
+    save_jsonl(r_test, RETRIEVER_TEST)
+    
     save_jsonl(g_train, GENERATOR_TRAIN)
     save_jsonl(g_eval, GENERATOR_EVAL)
+    save_jsonl(g_test, GENERATOR_TEST)
 
     print("\nDataset ready for SFT.")
 
