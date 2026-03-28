@@ -125,14 +125,14 @@ if __name__ == "__main__":
     for _, row in tqdm(queries_data.iterrows(), total=len(queries_data)):
         user_query_emb = row.embedding
         
-        prompt_text = row.get("generated_prompt", row.get("prompt", ""))
+        prompt_text = row.get("generated_prompt") or row.get("text") or ""
 
         try:
             # 1. Dense Retrieval
             initial_results = retriever.retrieve(user_query_emb, top_k=RETRIEVAL_K)
             
             # 2. Reranking
-            if prompt_text:
+            if prompt_text and len(prompt_text.strip()) > 5:
                 candidates = [RankedChunk(chunk=r.chunk) for r in initial_results]
                 final_results = reranker.rerank(query=prompt_text, candidates=candidates, top_n=RERANK_TOP_K)
             else:
@@ -159,7 +159,7 @@ if __name__ == "__main__":
             ]
 
             if len(filtered) == 0:
-                continue
+                filtered = final_results[:3]
 
             cleaned_chunks = [
                 clean_chunk(rc.chunk.content)
