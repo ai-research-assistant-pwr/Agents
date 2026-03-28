@@ -140,14 +140,41 @@ if __name__ == "__main__":
                 final_results = [RankedChunk(chunk=r.chunk) for r in initial_results[:RERANK_TOP_K]]
 
             # 3. Context Formatting
-            context_str = "\n\n".join([rc.chunk.content for rc in final_results])
+
+            def clean_chunk(text: str, max_chars: int = 800):
+                text = text.strip().replace("\n", " ")
+                return text[:max_chars]
+            
+            def is_valid_chunk(text: str):
+                return (
+                    text is not None
+                    and len(text) > 100
+                    and "references" not in text.lower()
+                    and "copyright" not in text.lower()
+                )
+            
+            filtered = [
+                rc for rc in final_results
+                if is_valid_chunk(rc.chunk.content)
+            ]
+
+            if len(filtered) == 0:
+                continue
+
+            cleaned_chunks = [
+                clean_chunk(rc.chunk.content)
+                for rc in filtered[:3]
+            ]
+
+            
+            context_str = "\n\n".join(cleaned_chunks)
             context_meta = [
                 {
                     "chunk_id": rc.chunk.chunk_id,
                     "doc_id": rc.chunk.metadata.get("doc_id", "unknown"),
                     "rerank_score": round(rc.score, 4) if hasattr(rc, 'score') else None
                 }
-                for rc in final_results
+                for rc in filtered[:3]
             ]
 
             results_list.append(

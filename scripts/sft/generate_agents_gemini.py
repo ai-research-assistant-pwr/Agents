@@ -76,33 +76,37 @@ retriever_prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            """You are an Expert Scientific Retriever Agent.
+            """You are an Expert Scientific Information Extractor.
+
+RULES:
+- Extract ONLY explicitly stated information
+- Do NOT infer beyond text
+- Do NOT invent variables
 
 Return:
 
 1. is_sufficient:
-- True if enough info for hypothesis
-- False otherwise
+True ONLY if:
+- ≥2 variables
+- ≥1 relationship
 
 2. reasoning:
-- Step-by-step explanation of relevance
+Max 3 sentences
 
 3. extracted_information:
-- variables: list
-- relationships: list
-- mechanisms: list
-- evidence: list
+- variables
+- relationships
+- mechanisms
+- evidence
 
-IMPORTANT:
-- Do NOT generate hypotheses
-- Be strict: mark insufficient if unsure""",
+Be strict.""",
         ),
         (
             "human",
-            """RESEARCH QUERY:
+            """QUERY:
 {query}
 
-RAW CONTEXT:
+CONTEXT:
 {context}""",
         ),
     ]
@@ -112,86 +116,122 @@ generator_prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            """You are an AI Research Scientist generating hypotheses.
+            """You are an AI Research Scientist.
 
-You will receive:
-- Research Query
-- Raw Context
-- Retriever Reasoning
-- Extracted Information
-- Sufficiency flag
+Generate ONE high-quality hypothesis.
+
+RULES:
+- Must be causal
+- Must be measurable
+- Must be grounded in context
+- Use ONLY variables listed in EXTRACTED. Do not introduce new variables. If variables are unclear → set is_answerable = False.
+
+FORMAT STRICTLY:
+
+"If X increases/decreases, then Y will [effect], because [mechanism]."
+
+STRICT:
+- No placeholders
+- No brackets
+- No "Not applicable"
+- No vague statements
 
 Return:
-
-1. reasoning:
-- Explain how info leads to hypothesis
-
-2. hypothesis_statement (STRUCTURED):
-- MUST follow:
-  "If [IV] changes, then [DV] will [effect], because [mechanism]."
-
-3. natural_hypothesis:
-- Same hypothesis written in natural academic style
-
-4. falsification_criteria:
-- Specific measurable condition that disproves hypothesis
-
-IMPORTANT:
-- Use ONLY variables from extracted information
-- Do NOT invent new variables
-- If insufficient → is_answerable = False
-- If is_sufficient = False, you MUST set is_answerable = False.""",
+- is_answerable
+- reasoning
+- hypothesis_statement
+- natural_hypothesis
+- falsification_criteria""",
         ),
         (
             "human",
-            """RESEARCH QUERY:
+            """QUERY:
 {query}
 
-RAW CONTEXT:
+CONTEXT:
 {raw_context}
 
-RETRIEVER SUFFICIENCY:
+SUFFICIENCY:
 {is_sufficient}
 
-RETRIEVER REASONING:
-{retriever_reasoning}
-
-EXTRACTED INFORMATION:
+EXTRACTED:
 {retrieved_info}""",
         ),
     ]
 )
 
+def validate_retriever_output(output):
+    vars_ok = len(output.extracted_information.variables) >= 2
+    rel_ok = len(output.extracted_information.relationships) >= 1
+
+    if not (vars_ok and rel_ok):
+        output.is_sufficient = False
+
+    return output
+
+
+def clean_extracted_info(info):
+    return {
+        "variables": list(set(info.variables))[:5],
+        "relationships": info.relationships[:3],
+        "mechanisms": info.mechanisms[:2],
+    }
+
+
+def is_valid_hypothesis(output):
+    h = output.hypothesis_statement
+
+    if h is None:
+        return False
+
+    banned = ["If [IV]", "[DV]", "Not applicable", "N/A"]
+
+    if any(b in h for b in banned):
+        return False
+
+    if len(h) < 30:
+        return False
+
+    return True
+
 write_lock = asyncio.Lock()
 
 
-async def process_item(row, semaphore: asyncio.Semaphore, csv_writer, f_csv, f_jsonl):
+async def process_item(row, semaphore, csv_writer, f_csv, f_jsonl):
     async with semaphore:
         prompt_id = row["prompt_id"]
         query_text = row["text"]
         raw_context = row["retrieved_context"]
 
         try:
-            retriever_inputs = {"query": query_text, "context": raw_context}
-
             retriever_output = await (retriever_prompt | llm_retriever).ainvoke(
-                retriever_inputs
+                {"query": query_text, "context": raw_context}
             )
 
-            if len(retriever_output.extracted_information.variables) == 0:
-                retriever_output.is_sufficient = False
+            retriever_output = validate_retriever_output(retriever_output)
 
-            generator_inputs = {
-                "query": query_text,
-                "raw_context": raw_context,
-                "is_sufficient": retriever_output.is_sufficient,
-                "retriever_reasoning": retriever_output.reasoning,
-                "retrieved_info": retriever_output.extracted_information.model_dump(),
-            }
+            if not retriever_output.is_sufficient:
+                return False 
+
+            cleaned_info = clean_extracted_info(
+                retriever_output.extracted_information
+            )
+
 
             generator_output = await (generator_prompt | llm_generator).ainvoke(
-                generator_inputs
+                {
+                    "query": query_text,
+                    "raw_context": raw_context,
+                    "is_sufficient": retriever_output.is_sufficient,
+                    "retrieved_info": cleaned_info,
+                }
             )
+
+            if not generator_output.is_answerable:
+                return False
+
+            if not is_valid_hypothesis(generator_output):
+                return False
 
             record = {
                 "prompt_id": int(prompt_id),
@@ -199,10 +239,7 @@ async def process_item(row, semaphore: asyncio.Semaphore, csv_writer, f_csv, f_j
                 "raw_context": raw_context,
                 "retriever_is_sufficient": retriever_output.is_sufficient,
                 "retriever_reasoning": retriever_output.reasoning,
-                "retriever_extracted_info": json.dumps(
-                    retriever_output.extracted_information.model_dump(),
-                    ensure_ascii=False
-                ),
+                "retriever_extracted_info": json.dumps(cleaned_info, ensure_ascii=False),
                 "generator_is_answerable": generator_output.is_answerable,
                 "generator_reasoning": generator_output.reasoning,
                 "generator_hypothesis": generator_output.hypothesis_statement,
@@ -226,26 +263,19 @@ async def process_item(row, semaphore: asyncio.Semaphore, csv_writer, f_csv, f_j
 
 async def main():
     if "GOOGLE_API_KEY" not in os.environ:
-        print("ERROR: Before running the script, set the API key")
+        print("ERROR: Set API key")
         return
 
-    print("Loading data...")
-    try:
-        df_prompts = pd.read_pickle(PROMPT_EMBEDDINGS_FILE)
-        df_contexts = pd.read_pickle(RETRIEVED_CONTEXTS_FILE)
+    df_prompts = pd.read_pickle(PROMPT_EMBEDDINGS_FILE)
+    df_contexts = pd.read_pickle(RETRIEVED_CONTEXTS_FILE)
 
-        df_merged = pd.merge(
-            df_prompts[["prompt_id", "text"]], df_contexts, on="prompt_id"
-        )
-        print(f"Merged: {len(df_merged)} records")
-    except Exception as e:
-        print(f"Error loading data: {e}")
-        return
+    df_merged = pd.merge(
+        df_prompts[["prompt_id", "text"]],
+        df_contexts,
+        on="prompt_id",
+    )
 
     semaphore = asyncio.Semaphore(SEMAPHORE_SIZE)
-    success_count = 0
-
-    print(f"Generating SFT dataset → JSONL & CSV")
 
     fieldnames = [
         "prompt_id",
@@ -261,33 +291,27 @@ async def main():
         "generator_falsification",
     ]
 
-    file_exists_csv = (
-        os.path.isfile(OUTPUT_FILE_CSV) and os.path.getsize(OUTPUT_FILE_CSV) > 0
-    )
-
     with (
         open(OUTPUT_FILE_JSONL, "a", encoding="utf-8") as f_jsonl,
         open(OUTPUT_FILE_CSV, "a", newline="", encoding="utf-8") as f_csv,
     ):
         writer = csv.DictWriter(f_csv, fieldnames=fieldnames)
 
-        if not file_exists_csv:
+        if f_csv.tell() == 0:
             writer.writeheader()
 
         tasks = [
             process_item(row, semaphore, writer, f_csv, f_jsonl)
-            for _, row in df_merged.iterrows()
+            for _, row in df_merged.head(100).iterrows()
         ]
+
+        success = 0
 
         for future in tqdm(asyncio.as_completed(tasks), total=len(tasks)):
             if await future:
-                success_count += 1
+                success += 1
 
-    print("\n" + "=" * 50)
-    print(f"Generated: {success_count}/{len(tasks)} records")
-    print(f"Saved JSONL to: {OUTPUT_FILE_JSONL}")
-    print(f"Saved CSV to: {OUTPUT_FILE_CSV}")
-    print("=" * 50)
+    print(f"\nGenerated: {success}/{len(tasks)}")
 
 
 if __name__ == "__main__":
