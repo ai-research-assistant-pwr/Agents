@@ -158,12 +158,9 @@ if __name__ == "__main__":
                 if is_valid_chunk(rc.chunk.content)
             ]
 
-            if len(filtered) == 0:
-                filtered = final_results[:3]
-
             cleaned_chunks = [
                 clean_chunk(rc.chunk.content)
-                for rc in filtered[:3]
+                for rc in filtered
             ]
 
             
@@ -174,7 +171,7 @@ if __name__ == "__main__":
                     "doc_id": rc.chunk.metadata.get("doc_id", "unknown"),
                     "rerank_score": round(rc.score, 4) if hasattr(rc, 'score') else None
                 }
-                for rc in filtered[:3]
+                for rc in filtered
             ]
 
             results_list.append(
