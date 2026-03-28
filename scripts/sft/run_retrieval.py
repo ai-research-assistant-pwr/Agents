@@ -37,7 +37,7 @@ RERANKER_MODEL = CONFIG['models']['reranker_model']
 VLLM_API_URL = CONFIG['models']['vllm_api_url']
 VLLM_API_KEY = CONFIG['models']['vllm_api_key']
 _RERANKER_PORT = CONFIG['models']['reranker_port']
-RERANKER_API_URL = f"{VLLM_API_URL}:{_RERANKER_PORT}/v1"
+RERANKER_API_URL = f"{VLLM_API_URL}:{_RERANKER_PORT}"
 
 @dataclass
 class RankedChunk:
