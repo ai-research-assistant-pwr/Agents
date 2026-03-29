@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import random
+from collections import defaultdict
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SFT_DIR = os.path.dirname(SCRIPT_DIR)
@@ -20,12 +21,20 @@ os.makedirs(OUTPUT_DATASET_DIR, exist_ok=True)
 INPUT_FILE = os.path.join(DATASETS_DIR, CONFIG["files"]["synthetic_sft_dataset"])
 
 RETRIEVER_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "retriever_train.jsonl")
-RETRIEVER_EVAL = os.path.join(OUTPUT_DATASET_DIR, "retriever_eval.jsonl")
-RETRIEVER_TEST = os.path.join(OUTPUT_DATASET_DIR, "retriever_test.jsonl")
+RETRIEVER_EVAL  = os.path.join(OUTPUT_DATASET_DIR, "retriever_eval.jsonl")
+RETRIEVER_TEST  = os.path.join(OUTPUT_DATASET_DIR, "retriever_test.jsonl")
 
 GENERATOR_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "generator_train.jsonl")
-GENERATOR_EVAL = os.path.join(OUTPUT_DATASET_DIR, "generator_eval.jsonl")
-GENERATOR_TEST = os.path.join(OUTPUT_DATASET_DIR, "generator_test.jsonl")
+GENERATOR_EVAL  = os.path.join(OUTPUT_DATASET_DIR, "generator_eval.jsonl")
+GENERATOR_TEST  = os.path.join(OUTPUT_DATASET_DIR, "generator_test.jsonl")
+
+# Wiadomość dla generatora gdy kontekst jest niewystarczający.
+# Używana jako hypothesis_statement w negative cases zamiast pustego stringa.
+GENERATOR_INSUFFICIENT_MSG = (
+    "A valid hypothesis cannot be generated because the provided context "
+    "does not contain sufficient variables or relationships to support "
+    "a grounded causal claim relevant to the query."
+)
 
 RETRIEVER_SYSTEM_PROMPT = """You are an Expert Scientific Retriever Agent.
 
@@ -103,11 +112,12 @@ def create_chatml_record(prompt_id, system_msg, user_msg, assistant_msg):
     return {
         "prompt_id": prompt_id,
         "messages": [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": user_msg},
+            {"role": "system",    "content": system_msg},
+            {"role": "user",      "content": user_msg},
             {"role": "assistant", "content": assistant_msg},
         ],
     }
+
 
 
 def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
@@ -116,48 +126,69 @@ def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
     print("=" * 50)
 
     r_train_ids = set(r["prompt_id"] for r in r_train)
-    r_eval_ids = set(r["prompt_id"] for r in r_eval)
-    r_test_ids = set(r["prompt_id"] for r in r_test)
-    
+    r_eval_ids  = set(r["prompt_id"] for r in r_eval)
+    r_test_ids  = set(r["prompt_id"] for r in r_test)
+
     g_train_ids = set(r["prompt_id"] for r in g_train)
-    g_eval_ids = set(r["prompt_id"] for r in g_eval)
-    g_test_ids = set(r["prompt_id"] for r in g_test)
+    g_eval_ids  = set(r["prompt_id"] for r in g_eval)
+    g_test_ids  = set(r["prompt_id"] for r in g_test)
 
     tests_passed = True
 
-    print("1. Checking record counts (Train/Eval/Test)...", end=" ")
-    if len(r_train) == len(g_train) and len(r_eval) == len(g_eval) and len(r_test) == len(g_test):
+    # Test 1 — leakage między splitami (retriever)
+    print("1. Checking for data leakage (retriever)...", end=" ")
+    leakage_te = r_train_ids & r_eval_ids
+    leakage_tt = r_train_ids & r_test_ids
+    leakage_et = r_eval_ids  & r_test_ids
+    if not any([leakage_te, leakage_tt, leakage_et]):
         print("OK!")
     else:
-        print(f"\n   ERROR! R_train: {len(r_train)}, G_train: {len(g_train)} | R_eval: {len(r_eval)}, G_eval: {len(g_eval)} | R_test: {len(r_test)}, G_test: {len(g_test)}")
+        print(f"\n   ERROR! Train∩Eval={leakage_te}, Train∩Test={leakage_tt}, Eval∩Test={leakage_et}")
         tests_passed = False
 
-    print("2. Checking for data leakage...", end=" ")
-    leakage_train_eval = r_train_ids.intersection(r_eval_ids)
-    leakage_train_test = r_train_ids.intersection(r_test_ids)
-    leakage_eval_test = r_eval_ids.intersection(r_test_ids)
-    
-    if not any([leakage_train_eval, leakage_train_test, leakage_eval_test]):
+    # Test 2 — leakage między splitami (generator)
+    print("2. Checking for data leakage (generator)...", end=" ")
+    leakage_te = g_train_ids & g_eval_ids
+    leakage_tt = g_train_ids & g_test_ids
+    leakage_et = g_eval_ids  & g_test_ids
+    if not any([leakage_te, leakage_tt, leakage_et]):
         print("OK!")
     else:
-        print("\n   ERROR! Found common IDs:")
-        if leakage_train_eval: print(f"     Train & Eval leakage: {leakage_train_eval}")
-        if leakage_train_test: print(f"     Train & Test leakage: {leakage_train_test}")
-        if leakage_eval_test: print(f"     Eval & Test leakage: {leakage_eval_test}")
+        print(f"\n   ERROR! Train∩Eval={leakage_te}, Train∩Test={leakage_tt}, Eval∩Test={leakage_et}")
         tests_passed = False
 
-    print("3. Checking prompt alignment (Alignment)...", end=" ")
+    # Test 3 — retriever i generator mają te same ID w każdym splicie
+    print("3. Checking retriever/generator split alignment...", end=" ")
     if r_train_ids == g_train_ids and r_eval_ids == g_eval_ids and r_test_ids == g_test_ids:
         print("OK!")
     else:
-        print("\n   ERROR! Generator and Retriever have different sets of IDs in the splits!")
-        tests_passed = False
+        # Generator może mieć mniej rekordów niż retriever (inne filtrowanie),
+        # więc tu sprawdzamy tylko że generator IDs są podzbiorem retriever IDs
+        if g_train_ids.issubset(r_train_ids) and g_eval_ids.issubset(r_eval_ids) and g_test_ids.issubset(r_test_ids):
+            print("OK (generator is subset of retriever — expected).")
+        else:
+            print("\n   ERROR! Generator IDs nie są podzbiorem retriever IDs w którymś splicie.")
+            tests_passed = False
+
+    # Test 4 — brak pustych pól w rekordach treningowych
+    print("4. Checking for empty required fields...", end=" ")
+    empty_found = False
+    for split_name, split in [("r_train", r_train), ("g_train", g_train)]:
+        for rec in split:
+            for msg in rec["messages"]:
+                if not msg["content"].strip():
+                    print(f"\n   ERROR! Empty content in {split_name}, "
+                        f"prompt_id={rec['prompt_id']}, role={msg['role']}")
+                    empty_found = True
+                    tests_passed = False
+    if not empty_found:
+        print("OK!")
 
     print("-" * 50)
     if tests_passed:
-        print("Result: All tests PASSED! Dataset is ready for training and evaluation.")
+        print("Result: All tests PASSED! Dataset is ready for training.")
     else:
-        print("Result: Tests FAILED! Check the dataset partitioning logic.")
+        print("Result: Tests FAILED!")
         sys.exit(1)
 
 
@@ -170,6 +201,12 @@ def main():
 
     retriever_records = []
     generator_records = []
+    
+    # Przechowujemy kombinację klas dla każdego promptu do poprawnej stratyfikacji
+    prompt_combo = {}
+
+    skipped_empty_context = 0
+    stats = defaultdict(int)
 
     with open(INPUT_FILE, "r", encoding="utf-8") as f:
         for line in f:
@@ -177,19 +214,24 @@ def main():
                 continue
 
             data = json.loads(line)
-            
-            raw_context = data.get('raw_context', '').strip()
-            if not raw_context:
-                continue
 
-            if not data.get("generator_is_answerable", False):
+            raw_context = data.get("raw_context", "").strip()
+            if not raw_context:
+                skipped_empty_context += 1
                 continue
 
             prompt_id = data.get("prompt_id", "unknown")
+            is_sufficient = data.get("retriever_is_sufficient", False)
+            is_answerable = data.get("generator_is_answerable", False)
 
-            # =========================
-            # RETRIEVER
-            # =========================
+            # Identyfikujemy "profil" tego promptu
+            combo = f"ret={is_sufficient}/gen={is_answerable}"
+            stats[combo] += 1
+            prompt_combo[prompt_id] = combo
+
+            # -------------------------
+            # RETRIEVER RECORD
+            # -------------------------
             retriever_user = f"""QUERY:
 {data['user_query']}
 
@@ -217,10 +259,14 @@ CONTEXT:
                 )
             )
 
-            # =========================
-            # GENERATOR
-            # =========================
-            generator_user = f"""QUERY:
+            # -------------------------
+            # GENERATOR RECORD
+            # -------------------------
+            if not is_answerable and not is_sufficient:
+                # Pomijamy: ret=False/gen=False trafia tylko do retriever dataset
+                continue
+
+            generator_user = f"""QUERY: 
 {data['user_query']}
 
 CONTEXT:
@@ -230,13 +276,14 @@ SUFFICIENCY:
 {data['retriever_is_sufficient']}
 
 EXTRACTED:
-{data['retriever_extracted_info']}""" 
+{data['retriever_extracted_info']}"""
 
-            gen_hyp = data.get('generator_hypothesis', '').strip()
-            gen_nat = data.get('generator_natural_hypothesis', '').strip()
-            gen_fal = data.get('generator_falsification', '').strip()
+            if is_answerable:
+                gen_hyp = data.get("generator_hypothesis", "").strip()
+                gen_nat = data.get("generator_natural_hypothesis", "").strip()
+                gen_fal = data.get("generator_falsification", "").strip()
 
-            generator_assistant = f"""<is_answerable>
+                generator_assistant = f"""<is_answerable>
 {data['generator_is_answerable']}
 </is_answerable>
 
@@ -255,6 +302,24 @@ EXTRACTED:
 <falsification_criteria>
 {gen_fal}
 </falsification_criteria>"""
+            else:
+                generator_assistant = f"""<is_answerable>
+False
+</is_answerable>
+
+<reasoning>
+{data['generator_reasoning']}
+</reasoning>
+
+<hypothesis>
+{GENERATOR_INSUFFICIENT_MSG}
+</hypothesis>
+
+<natural_hypothesis>
+</natural_hypothesis>
+
+<falsification_criteria>
+</falsification_criteria>"""
 
             generator_records.append(
                 create_chatml_record(
@@ -265,50 +330,72 @@ EXTRACTED:
                 )
             )
 
-    print(f"Processed {len(retriever_records)} valid records.")
+    print(f"\nSkipped (empty context): {skipped_empty_context}")
+    print("\n=== Rozkład kombinacji klas ===")
+    for combo, count in sorted(stats.items()):
+        print(f"  {combo}: {count}")
 
-    combined = list(zip(retriever_records, generator_records))
-    random.seed(42)
-    random.shuffle(combined)
-
-    if len(combined) == 0:
+    if len(retriever_records) == 0:
         print("ERROR: No valid records after filtering!")
         sys.exit(1)
 
-    retriever_records, generator_records = zip(*combined)
-    retriever_records = list(retriever_records)
-    generator_records = list(generator_records)
+    train_ids, eval_ids, test_ids = set(), set(), set()
+    ids_by_combo = defaultdict(list)
+    
+    for pid, c in prompt_combo.items():
+        ids_by_combo[c].append(pid)
 
-    total_len = len(retriever_records)
-    train_idx = int(total_len * 0.8)
-    eval_idx = int(total_len * 0.9)
+    rng = random.Random(42)
+    print("\n=== Stratyfikowany podział promptów ===")
+    for c, pids in sorted(ids_by_combo.items()):
+        rng.shuffle(pids)
+        n = len(pids)
+        
+        # Obliczanie proporcji 80/10/10
+        n_train = max(1, int(n * 0.8)) if n >= 3 else (n if n > 0 else 0)
+        n_eval  = max(1, int(n * 0.1)) if n >= 3 else 0
+        n_test  = n - n_train - n_eval
+        
+        if n_test < 0:
+            n_test = 0
+            n_eval = max(0, n - n_train)
 
-    r_train = retriever_records[:train_idx]
-    r_eval = retriever_records[train_idx:eval_idx]
-    r_test = retriever_records[eval_idx:]
+        train_ids.update(pids[:n_train])
+        eval_ids.update(pids[n_train:n_train+n_eval])
+        test_ids.update(pids[n_train+n_eval:])
+        
+        print(f"  Klasa '{c}': n={n} -> train={n_train}, eval={n_eval}, test={n_test}")
 
-    g_train = generator_records[:train_idx]
-    g_eval = generator_records[train_idx:eval_idx]
-    g_test = generator_records[eval_idx:]
+    # Przypisywanie wygenerowanych rekordów do splitów na podstawie ich prompt_id
+    r_train = [r for r in retriever_records if r["prompt_id"] in train_ids]
+    r_eval  = [r for r in retriever_records if r["prompt_id"] in eval_ids]
+    r_test  = [r for r in retriever_records if r["prompt_id"] in test_ids]
 
+    g_train = [r for r in generator_records if r["prompt_id"] in train_ids]
+    g_eval  = [r for r in generator_records if r["prompt_id"] in eval_ids]
+    g_test  = [r for r in generator_records if r["prompt_id"] in test_ids]
+
+    # Uruchomienie rygorystycznych testów
     run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test)
 
     def save_jsonl(records, filepath):
         with open(filepath, "w", encoding="utf-8") as f:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
-        print(f"Saved {len(records)} -> {os.path.basename(filepath)}")
+        print(f"Saved {len(records):>4} records -> {os.path.basename(filepath)}")
 
+    print()
     save_jsonl(r_train, RETRIEVER_TRAIN)
-    save_jsonl(r_eval, RETRIEVER_EVAL)
-    save_jsonl(r_test, RETRIEVER_TEST)
-    
+    save_jsonl(r_eval,  RETRIEVER_EVAL)
+    save_jsonl(r_test,  RETRIEVER_TEST)
+
+    print()
     save_jsonl(g_train, GENERATOR_TRAIN)
-    save_jsonl(g_eval, GENERATOR_EVAL)
-    save_jsonl(g_test, GENERATOR_TEST)
+    save_jsonl(g_eval,  GENERATOR_EVAL)
+    save_jsonl(g_test,  GENERATOR_TEST)
 
     print("\nDataset ready for SFT.")
 
-
 if __name__ == "__main__":
     main()
+
