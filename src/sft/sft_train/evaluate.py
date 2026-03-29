@@ -109,29 +109,20 @@ def main():
     print(f"Loaded {len(records)} test records.")
 
     print("Loading tokenizer and model...")
-    model_config = AutoConfig.from_pretrained(
-        MODEL_PATH, 
-        trust_remote_code=True, 
-        local_files_only=True
-    )
-    
     tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_PATH, 
-        config=model_config,
-        trust_remote_code=True,
-        local_files_only=True
+        BASE_MODEL_ID, 
+        trust_remote_code=True
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
     tokenizer.padding_side = "left"
 
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_PATH, 
-        config=model_config,
         torch_dtype=torch.bfloat16, 
         device_map="auto", 
-        trust_remote_code=True,
-        local_files_only=True
+        trust_remote_code=True
     )
     
     model = PeftModel.from_pretrained(base_model, LORA_PATH)
