@@ -178,9 +178,11 @@ def main():
 
             data = json.loads(line)
             
-            # FILTROWANIE 1: Pusty raw_context
             raw_context = data.get('raw_context', '').strip()
             if not raw_context:
+                continue
+
+            if not data.get("generator_is_answerable", False):
                 continue
 
             prompt_id = data.get("prompt_id", "unknown")
@@ -188,14 +190,12 @@ def main():
             # =========================
             # RETRIEVER
             # =========================
-            # FIX: Format zgodny z tym, co widziało Gemini w generatorze (Brak "RESEARCH")
             retriever_user = f"""QUERY:
 {data['user_query']}
 
 CONTEXT:
 {raw_context}"""
 
-            # FIX: Dodany tag <is_sufficient> 
             retriever_assistant = f"""<is_sufficient>
 {data['retriever_is_sufficient']}
 </is_sufficient>
@@ -220,7 +220,6 @@ CONTEXT:
             # =========================
             # GENERATOR
             # =========================
-            # FIX: Usunięte "RESEARCH" i "RAW", aby wejście SFT w 100% pasowało do promptów z Gemini
             generator_user = f"""QUERY:
 {data['user_query']}
 
@@ -233,7 +232,6 @@ SUFFICIENCY:
 EXTRACTED:
 {data['retriever_extracted_info']}""" 
 
-            # FILTROWANIE 2: Przygotowanie pustych hipotez w ładnych tagach XML
             gen_hyp = data.get('generator_hypothesis', '').strip()
             gen_nat = data.get('generator_natural_hypothesis', '').strip()
             gen_fal = data.get('generator_falsification', '').strip()
@@ -272,6 +270,10 @@ EXTRACTED:
     combined = list(zip(retriever_records, generator_records))
     random.seed(42)
     random.shuffle(combined)
+
+    if len(combined) == 0:
+        print("ERROR: No valid records after filtering!")
+        sys.exit(1)
 
     retriever_records, generator_records = zip(*combined)
     retriever_records = list(retriever_records)
