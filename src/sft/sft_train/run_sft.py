@@ -79,21 +79,6 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
-    def formatting_func(example):
-        try:
-            return tokenizer.apply_chat_template(
-                example["messages"],
-                tokenize=False,
-            )
-        except Exception as e:
-            print(
-                f"Warning: apply_chat_template failed for "
-                f"prompt_id={example.get('prompt_id', '?')}: {e}"
-            )
-            return "\n".join(
-                [f"{m['role']}: {m['content']}" for m in example["messages"]]
-            )
-
     print("Loading model to VRAM...")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_PATH,
@@ -152,7 +137,6 @@ def main():
         peft_config=peft_config,
         args=training_args,
         processing_class=tokenizer,
-        formatting_func=formatting_func,
     )
 
     print("Starting training...")

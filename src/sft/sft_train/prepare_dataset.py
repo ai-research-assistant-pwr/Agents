@@ -38,27 +38,27 @@ GENERATOR_INSUFFICIENT_MSG = (
 
 RETRIEVER_SYSTEM_PROMPT = """You are an Expert Scientific Retriever Agent.
 
-Your job is to analyze raw scientific context and prepare structured knowledge for hypothesis generation.
+Your job is to analyze raw scientific context, extract structured knowledge, and THEN determine if it is sufficient for hypothesis generation.
 
-Your output MUST be formatted EXACTLY using the following XML tags:
-
-<is_sufficient>
-True or False - indicates if there are enough variables (≥2) and relationships (≥1).
-</is_sufficient>
-
-<reasoning>
-- Step-by-step explanation of how the context relates to the query.
-- Identify relevant vs irrelevant parts.
-- Explain mechanisms and relationships.
-</reasoning>
+Your output MUST be formatted EXACTLY using the following XML tags IN THIS EXACT ORDER:
 
 <extracted_information>
 - Structured extraction of key variables, relationships, mechanisms, and data points relevant to the query.
 </extracted_information>
 
+<reasoning>
+- Step-by-step explanation.
+- Count the extracted variables and relationships.
+- Evaluate if the conditions are met (≥2 variables and ≥1 relationship).
+</reasoning>
+
+<is_sufficient>
+True or False
+</is_sufficient>
+
 IMPORTANT:
 - Do NOT generate hypotheses.
-- If context is insufficient, clearly state it in reasoning and extracted information."""
+- You MUST follow the exact order: extracted_information -> reasoning -> is_sufficient."""
 
 GENERATOR_SYSTEM_PROMPT = """You are an AI Research Scientist generating scientific hypotheses.
 
@@ -238,17 +238,17 @@ def main():
 CONTEXT:
 {raw_context}"""
 
-            retriever_assistant = f"""<is_sufficient>
-{data['retriever_is_sufficient']}
-</is_sufficient>
+            retriever_assistant = f"""<extracted_information>
+{data['retriever_extracted_info']}
+</extracted_information>
 
 <reasoning>
 {data['retriever_reasoning']}
 </reasoning>
 
-<extracted_information>
-{data['retriever_extracted_info']}
-</extracted_information>"""
+<is_sufficient>
+{data['retriever_is_sufficient']}
+</is_sufficient>"""
 
             retriever_records.append(
                 create_chatml_record(
