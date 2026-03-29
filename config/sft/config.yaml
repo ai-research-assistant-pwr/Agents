@@ -9,7 +9,7 @@ paths:
   prompts_dir: "data/prompts"
   articles_dir: "articles"
   models_dir: "models"
-  models_output_dir: "models_output"
+  models_output_dir: "models_output/run2"
 
   datasets: "data/datasets"
   dataset_prepped: "data/datasets/sft"
