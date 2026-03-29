@@ -73,31 +73,20 @@ def main():
         "eval": EVAL_FILE
     })
 
-    model_config = AutoConfig.from_pretrained(
-        MODEL_PATH, 
-        trust_remote_code=True, 
-        local_files_only=True
-    )
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_PATH, 
-        config=model_config,
-        trust_remote_code=True,
-        local_files_only=True
-    )
+    # Loading Tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
+    print("Loading model to VRAM...")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_PATH,
-        config=model_config,
         torch_dtype=torch.bfloat16,
         device_map="auto",
         trust_remote_code=True,
-        local_files_only=True
     )
-    model.config.use_cache = False
+    model.config.use_cache = False 
 
     peft_config = LoraConfig(
         r=CONFIG["training"].get("lora_r", 16),
