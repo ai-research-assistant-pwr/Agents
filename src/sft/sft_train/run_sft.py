@@ -25,16 +25,6 @@ def parse_args():
                         help="Which agent to train: 'retriever' or 'generator'")
     return parser.parse_args()
 
-def formatting_func(example):
-    messages = example["messages"]
-
-    try:
-        return tokenizer.apply_chat_template(
-            messages,
-            tokenize=False
-        )
-    except:
-        return "\n".join([f"{m['role']}: {m['content']}" for m in messages])
 
 def main():
     args = parse_args()
@@ -74,16 +64,6 @@ def main():
     run_name = f"{task}-sft-{safe_model_name}-lr{CONFIG['training']['learning_rate']}"
     local_rank = int(os.environ.get("LOCAL_RANK", -1))
 
-    if local_rank <= 0:
-        wandb.init(
-            project=CONFIG["training"].get("wandb_project", "agents_sft_training"),
-            name=run_name,
-            dir=WANDB_LOGS_DIR,
-            tags=["sft", task, "emergent-comm"],
-            config=CONFIG,
-            reinit=True
-        )
-
     os.environ["WANDB_LOG_MODEL"] = "false"
     os.environ["WANDB_WATCH"] = "false"
 
@@ -94,10 +74,25 @@ def main():
     })
 
     # Loading Tokenizer
-    global tokenizer
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
+
+    def formatting_func(example):
+        try:
+            return tokenizer.apply_chat_template(
+                example["messages"],
+                tokenize=False,
+            )
+        except Exception as e:
+            print(
+                f"Warning: apply_chat_template failed for "
+                f"prompt_id={example.get('prompt_id', '?')}: {e}"
+            )
+            return "\n".join(
+                [f"{m['role']}: {m['content']}" for m in example["messages"]]
+            )
 
     print("Loading model to VRAM...")
     model = AutoModelForCausalLM.from_pretrained(
@@ -125,16 +120,30 @@ def main():
         num_train_epochs=CONFIG["training"]["num_train_epochs"],
         logging_steps=1,
         eval_strategy="steps",
-        eval_steps=10,
-        save_strategy="epoch",
+        eval_steps=50,
+        save_strategy="steps",
+        save_steps=50,
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
         bf16=True,
         optim="adamw_torch",
         report_to="wandb",
         run_name=run_name,
         lr_scheduler_type="cosine",
         warmup_ratio=0.1,
-        max_length=CONFIG["training"]["max_seq_length"], 
+        max_length=CONFIG["training"]["max_seq_length"],
     )
+
+    if local_rank <= 0:
+        wandb.init(
+            project=CONFIG["training"].get("wandb_project", "agents_sft_training"),
+            name=run_name,
+            dir=WANDB_LOGS_DIR,
+            tags=["sft", task, "emergent-comm"],
+            config=CONFIG,
+            reinit=True,
+        )
 
     trainer = SFTTrainer(
         model=model,
@@ -151,7 +160,8 @@ def main():
 
     print(f"Saving LoRA model to {OUTPUT_DIR}...")
     trainer.save_model(OUTPUT_DIR)
-    wandb.finish()
+    if local_rank <= 0:
+        wandb.finish()
     print("Training completed successfully!")
 
 if __name__ == "__main__":
