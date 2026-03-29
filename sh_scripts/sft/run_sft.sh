@@ -44,7 +44,7 @@ export TRANSFORMERS_OFFLINE=0
 echo "================================================="
 echo "DOWNLOADING BASE MODEL: Qwen/Qwen3-4B-Instruct-2507"
 echo "================================================="
-huggingface-cli download Qwen/Qwen3-4B-Instruct-2507 --local-dir $MY_DISK/models/Qwen/Qwen3-4B-Instruct-2507
+# huggingface-cli download Qwen/Qwen3-4B-Instruct-2507 --local-dir $MY_DISK/models/Qwen/Qwen3-4B-Instruct-2507
 
 echo "================================================="
 echo "TESTING CONFIGURATION BEFORE SFT TRAINING"
