@@ -304,8 +304,6 @@ async def main():
         on="prompt_id",
     )
 
-    # sample 15 for testing
-    df_merged = df_merged.sample(n=15, random_state=42).reset_index(drop=True)
 
     existing_ids = load_existing_prompt_ids(OUTPUT_FILE_JSONL)
     if existing_ids:
@@ -333,7 +331,6 @@ async def main():
         "generator_natural_hypothesis",
         "generator_falsification",
     ]
-    
     with (
         open(OUTPUT_FILE_JSONL, "a", encoding="utf-8") as f_jsonl,
         open(OUTPUT_FILE_CSV, "a", newline="", encoding="utf-8") as f_csv,

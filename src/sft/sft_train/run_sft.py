@@ -25,6 +25,17 @@ def parse_args():
                         help="Which agent to train: 'retriever' or 'generator'")
     return parser.parse_args()
 
+def formatting_func(example):
+    messages = example["messages"]
+
+    try:
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False
+        )
+    except:
+        return "\n".join([f"{m['role']}: {m['content']}" for m in messages])
+
 def main():
     args = parse_args()
     task = args.task
@@ -77,9 +88,13 @@ def main():
     os.environ["WANDB_WATCH"] = "false"
 
     print(f"Loading data from {DATASETS_DIR}...")
-    dataset = load_dataset("json", data_files={"train": TRAIN_FILE, "test": EVAL_FILE})
+    dataset = load_dataset("json", data_files={
+        "train": TRAIN_FILE,
+        "eval": EVAL_FILE
+    })
 
     # Loading Tokenizer
+    global tokenizer
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -124,10 +139,11 @@ def main():
     trainer = SFTTrainer(
         model=model,
         train_dataset=dataset["train"],
-        eval_dataset=dataset["test"],
+        eval_dataset=dataset["eval"],
         peft_config=peft_config,
         args=training_args,
         processing_class=tokenizer,
+        formatting_func=formatting_func,
     )
 
     print("Starting training...")

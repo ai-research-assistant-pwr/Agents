@@ -33,6 +33,10 @@ Your job is to analyze raw scientific context and prepare structured knowledge f
 
 Your output MUST be formatted EXACTLY using the following XML tags:
 
+<is_sufficient>
+True or False - indicates if there are enough variables (≥2) and relationships (≥1).
+</is_sufficient>
+
 <reasoning>
 - Step-by-step explanation of how the context relates to the query.
 - Identify relevant vs irrelevant parts.
@@ -59,32 +63,39 @@ You will receive:
 Your output MUST be formatted EXACTLY using the following XML tags:
 
 <is_answerable>
-True ONLY if the retriever output contains enough grounded information. (Answer with True or False)
+True or False
 </is_answerable>
 
 <reasoning>
-- Step-by-step scientific reasoning.
-- Explain how extracted information leads to the hypothesis.
+- Step-by-step scientific reasoning
+- Explain how extracted variables and relationships lead to the hypothesis
+- Be concise but precise
 </reasoning>
 
 <hypothesis>
-- Write it in a natural, highly professional academic style.
-- Clearly state the proposed relationships, effects, or mechanisms.
+- MUST follow EXACT format:
+"If X increases/decreases, then Y will [effect], because [mechanism]."
+- MUST use ONLY variables from EXTRACTED INFORMATION
+- MUST be causal and measurable
+- NO deviations from format
 </hypothesis>
 
 <natural_hypothesis>
-- Same hypothesis written in natural academic style
+- Rewrite the SAME hypothesis in natural academic style (1-2 sentences)
+- Do NOT introduce new variables
 </natural_hypothesis>
 
 <falsification_criteria>
-- A specific, measurable experimental result or condition that would prove the hypothesis WRONG.
+- A specific measurable condition that would DISPROVE the hypothesis
 </falsification_criteria>
 
-IMPORTANT:
-- Hypothesis must be grounded in extracted information.
-- Do NOT introduce new variables.
-- If information is insufficient, set <is_answerable>False</is_answerable>.
-- If RETRIEVER SUFFICIENCY is False, you MUST set <is_answerable>False</is_answerable>.  # 🔥 FIX
+CRITICAL RULES:
+- If RETRIEVER SUFFICIENCY is False → set <is_answerable>False</is_answerable> and leave all other fields EMPTY
+- If variables are insufficient → set <is_answerable>False</is_answerable>
+- DO NOT generate hypothesis when not answerable
+- DO NOT introduce new variables
+- NO placeholders
+- NO vague statements
 """
 
 
@@ -104,7 +115,6 @@ def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
     print(" Running Dataset Integrity Tests...")
     print("=" * 50)
 
-    # ID extraction for leakage and alignment tests
     r_train_ids = set(r["prompt_id"] for r in r_train)
     r_eval_ids = set(r["prompt_id"] for r in r_eval)
     r_test_ids = set(r["prompt_id"] for r in r_test)
@@ -115,7 +125,6 @@ def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
 
     tests_passed = True
 
-    # Test 1: Record counts
     print("1. Checking record counts (Train/Eval/Test)...", end=" ")
     if len(r_train) == len(g_train) and len(r_eval) == len(g_eval) and len(r_test) == len(g_test):
         print("OK!")
@@ -123,7 +132,6 @@ def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
         print(f"\n   ERROR! R_train: {len(r_train)}, G_train: {len(g_train)} | R_eval: {len(r_eval)}, G_eval: {len(g_eval)} | R_test: {len(r_test)}, G_test: {len(g_test)}")
         tests_passed = False
 
-    # Test 2: Data leakage check across all three sets
     print("2. Checking for data leakage...", end=" ")
     leakage_train_eval = r_train_ids.intersection(r_eval_ids)
     leakage_train_test = r_train_ids.intersection(r_test_ids)
@@ -138,7 +146,6 @@ def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
         if leakage_eval_test: print(f"     Eval & Test leakage: {leakage_eval_test}")
         tests_passed = False
 
-    # Test 3: Prompt alignment check
     print("3. Checking prompt alignment (Alignment)...", end=" ")
     if r_train_ids == g_train_ids and r_eval_ids == g_eval_ids and r_test_ids == g_test_ids:
         print("OK!")
@@ -170,18 +177,30 @@ def main():
                 continue
 
             data = json.loads(line)
+            
+            # FILTROWANIE 1: Pusty raw_context
+            raw_context = data.get('raw_context', '').strip()
+            if not raw_context:
+                continue
+
             prompt_id = data.get("prompt_id", "unknown")
 
             # =========================
             # RETRIEVER
             # =========================
-            retriever_user = f"""RESEARCH QUERY:
+            # FIX: Format zgodny z tym, co widziało Gemini w generatorze (Brak "RESEARCH")
+            retriever_user = f"""QUERY:
 {data['user_query']}
 
-RAW CONTEXT:
-{data['raw_context']}"""
+CONTEXT:
+{raw_context}"""
 
-            retriever_assistant = f"""<reasoning>
+            # FIX: Dodany tag <is_sufficient> 
+            retriever_assistant = f"""<is_sufficient>
+{data['retriever_is_sufficient']}
+</is_sufficient>
+
+<reasoning>
 {data['retriever_reasoning']}
 </reasoning>
 
@@ -201,20 +220,23 @@ RAW CONTEXT:
             # =========================
             # GENERATOR
             # =========================
-            generator_user = f"""RESEARCH QUERY:
+            # FIX: Usunięte "RESEARCH" i "RAW", aby wejście SFT w 100% pasowało do promptów z Gemini
+            generator_user = f"""QUERY:
 {data['user_query']}
 
-RAW CONTEXT:
-{data['raw_context']}
+CONTEXT:
+{raw_context}
 
-RETRIEVER SUFFICIENCY:
+SUFFICIENCY:
 {data['retriever_is_sufficient']}
 
-RETRIEVER REASONING:
-{data['retriever_reasoning']}
-
-EXTRACTED INFORMATION:
+EXTRACTED:
 {data['retriever_extracted_info']}""" 
+
+            # FILTROWANIE 2: Przygotowanie pustych hipotez w ładnych tagach XML
+            gen_hyp = data.get('generator_hypothesis', '').strip()
+            gen_nat = data.get('generator_natural_hypothesis', '').strip()
+            gen_fal = data.get('generator_falsification', '').strip()
 
             generator_assistant = f"""<is_answerable>
 {data['generator_is_answerable']}
@@ -225,15 +247,15 @@ EXTRACTED INFORMATION:
 </reasoning>
 
 <hypothesis>
-{data['generator_hypothesis']}
+{gen_hyp}
 </hypothesis>
 
 <natural_hypothesis>
-{data['generator_natural_hypothesis']}
+{gen_nat}
 </natural_hypothesis>
 
 <falsification_criteria>
-{data['generator_falsification']}
+{gen_fal}
 </falsification_criteria>"""
 
             generator_records.append(
@@ -245,7 +267,7 @@ EXTRACTED INFORMATION:
                 )
             )
 
-    print(f"Processed {len(retriever_records)} records.")
+    print(f"Processed {len(retriever_records)} valid records.")
 
     combined = list(zip(retriever_records, generator_records))
     random.seed(42)
@@ -268,8 +290,6 @@ EXTRACTED INFORMATION:
     g_test = generator_records[eval_idx:]
 
     run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test)
-
-    run_tests(r_train, r_eval, g_train, g_eval)
 
     def save_jsonl(records, filepath):
         with open(filepath, "w", encoding="utf-8") as f:
