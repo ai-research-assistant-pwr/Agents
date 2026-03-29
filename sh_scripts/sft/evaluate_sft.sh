@@ -44,7 +44,7 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
 done
 
 FILES_TO_CHECK=(
-    "$AGENTS_DIR/src/sft/sft_train/eval_sft.py"
+    "$AGENTS_DIR/src/sft/sft_train/evaluate.py"
     "$AGENTS_DIR/data/datasets/sft/retriever_test.jsonl"
     "$AGENTS_DIR/data/datasets/sft/generator_test.jsonl"
 )
