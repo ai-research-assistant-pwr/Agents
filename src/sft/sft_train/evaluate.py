@@ -6,7 +6,7 @@ import argparse
 from datetime import datetime
 import torch
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from peft import PeftModel
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -109,8 +109,15 @@ def main():
     print(f"Loaded {len(records)} test records.")
 
     print("Loading tokenizer and model...")
+    model_config = AutoConfig.from_pretrained(
+        MODEL_PATH, 
+        trust_remote_code=True, 
+        local_files_only=True
+    )
+    
     tokenizer = AutoTokenizer.from_pretrained(
-        BASE_MODEL_ID, 
+        MODEL_PATH, 
+        config=model_config,
         trust_remote_code=True,
         local_files_only=True
     )
@@ -120,11 +127,13 @@ def main():
 
     base_model = AutoModelForCausalLM.from_pretrained(
         MODEL_PATH, 
+        config=model_config,
         torch_dtype=torch.bfloat16, 
         device_map="auto", 
         trust_remote_code=True,
         local_files_only=True
     )
+    
     model = PeftModel.from_pretrained(base_model, LORA_PATH)
     model.eval()
 
