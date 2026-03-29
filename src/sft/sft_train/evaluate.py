@@ -109,7 +109,7 @@ def main():
     print(f"Loaded {len(records)} test records.")
 
     print("Loading tokenizer and model...")
-    tokenizer = AutoTokenizer.from_pretrained(LOCAL_BASE_PATH, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
