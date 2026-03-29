@@ -92,9 +92,9 @@ def main():
     BASE_MODEL_ID = CONFIG["training"][base_model_key]
     safe_name = BASE_MODEL_ID.split("/")[-1]
     
-    LOCAL_BASE_PATH = os.path.join(MODELS_DIR, BASE_MODEL_ID)
-    if not os.path.exists(LOCAL_BASE_PATH):
-        LOCAL_BASE_PATH = BASE_MODEL_ID
+    MODEL_PATH = os.path.join(MODELS_DIR, BASE_MODEL_ID)
+    if not os.path.exists(MODEL_PATH):
+        MODEL_PATH = BASE_MODEL_ID 
         
     LORA_PATH = os.path.join(MODELS_OUT_DIR, f"lora_{task}_{safe_name}")
     if not os.path.exists(LORA_PATH):
@@ -109,13 +109,21 @@ def main():
     print(f"Loaded {len(records)} test records.")
 
     print("Loading tokenizer and model...")
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        BASE_MODEL_ID, 
+        trust_remote_code=True,
+        local_files_only=True
+    )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
 
     base_model = AutoModelForCausalLM.from_pretrained(
-        LOCAL_BASE_PATH, torch_dtype=torch.bfloat16, device_map="auto", trust_remote_code=True
+        MODEL_PATH, 
+        torch_dtype=torch.bfloat16, 
+        device_map="auto", 
+        trust_remote_code=True,
+        local_files_only=True
     )
     model = PeftModel.from_pretrained(base_model, LORA_PATH)
     model.eval()
