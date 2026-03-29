@@ -63,11 +63,11 @@ echo "All paths verified successfully. Starting Evaluation..."
 echo "================================================="
 
 echo ">>> EVALUATING RETRIEVER <<<"
-$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/eval_sft.py --task retriever --split test
+$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/evaluate.py --task retriever --split test
 
 echo ""
 echo ">>> EVALUATING GENERATOR <<<"
-$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/eval_sft.py --task generator --split test
+$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/evaluate.py --task generator --split test
 
 echo "====================================="
 echo "Evaluation completed successfully!"
