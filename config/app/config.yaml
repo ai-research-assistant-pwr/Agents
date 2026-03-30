@@ -1,0 +1,28 @@
+pipeline:
+  refinement_turns: 0  # number of retriever<->generator refinement rounds (0 = single pass)
+  save_steps: false     # save intermediate results to disk
+  save_dir: "outputs"   # directory for saved step outputs (relative to project root)
+
+api_client:
+  type: "google"
+  model: "gemini-3-flash-preview"
+
+explorer:
+  type: "weaviate"
+  weaviate:
+    url: "http://localhost:8080"       # Weaviate endpoint (tunnelled from local machine)
+    collection: "ResearchPapers"       # Weaviate collection name
+    top_k: 10                           # number of nearest-neighbour results to return
+    embedding_model: "Qwen/Qwen3-Embedding-8B"  # HuggingFace model for query embedding
+    max_tokens: 8192
+    grpc_port: 50051                    # Weaviate gRPC port (used by weaviate-client v4)                    # max token length for embedding input
+  # fallback for when type == "const"
+  const_text: "No knowledge graph connected. Using placeholder context."
+
+retriever:
+  type: "llm"
+  top_k: 5
+
+generator:
+  type: "llm"
+  temperature: 0.7
