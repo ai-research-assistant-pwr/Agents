@@ -79,6 +79,19 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
+    tokenizer.chat_template = """{% for message in messages %}
+{% if message['role'] == 'system' %}
+{{ '<|im_start|>system\n' + message['content'] + '<|im_end|>\n' }}
+{% elif message['role'] == 'user' %}
+{{ '<|im_start|>user\n' + message['content'] + '<|im_end|>\n' }}
+{% elif message['role'] == 'assistant' %}
+{{ '<|im_start|>assistant\n' }}{% generation %}{{ message['content'] + '<|im_end|>\n' }}{% endgeneration %}
+{% endif %}
+{% endfor %}
+{% if add_generation_prompt %}
+{{ '<|im_start|>assistant\n' }}
+{% endif %}"""
+
     print("Loading model to VRAM...")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_PATH,
