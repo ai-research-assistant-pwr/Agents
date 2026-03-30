@@ -38,17 +38,11 @@ SEMAPHORE_SIZE = CONFIG["inference"].get("semaphore_size", 5)
 GEN_MODEL = CONFIG["models"].get("generation_model")
 TEMPERATURE = CONFIG["inference"].get("temperature", 0.4)
 
-# list all paths to verify
-print(f"Prompt Embeddings Path: {PROMPT_EMBEDDINGS_FILE}")
-print(f"Retrieved Contexts Path: {RETRIEVED_CONTEXTS_FILE}")
-print(f"Output JSONL Path: {OUTPUT_FILE_JSONL}")
-print(f"Output CSV Path: {OUTPUT_FILE_CSV}")
-
-
 class ExtractedInformation(BaseModel):
     variables: List[str]
     relationships: List[str]
     mechanisms: List[str]
+    evidence: List[str] = Field(default_factory=list)
 
 class RetrieverMessage(BaseModel):
     is_sufficient: bool
@@ -78,27 +72,16 @@ retriever_prompt = ChatPromptTemplate.from_messages(
             """You are an Expert Scientific Information Extractor.
 
 RULES:
-- Extract ONLY explicitly stated information
-- Do NOT infer beyond text
-- Do NOT invent variables
+- Extract ONLY explicitly stated information from the context.
+- Do NOT infer, guess, or synthesize beyond the text.
+- Variables must be concrete, measurable factors (e.g., "temperature", "cell growth", "mortality rate"). Do NOT invent variables.
 
 Return:
+1. is_sufficient: True ONLY if you found at least 2 distinct variables AND 1 clear relationship between them.
+2. reasoning: Max 3 sentences explaining your extraction logic.
+3. extracted_information: Provide variables, relationships, mechanisms, and specific evidence quotes.
 
-1. is_sufficient:
-True ONLY if:
-- ≥2 variables
-- ≥1 relationship
-
-2. reasoning:
-Max 3 sentences
-
-3. extracted_information:
-- variables
-- relationships
-- mechanisms
-- evidence
-
-Be strict.""",
+Be strict and highly analytical."""
         ),
         (
             "human",
@@ -106,7 +89,7 @@ Be strict.""",
 {query}
 
 CONTEXT:
-{context}""",
+{context}"""
         ),
     ]
 )
@@ -115,40 +98,26 @@ generator_prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            """You are an AI Research Scientist.
- 
-Generate ONE high-quality hypothesis.
+            """You are an AI Research Scientist formulating strict, testable hypotheses.
  
 RULES:
-- Must be causal
-- Must be measurable
-- Must be grounded in context
-- Use ONLY variables listed in EXTRACTED. Do not introduce new variables.
+- Must be causal and measurable.
+- Must be strictly grounded in the provided CONTEXT.
+- Use ONLY variables listed in EXTRACTED. Do not introduce any outside knowledge or new variables.
  
-CRITICAL RULE — READ CAREFULLY:
-If SUFFICIENCY is False, you MUST set is_answerable=False.
-In that case, set hypothesis_statement, natural_hypothesis, and falsification_criteria
-to empty strings. Do NOT generate a hypothesis under any circumstances when SUFFICIENCY is False.
+CRITICAL LOGIC - DECISION TREE:
+1. If SUFFICIENCY is False -> Set is_answerable=False. Leave hypothesis fields strictly EMPTY.
+2. If SUFFICIENCY is True, BUT the EXTRACTED variables cannot form a logical causal link -> Set is_answerable=False. Leave fields strictly EMPTY.
+3. If SUFFICIENCY is True AND a causal link exists -> Set is_answerable=True and generate the hypothesis.
  
-If SUFFICIENCY is True but the variables in EXTRACTED are still insufficient
-to form a grounded causal statement → also set is_answerable=False with empty fields.
+HYPOTHESIS FORMAT (Apply only if is_answerable=True):
+Write the statement as a continuous, natural sentence without any brackets, placeholders, or vague words.
+Example format: "If the concentration of compound A increases, then the rate of cell apoptosis will accelerate, because compound A inhibits the Bcl-2 pathway."
  
-FORMAT (only when is_answerable=True):
- 
-"If X increases/decreases, then Y will [effect], because [mechanism]."
- 
-STRICT:
-- No placeholders
-- No brackets
-- No "Not applicable"
-- No vague statements
- 
-Return:
-- is_answerable
-- reasoning
-- hypothesis_statement
-- natural_hypothesis
-- falsification_criteria""",
+STRICT CONSTRAINTS:
+- No placeholders like [IV] or [DV].
+- No brackets or parenthesis in the hypothesis statement.
+- Do not write "Not applicable" or "N/A" (just leave empty if not answerable)."""
         ),
         (
             "human",
@@ -162,7 +131,7 @@ SUFFICIENCY:
 {is_sufficient}
  
 EXTRACTED:
-{retrieved_info}""",
+{retrieved_info}"""
         ),
     ]
 )
@@ -176,14 +145,13 @@ def validate_retriever_output(output):
 
     return output
 
-
 def clean_extracted_info(info):
     return {
-        "variables": list(set(info.variables))[:5],
-        "relationships": info.relationships[:3],
-        "mechanisms": info.mechanisms[:2],
+        "variables": list(set(info.variables)),
+        "relationships": info.relationships,
+        "mechanisms": info.mechanisms,
+        "evidence": info.evidence,
     }
-
 
 def is_valid_hypothesis(output):
     h = output.hypothesis_statement
@@ -267,7 +235,7 @@ async def process_item(row, semaphore, csv_writer, f_csv, f_jsonl):
         except Exception as e:
             tqdm.write(f"[Error on prompt {prompt_id}]: {str(e)}")
             return False
- 
+
 def load_existing_prompt_ids(filepath: str) -> set:
     if not os.path.exists(filepath):
         return set()
@@ -303,7 +271,6 @@ async def main():
         df_contexts,
         on="prompt_id",
     )
-
 
     existing_ids = load_existing_prompt_ids(OUTPUT_FILE_JSONL)
     if existing_ids:

@@ -88,6 +88,22 @@ class EncoderStub:
             tensor_emb = torch.tensor(query)
 
         return tensor_emb.to(self.device)
+    
+
+def is_valid_chunk(text: str):
+    if not text:
+        return False
+    return len(text.strip()) > 100
+
+def clean_chunk(text: str, max_chars: int = 10000):
+    text = text.strip()
+    if len(text) > max_chars:
+        truncated = text[:max_chars]
+        last_period = truncated.rfind('.')
+        if last_period > 0:
+            return truncated[:last_period+1]
+        return truncated[:truncated.rfind(' ')] + "..."
+    return text
 
 
 if __name__ == "__main__":
@@ -130,48 +146,35 @@ if __name__ == "__main__":
         try:
             # 1. Dense Retrieval
             initial_results = retriever.retrieve(user_query_emb, top_k=RETRIEVAL_K)
+
+            valid_candidates = [
+                RankedChunk(chunk=r.chunk) for r in initial_results
+                if is_valid_chunk(r.chunk.content)
+            ]
             
             # 2. Reranking
             if prompt_text and len(prompt_text.strip()) > 5:
-                candidates = [RankedChunk(chunk=r.chunk) for r in initial_results]
-                final_results = reranker.rerank(query=prompt_text, candidates=candidates, top_n=RERANK_TOP_K)
+                final_results = reranker.rerank(query=prompt_text, candidates=valid_candidates, top_n=RERANK_TOP_K)
             else:
-                print(f"Warning: Brak tekstu promptu dla prompt_id {row.prompt_id}. Pomijam reranking.")
-                final_results = [RankedChunk(chunk=r.chunk) for r in initial_results[:RERANK_TOP_K]]
+                print(f"Warning: No prompt text for {row.prompt_id}. Skipping reranking.")
+                final_results = valid_candidates[:RERANK_TOP_K]
 
             # 3. Context Formatting
 
-            def clean_chunk(text: str, max_chars: int = 800):
-                text = text.strip().replace("\n", " ")
-                return text[:max_chars]
-            
-            def is_valid_chunk(text: str):
-                return (
-                    text is not None
-                    and len(text) > 100
-                    and "references" not in text.lower()
-                    and "copyright" not in text.lower()
-                )
-            
-            filtered = [
-                rc for rc in final_results
-                if is_valid_chunk(rc.chunk.content)
+            formatted_chunks = [
+                f"--- Document {i+1} ---\n{clean_chunk(rc.chunk.content)}"
+                for i, rc in enumerate(final_results)
             ]
-
-            cleaned_chunks = [
-                clean_chunk(rc.chunk.content)
-                for rc in filtered
-            ]
-
             
-            context_str = "\n\n".join(cleaned_chunks)
+            context_str = "\n\n".join(formatted_chunks)
+            
             context_meta = [
                 {
                     "chunk_id": rc.chunk.chunk_id,
                     "doc_id": rc.chunk.metadata.get("doc_id", "unknown"),
                     "rerank_score": round(rc.score, 4) if hasattr(rc, 'score') else None
                 }
-                for rc in filtered
+                for rc in final_results
             ]
 
             results_list.append(

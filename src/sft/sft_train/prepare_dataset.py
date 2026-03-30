@@ -28,8 +28,6 @@ GENERATOR_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "generator_train.jsonl")
 GENERATOR_EVAL  = os.path.join(OUTPUT_DATASET_DIR, "generator_eval.jsonl")
 GENERATOR_TEST  = os.path.join(OUTPUT_DATASET_DIR, "generator_test.jsonl")
 
-# Wiadomość dla generatora gdy kontekst jest niewystarczający.
-# Używana jako hypothesis_statement w negative cases zamiast pustego stringa.
 GENERATOR_INSUFFICIENT_MSG = (
     "A valid hypothesis cannot be generated because the provided context "
     "does not contain sufficient variables or relationships to support "
@@ -135,7 +133,6 @@ def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
 
     tests_passed = True
 
-    # Test 1 — leakage między splitami (retriever)
     print("1. Checking for data leakage (retriever)...", end=" ")
     leakage_te = r_train_ids & r_eval_ids
     leakage_tt = r_train_ids & r_test_ids
@@ -146,7 +143,6 @@ def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
         print(f"\n   ERROR! Train∩Eval={leakage_te}, Train∩Test={leakage_tt}, Eval∩Test={leakage_et}")
         tests_passed = False
 
-    # Test 2 — leakage między splitami (generator)
     print("2. Checking for data leakage (generator)...", end=" ")
     leakage_te = g_train_ids & g_eval_ids
     leakage_tt = g_train_ids & g_test_ids
@@ -157,20 +153,16 @@ def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
         print(f"\n   ERROR! Train∩Eval={leakage_te}, Train∩Test={leakage_tt}, Eval∩Test={leakage_et}")
         tests_passed = False
 
-    # Test 3 — retriever i generator mają te same ID w każdym splicie
     print("3. Checking retriever/generator split alignment...", end=" ")
     if r_train_ids == g_train_ids and r_eval_ids == g_eval_ids and r_test_ids == g_test_ids:
         print("OK!")
     else:
-        # Generator może mieć mniej rekordów niż retriever (inne filtrowanie),
-        # więc tu sprawdzamy tylko że generator IDs są podzbiorem retriever IDs
         if g_train_ids.issubset(r_train_ids) and g_eval_ids.issubset(r_eval_ids) and g_test_ids.issubset(r_test_ids):
             print("OK (generator is subset of retriever — expected).")
         else:
             print("\n   ERROR! Generator IDs nie są podzbiorem retriever IDs w którymś splicie.")
             tests_passed = False
 
-    # Test 4 — brak pustych pól w rekordach treningowych
     print("4. Checking for empty required fields...", end=" ")
     empty_found = False
     for split_name, split in [("r_train", r_train), ("g_train", g_train)]:
@@ -202,7 +194,6 @@ def main():
     retriever_records = []
     generator_records = []
     
-    # Przechowujemy kombinację klas dla każdego promptu do poprawnej stratyfikacji
     prompt_combo = {}
 
     skipped_empty_context = 0
@@ -224,7 +215,6 @@ def main():
             is_sufficient = data.get("retriever_is_sufficient", False)
             is_answerable = data.get("generator_is_answerable", False)
 
-            # Identyfikujemy "profil" tego promptu
             combo = f"ret={is_sufficient}/gen={is_answerable}"
             stats[combo] += 1
             prompt_combo[prompt_id] = combo
@@ -262,9 +252,6 @@ CONTEXT:
             # -------------------------
             # GENERATOR RECORD
             # -------------------------
-            if not is_answerable and not is_sufficient:
-                # Pomijamy: ret=False/gen=False trafia tylko do retriever dataset
-                continue
 
             generator_user = f"""QUERY: 
 {data['user_query']}
@@ -284,7 +271,7 @@ EXTRACTED:
                 gen_fal = data.get("generator_falsification", "").strip()
 
                 generator_assistant = f"""<is_answerable>
-{data['generator_is_answerable']}
+True
 </is_answerable>
 
 <reasoning>
@@ -312,7 +299,6 @@ False
 </reasoning>
 
 <hypothesis>
-{GENERATOR_INSUFFICIENT_MSG}
 </hypothesis>
 
 <natural_hypothesis>
@@ -350,8 +336,7 @@ False
     for c, pids in sorted(ids_by_combo.items()):
         rng.shuffle(pids)
         n = len(pids)
-        
-        # Obliczanie proporcji 80/10/10
+
         n_train = max(1, int(n * 0.8)) if n >= 3 else (n if n > 0 else 0)
         n_eval  = max(1, int(n * 0.1)) if n >= 3 else 0
         n_test  = n - n_train - n_eval
@@ -366,7 +351,6 @@ False
         
         print(f"  Klasa '{c}': n={n} -> train={n_train}, eval={n_eval}, test={n_test}")
 
-    # Przypisywanie wygenerowanych rekordów do splitów na podstawie ich prompt_id
     r_train = [r for r in retriever_records if r["prompt_id"] in train_ids]
     r_eval  = [r for r in retriever_records if r["prompt_id"] in eval_ids]
     r_test  = [r for r in retriever_records if r["prompt_id"] in test_ids]
@@ -375,7 +359,6 @@ False
     g_eval  = [r for r in generator_records if r["prompt_id"] in eval_ids]
     g_test  = [r for r in generator_records if r["prompt_id"] in test_ids]
 
-    # Uruchomienie rygorystycznych testów
     run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test)
 
     def save_jsonl(records, filepath):

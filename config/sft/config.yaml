@@ -9,7 +9,7 @@ paths:
   prompts_dir: "data/prompts"
   articles_dir: "articles"
   models_dir: "models"
-  models_output_dir: "models_output/run2"
+  models_output_dir: "models_output/run3"
 
   datasets: "data/datasets"
   dataset_prepped: "data/datasets/sft"
@@ -18,10 +18,10 @@ files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
   prompts: "sft.csv"
   prompt_embeddings: "sft_embeddings.pkl"
-  synthetic_sft_dataset: "sft_dataset.jsonl"
+  synthetic_sft_dataset: "sft_dataset_v2.jsonl"
 
   index: "chunks"
-  retrieved_contexts: "sft_contexts.pkl"
+  retrieved_contexts: "sft_contexts_v2.pkl"
 
 inference:
   temperature: 0.25

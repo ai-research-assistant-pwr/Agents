@@ -16,7 +16,7 @@ import torch
 from datasets import load_dataset
 from peft import LoraConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, AutoConfig
-from trl import SFTTrainer, SFTConfig
+from trl import SFTTrainer, SFTConfig, DataCollatorForCompletionOnlyLM
 import wandb
 
 def parse_args():
@@ -79,6 +79,19 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
+    if tokenizer.chat_template is None:
+        tokenizer.chat_template = "{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
+
+    instruction_template = "<|im_start|>assistant\n"
+    response_template = instruction_template
+    
+    collator = DataCollatorForCompletionOnlyLM(
+        instruction_template=instruction_template,
+        response_template=response_template,
+        tokenizer=tokenizer,
+        mlm=False
+    )
+
     print("Loading model to VRAM...")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_PATH,
@@ -137,6 +150,7 @@ def main():
         peft_config=peft_config,
         args=training_args,
         processing_class=tokenizer,
+        data_collator=collator,
     )
 
     print("Starting training...")
