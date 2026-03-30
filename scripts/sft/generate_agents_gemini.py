@@ -39,9 +39,9 @@ GEN_MODEL = CONFIG["models"].get("generation_model")
 TEMPERATURE = CONFIG["inference"].get("temperature", 0.4)
 
 class ExtractedInformation(BaseModel):
-    variables: List[str]
-    relationships: List[str]
-    mechanisms: List[str]
+    variables: List[str] = Field(default_factory=list)
+    relationships: List[str] = Field(default_factory=list)
+    mechanisms: List[str] = Field(default_factory=list)
     evidence: List[str] = Field(default_factory=list)
 
 class RetrieverMessage(BaseModel):
