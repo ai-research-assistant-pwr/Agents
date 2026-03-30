@@ -39,7 +39,7 @@ def check_format(text: str, required_tags: list) -> bool:
     return True
 
 def calculate_grounding(hypothesis: str, extracted_info_str: str) -> float:
-    """Checks how many of the variables from the extracted info are mentioned in the hypothesis. Returns a score between 0 and 1."""
+    """Checks how many of the variables from the extracted info are mentioned in the hypothesis."""
     if not hypothesis or not extracted_info_str:
         return None
     try:
@@ -52,7 +52,19 @@ def calculate_grounding(hypothesis: str, extracted_info_str: str) -> float:
         return 1.0
 
     hyp_lower = hypothesis.lower()
-    matched = sum(1 for v in variables if any(word.lower() in hyp_lower for word in v.split()))
+    matched = 0
+    
+    for v in variables:
+        v_clean = v.lower().split("(")[0].strip()
+        
+        if v_clean in hyp_lower:
+            matched += 1
+            continue
+            
+        words = [w for w in re.findall(r'\b\w+\b', v_clean) if len(w) > 2]
+        if words and all(word in hyp_lower for word in words):
+            matched += 1
+
     return matched / len(variables)
 
 def extract_json_from_user_prompt(user_content: str, marker: str) -> str:
@@ -154,7 +166,14 @@ def main():
             extracted_info_json = extract_json_from_user_prompt(user_content, "EXTRACTED:")
 
         prompt = tokenizer.apply_chat_template(input_msgs, tokenize=False, add_generation_prompt=True)
-        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+        inputs = tokenizer.apply_chat_template(
+            input_msgs, 
+            tokenize=True, 
+            add_generation_prompt=True, 
+            return_tensors="pt",
+            return_dict=True
+        ).to(model.device)
+        
         input_len = inputs["input_ids"].shape[1]
 
         with torch.no_grad():
