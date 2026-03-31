@@ -182,6 +182,7 @@ def main():
                 max_new_tokens=1024,
                 do_sample=False,
                 pad_token_id=tokenizer.pad_token_id,
+                repetition_penalty=1.15
             )
             
         pred_text = tokenizer.decode(outputs[0][input_len:], skip_special_tokens=True)
