@@ -28,11 +28,13 @@ echo "================================================="
 echo "TESTING CONFIGURATION BEFORE SIMULATION"
 echo "================================================="
 
+MODELS_OUT_DIR="$MY_DISK/models_output/run3"
+
 DIRS_TO_CHECK=(
     "$AGENTS_DIR"
     "$AGENTS_DIR/data/datasets/sft"
     "$MY_DISK/models"
-    "$MY_DISK/models_output/run3"
+    "$MODELS_OUT_DIR"
 )
 
 for DIR in "${DIRS_TO_CHECK[@]}"; do
@@ -45,7 +47,7 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
 done
 
 FILES_TO_CHECK=(
-    "$AGENTS_DIR/simulate_pipeline.py"
+    "$AGENTS_DIR/src/sft/sft_train/simulate_pipeline.py"
     "$AGENTS_DIR/data/datasets/sft/retriever_test.jsonl"
 )
 
@@ -63,7 +65,8 @@ echo "All paths verified successfully. Starting Simulation..."
 echo "================================================="
 
 echo ">>> RUNNING END-TO-END PIPELINE SIMULATION <<<"
-$VENV_PYTHON $AGENTS_DIR/simulate_pipeline.py
+
+$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/simulate_pipeline.py
 
 echo "====================================="
 echo "Simulation completed successfully!"

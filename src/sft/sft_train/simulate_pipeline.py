@@ -10,9 +10,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SFT_DIR    = os.path.join(SCRIPT_DIR, "src", "sft")
-if SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR)
+SFT_DIR = os.path.dirname(SCRIPT_DIR)
+SRC_DIR = os.path.dirname(SFT_DIR)
+AGENTS_DIR = os.path.dirname(SRC_DIR)
+
+if AGENTS_DIR not in sys.path:
+    sys.path.insert(0, AGENTS_DIR)
 
 from src.sft.utils.config import CONFIG
 
