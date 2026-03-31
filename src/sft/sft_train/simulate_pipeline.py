@@ -23,7 +23,7 @@ DATASETS_DIR = os.path.join(AGENTS_DIR, CONFIG["paths"]["dataset_prepped"])
 MODELS_DIR = os.path.join(CONFIG["paths"]["base_path"], CONFIG["paths"]["models_dir"])
 MODELS_OUT_DIR = os.path.join(CONFIG["paths"]["base_path"], CONFIG["paths"]["models_output_dir"])
 
-EVAL_OUT_DIR = os.path.join(SCRIPT_DIR, "data", "eval_results")
+EVAL_OUT_DIR = os.path.join(AGENTS_DIR, "data", "eval_results")
 os.makedirs(EVAL_OUT_DIR, exist_ok=True)
 
 RETRIEVER_SYSTEM_PROMPT = """You are an Expert Scientific Retriever Agent.
@@ -167,7 +167,7 @@ def main():
                 
     print(f"Loaded {len(records)} test records.")
     
-    num_samples = min(5, len(records))
+    num_samples = len(records)
     samples = random.sample(records, num_samples)
 
     simulation_results = []
