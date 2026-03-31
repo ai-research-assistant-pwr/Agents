@@ -19,7 +19,7 @@ if AGENTS_DIR not in sys.path:
 
 from src.sft.utils.config import CONFIG
 
-DATASETS_DIR = os.path.join(SCRIPT_DIR, CONFIG["paths"]["dataset_prepped"])
+DATASETS_DIR = os.path.join(AGENTS_DIR, CONFIG["paths"]["dataset_prepped"])
 MODELS_DIR = os.path.join(CONFIG["paths"]["base_path"], CONFIG["paths"]["models_dir"])
 MODELS_OUT_DIR = os.path.join(CONFIG["paths"]["base_path"], CONFIG["paths"]["models_output_dir"])
 
