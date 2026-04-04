@@ -49,9 +49,9 @@ from app.generator.api_llm_generator import APILLMGenerator
 from app.retriever.api_llm_retriever import APILLMRetriever
 
 CONFIG_PATH = "config/app/config.yaml"
-DEFAULT_CSV = "data/synthetic_prompts_gemini-3-flash-preview_simpler.csv"
+DEFAULT_CSV = "data/synthetic_prompts_gemini-3-flash-preview.csv"
 QUERY_COLUMN = "generated_prompt"
-DEFAULT_SAMPLE_SIZE = 2
+DEFAULT_SAMPLE_SIZE = 8
 
 # Provider classes available for random routing.
 PROVIDERS: dict[str, type] = {
@@ -61,8 +61,8 @@ PROVIDERS: dict[str, type] = {
 # Model pool used by RandomAPIClient.
 # weight controls relative selection probability (higher = more likely).
 MODELS: dict[str, dict] = {
-    "gemini-3-flash-preview": {"provider": "google", "weight": 7},
-    "gemini-3.1-flash-lite-preview": {"provider": "google", "weight": 30},
+    "gemini-3-flash-preview": {"provider": "google", "weight": 1},
+    "gemini-3.1-flash-lite-preview": {"provider": "google", "weight": 1},
 }
 
 
