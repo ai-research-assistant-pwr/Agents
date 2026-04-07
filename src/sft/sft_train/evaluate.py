@@ -6,7 +6,7 @@ import argparse
 from datetime import datetime
 import torch
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,21 +25,25 @@ MODELS_OUT_DIR = os.path.join(CONFIG["paths"]["base_path"], CONFIG["paths"]["mod
 EVAL_OUT_DIR = os.path.join(AGENTS_DIR, "data", "eval_results")
 os.makedirs(EVAL_OUT_DIR, exist_ok=True)
 
+
 def extract_tag(text: str, tag: str) -> str:
-    """Extracts content between <tag> and </tag> from the given text. Returns empty string if not found."""
     pattern = rf"<{tag}>(.*?)</{tag}>"
     match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
     return match.group(1).strip() if match else ""
 
+
 def check_format(text: str, required_tags: list) -> bool:
-    """Checks if all required tags are present in the generated text."""
+    """Strict format check: exactly one tag + non-empty content."""
     for tag in required_tags:
-        if f"<{tag}>" not in text or f"</{tag}>" not in text:
+        matches = re.findall(rf"<{tag}>(.*?)</{tag}>", text, re.DOTALL | re.IGNORECASE)
+        if len(matches) != 1:
+            return False
+        if not matches[0].strip():
             return False
     return True
 
+
 def calculate_grounding(hypothesis: str, extracted_info_str: str) -> float:
-    """Checks how many of the variables from the extracted info are mentioned in the hypothesis."""
     if not hypothesis or not extracted_info_str:
         return None
     try:
@@ -53,22 +57,22 @@ def calculate_grounding(hypothesis: str, extracted_info_str: str) -> float:
 
     hyp_lower = hypothesis.lower()
     matched = 0
-    
+
     for v in variables:
         v_clean = v.lower().split("(")[0].strip()
-        
+
         if v_clean in hyp_lower:
             matched += 1
             continue
-            
+
         words = [w for w in re.findall(r'\b\w+\b', v_clean) if len(w) > 2]
         if words and all(word in hyp_lower for word in words):
             matched += 1
 
     return matched / len(variables)
 
+
 def extract_json_from_user_prompt(user_content: str, marker: str) -> str:
-    """Extracts a JSON block with variables from the user prompt."""
     idx = user_content.find(marker)
     if idx == -1:
         return ""
@@ -78,19 +82,19 @@ def extract_json_from_user_prompt(user_content: str, marker: str) -> str:
         after = after[:next_marker.start()]
     return after.strip()
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Lightweight SFT Evaluation")
-    parser.add_argument("--task", type=str, required=True, choices=["retriever", "generator"], 
-                        help="Which agent to evaluate")
-    parser.add_argument("--split", type=str, default="test", choices=["eval", "test"],
-                        help="Dataset split (default: test)")
+    parser.add_argument("--task", type=str, required=True, choices=["retriever", "generator"])
+    parser.add_argument("--split", type=str, default="test", choices=["eval", "test"])
     return parser.parse_args()
+
 
 def main():
     args = parse_args()
     task = args.task
     split = args.split
-    
+
     print(f"\n{'='*50}")
     print(f" FAST EVALUATION: {task.upper()} on {split.upper()} split")
     print(f"{'='*50}\n")
@@ -103,14 +107,14 @@ def main():
     base_model_key = f"{task}_base_model"
     BASE_MODEL_ID = CONFIG["training"][base_model_key]
     safe_name = BASE_MODEL_ID.split("/")[-1]
-    
+
     MODEL_PATH = os.path.join(MODELS_DIR, BASE_MODEL_ID)
     if not os.path.exists(MODEL_PATH):
-        MODEL_PATH = BASE_MODEL_ID 
-        
+        MODEL_PATH = BASE_MODEL_ID
+
     LORA_PATH = os.path.join(MODELS_OUT_DIR, f"lora_{task}_{safe_name}")
     if not os.path.exists(LORA_PATH):
-        print(f"ERROR: LoRA adapter not found at {LORA_PATH}. Run SFT first!")
+        print(f"ERROR: LoRA adapter not found at {LORA_PATH}")
         sys.exit(1)
 
     records = []
@@ -118,25 +122,21 @@ def main():
         for line in f:
             if line.strip():
                 records.append(json.loads(line))
+
     print(f"Loaded {len(records)} test records.")
 
-    print("Loading tokenizer and model...")
-    tokenizer = AutoTokenizer.from_pretrained(
-        BASE_MODEL_ID, 
-        trust_remote_code=True
-    )
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-
     tokenizer.padding_side = "left"
 
     base_model = AutoModelForCausalLM.from_pretrained(
-        MODEL_PATH, 
-        torch_dtype=torch.bfloat16, 
-        device_map="auto", 
+        MODEL_PATH,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
         trust_remote_code=True
     )
-    
+
     model = PeftModel.from_pretrained(base_model, LORA_PATH)
     model.eval()
 
@@ -148,32 +148,36 @@ def main():
         required_tags = ["is_answerable", "reasoning", "hypothesis", "natural_hypothesis", "falsification_criteria"]
 
     results_log = []
+
     correct_flags = 0
     correct_formats = 0
     grounding_scores = []
 
+    missing_flag = 0
+    output_lengths = []
+
     print("\nStarting inference...")
+
     for rec in tqdm(records):
         prompt_id = rec.get("prompt_id", "unknown")
         messages = rec["messages"]
-        
+
         input_msgs = [m for m in messages if m["role"] != "assistant"]
         gt_msg = next((m["content"] for m in messages if m["role"] == "assistant"), "")
-        
+
         extracted_info_json = ""
         if task == "generator":
             user_content = next((m["content"] for m in messages if m["role"] == "user"), "")
             extracted_info_json = extract_json_from_user_prompt(user_content, "EXTRACTED:")
 
-        prompt = tokenizer.apply_chat_template(input_msgs, tokenize=False, add_generation_prompt=True)
         inputs = tokenizer.apply_chat_template(
-            input_msgs, 
-            tokenize=True, 
-            add_generation_prompt=True, 
+            input_msgs,
+            tokenize=True,
+            add_generation_prompt=True,
             return_tensors="pt",
             return_dict=True
         ).to(model.device)
-        
+
         input_len = inputs["input_ids"].shape[1]
 
         with torch.no_grad():
@@ -184,20 +188,30 @@ def main():
                 pad_token_id=tokenizer.pad_token_id,
                 repetition_penalty=1.15
             )
-            
+
         pred_text = tokenizer.decode(outputs[0][input_len:], skip_special_tokens=True)
-        
+        output_len = len(tokenizer.encode(pred_text))
+        output_lengths.append(output_len)
+
         gt_flag = extract_tag(gt_msg, flag_tag)
         pred_flag = extract_tag(pred_text, flag_tag)
-        
-        is_flag_correct = (gt_flag.lower() == pred_flag.lower()) if gt_flag and pred_flag else False
+
+        if not pred_flag:
+            missing_flag += 1
+
+        is_flag_correct = False
+        if gt_flag and pred_flag:
+            is_flag_correct = (gt_flag.lower() == pred_flag.lower())
+
         is_format_correct = check_format(pred_text, required_tags)
-        
-        if is_flag_correct: correct_flags += 1
-        if is_format_correct: correct_formats += 1
+
+        if is_flag_correct:
+            correct_flags += 1
+        if is_format_correct:
+            correct_formats += 1
 
         grounding_val = None
-        if task == "generator" and pred_flag.lower() == "true":
+        if task == "generator":
             pred_hyp = extract_tag(pred_text, "hypothesis")
             grounding_val = calculate_grounding(pred_hyp, extracted_info_json)
             if grounding_val is not None:
@@ -210,29 +224,47 @@ def main():
             "flag_correct": is_flag_correct,
             "format_correct": is_format_correct,
             "grounding_rate": grounding_val,
+            "output_len": output_len,
             "generated_text": pred_text
         })
 
     acc = (correct_flags / len(records)) * 100
     fmt = (correct_formats / len(records)) * 100
+    missing_rate = (missing_flag / len(records)) * 100
     avg_grounding = (sum(grounding_scores) / len(grounding_scores) * 100) if grounding_scores else 0.0
+    avg_len = sum(output_lengths) / len(output_lengths)
 
     print(f"\n{'='*50}")
     print(f" QUICK EVALUATION RESULTS: {task.upper()}")
     print(f"{'='*50}")
     print(f"Total Test Cases:   {len(records)}")
-    print(f"Format Compliance:  {fmt:.2f}% (All XML tags successfully generated)")
-    print(f"Boolean Accuracy:   {acc:.2f}% (Correctly predicted <{flag_tag}>)")
+    print(f"Format Compliance:  {fmt:.2f}%")
+    print(f"Boolean Accuracy:   {acc:.2f}%")
+    print(f"Missing Flag Rate:  {missing_rate:.2f}%")
+    print(f"Avg Output Length:  {avg_len:.1f} tokens")
+
     if task == "generator":
-        print(f"Avg Grounding Rate: {avg_grounding:.2f}% (Variables used in hypothesis)")
+        print(f"Avg Grounding Rate: {avg_grounding:.2f}%")
+
     print(f"{'='*50}\n")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = os.path.join(EVAL_OUT_DIR, f"fast_eval_{task}_{timestamp}.json")
+
     with open(output_file, "w", encoding="utf-8") as f:
-        json.dump({"summary": {"accuracy": acc, "format": fmt, "grounding": avg_grounding}, "details": results_log}, f, indent=4, ensure_ascii=False)
-        
+        json.dump({
+            "summary": {
+                "accuracy": acc,
+                "format": fmt,
+                "missing_flag": missing_rate,
+                "grounding": avg_grounding,
+                "avg_length": avg_len
+            },
+            "details": results_log
+        }, f, indent=4, ensure_ascii=False)
+
     print(f"Detailed logs saved to: {output_file}")
+
 
 if __name__ == "__main__":
     main()
