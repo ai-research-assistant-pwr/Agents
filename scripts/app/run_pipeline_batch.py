@@ -10,18 +10,21 @@ Explorer is selected from config (explorer.type):
     - "weaviate"  WeaviateExplorer  (Qwen3-Embedding-8B + Weaviate vector DB)
     - "const"     ConstExplorer     (placeholder, for testing without a DB)
 
-The API client randomly selects a model on each call weighted by the MODELS
-table below. Add or adjust entries there to change the pool.
+For every row a model is randomly selected from the MODELS list below,
+weighted by the 'weight' field. The matching API client is instantiated fresh
+for that row. Add or adjust entries in MODELS to change the pool.
 
 Results are written to a CSV file in the outputs/ directory (one row per query).
 
-Requires GOOGLE_API_KEY to be set in the environment or in a .env file at the
-project root.
+Requires the API key for each provider you include in MODELS to be set in the
+environment or in a .env file at the project root (GOOGLE_API_KEY,
+OPENAI_API_KEY, or CEREBRAS_API_KEY).
 """
 
 import argparse
 import csv
 import os
+import random
 import sys
 import time
 from datetime import datetime
@@ -40,8 +43,10 @@ env_path = os.path.join(PROJECT_ROOT, ".env")
 load_dotenv(env_path)
 
 from app import App
+from app.api_client.base import BaseAPIClient
+from app.api_client.cerebras_client import CerebrasAPIClient
 from app.api_client.google_client import GoogleAPIClient
-from app.api_client.random_client import RandomAPIClient
+from app.api_client.openai_client import OpenAIAPIClient
 from app.config import load_config
 from app.explorer.const_explorer import ConstExplorer
 from app.explorer.weaviate_explorer import WeaviateExplorer
@@ -53,17 +58,32 @@ DEFAULT_CSV = "data/synthetic_prompts_gemini-3-flash-preview.csv"
 QUERY_COLUMN = "generated_prompt"
 DEFAULT_SAMPLE_SIZE = 8
 
-# Provider classes available for random routing.
-PROVIDERS: dict[str, type] = {
+# Maps provider name -> client class.
+PROVIDERS: dict[str, type[BaseAPIClient]] = {
     "google": GoogleAPIClient,
+    "openai": OpenAIAPIClient,
+    "cerebras": CerebrasAPIClient,
 }
 
-# Model pool used by RandomAPIClient.
+# Model pool: each entry needs 'name', 'provider', and 'weight'.
 # weight controls relative selection probability (higher = more likely).
-MODELS: dict[str, dict] = {
-    "gemini-3-flash-preview": {"provider": "google", "weight": 1},
-    "gemini-3.1-flash-lite-preview": {"provider": "google", "weight": 1},
-}
+MODELS: list[dict] = [
+    {"name": "gemini-3-flash-preview", "provider": "google", "weight": 1},
+    {"name": "gemini-3.1-flash-lite-preview", "provider": "google", "weight": 1},
+    {"name": "gpt-5.4-mini", "provider": "openai", "weight": 1},
+]
+
+
+def select_model() -> dict:
+    """Randomly pick one model config from MODELS, respecting weights."""
+    weights = [m["weight"] for m in MODELS]
+    return random.choices(MODELS, weights=weights, k=1)[0]
+
+
+def build_api_client(model_cfg: dict) -> BaseAPIClient:
+    """Instantiate the API client for the given model config dict."""
+    client_cls = PROVIDERS[model_cfg["provider"]]
+    return client_cls(model=model_cfg["name"])
 
 
 def build_explorer(config: dict):
@@ -98,7 +118,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_SAMPLE_SIZE,
         help=f"Number of rows to sample from the CSV (default: {DEFAULT_SAMPLE_SIZE}). "
-             "Pass -1 to run all rows.",
+        "Pass -1 to run all rows.",
     )
     parser.add_argument(
         "--seed",
@@ -126,13 +146,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_queries(csv_path: str, query_column: str, sample_size: int, seed: int) -> pd.DataFrame:
+def load_queries(
+    csv_path: str, query_column: str, sample_size: int, seed: int
+) -> pd.DataFrame:
     """Load and optionally sample rows from the CSV file.
 
     Returns a DataFrame with at least the query column. All original columns
     are kept so that metadata can be written to the output file.
     """
-    abs_path = csv_path if os.path.isabs(csv_path) else os.path.join(PROJECT_ROOT, csv_path)
+    abs_path = (
+        csv_path if os.path.isabs(csv_path) else os.path.join(PROJECT_ROOT, csv_path)
+    )
     df = pd.read_csv(abs_path)
 
     if query_column not in df.columns:
@@ -151,13 +175,6 @@ def load_queries(csv_path: str, query_column: str, sample_size: int, seed: int) 
 def main() -> None:
     args = parse_args()
 
-    if "GOOGLE_API_KEY" not in os.environ:
-        print("ERROR: GOOGLE_API_KEY is not set.")
-        print(
-            "Set it in your environment or add it to a .env file at the project root."
-        )
-        sys.exit(1)
-
     config = load_config(CONFIG_PATH)
     explorer_type = config.get("explorer", {}).get("type", "const")
 
@@ -165,7 +182,9 @@ def main() -> None:
     df = load_queries(args.csv, args.query_column, args.sample_size, args.seed)
     n_queries = len(df)
 
-    model_pool = ", ".join(f"{name}(w={cfg['weight']})" for name, cfg in MODELS.items())
+    model_pool = ", ".join(
+        f"{m['name']}(provider={m['provider']}, w={m['weight']})" for m in MODELS
+    )
     print(f"Explorer        : {explorer_type}")
     print(f"Model pool      : {model_pool}")
     print(f"Refinements     : {args.refinement_turns}")
@@ -175,21 +194,8 @@ def main() -> None:
     print(f"Sample size     : {n_queries} queries (seed={args.seed})")
     print()
 
-    # Wire up the pipeline components (shared across all queries)
-    api_client = RandomAPIClient(providers=PROVIDERS, models=MODELS)
+    # Explorer is shared across all queries (may hold a DB connection).
     explorer = build_explorer(config)
-    retriever = APILLMRetriever(api_client=api_client)
-    generator = APILLMGenerator(api_client=api_client)
-
-    app = App(
-        explorer=explorer,
-        retriever=retriever,
-        generator=generator,
-        config_path=CONFIG_PATH,
-    )
-    app.config.setdefault("pipeline", {})
-    app.config["pipeline"]["save_steps"] = args.save_steps
-    app.config["pipeline"]["refinement_turns"] = args.refinement_turns
 
     # Prepare output path
     if args.output:
@@ -206,11 +212,32 @@ def main() -> None:
 
     for idx, row in df.iterrows():
         query = row[args.query_column]
+
+        # Select a model for this row and build a fresh client.
+        model_cfg = select_model()
+        model_name = model_cfg["name"]
+        provider = model_cfg["provider"]
+
         print(f"[{idx + 1}/{n_queries}] Running pipeline...")
-        print(f"  Query: {str(query)[:120]}{'...' if len(str(query)) > 120 else ''}")
+        print(f"  Query : {str(query)[:120]}{'...' if len(str(query)) > 120 else ''}")
+        print(f"  Model : {model_name}  (provider={provider})")
 
         t0 = time.time()
         try:
+            api_client = build_api_client(model_cfg)
+            retriever = APILLMRetriever(api_client=api_client)
+            generator = APILLMGenerator(api_client=api_client)
+
+            app = App(
+                explorer=explorer,
+                retriever=retriever,
+                generator=generator,
+                config_path=CONFIG_PATH,
+            )
+            app.config.setdefault("pipeline", {})
+            app.config["pipeline"]["save_steps"] = args.save_steps
+            app.config["pipeline"]["refinement_turns"] = args.refinement_turns
+
             result = app.run(query)
             elapsed = time.time() - t0
 
@@ -221,7 +248,9 @@ def main() -> None:
             record["status"] = "ok"
             results.append(record)
 
-            print(f"  Done in {elapsed:.1f}s  |  model={record['model_used']}  |  hypotheses={len(result.hypotheses)}")
+            print(
+                f"  Done in {elapsed:.1f}s  |  model={record['model_used']}  |  hypotheses={len(result.hypotheses)}"
+            )
             for i, h in enumerate(result.hypotheses, start=1):
                 print(f"    {i}. {h[:100]}{'...' if len(h) > 100 else ''}")
 
@@ -229,7 +258,7 @@ def main() -> None:
             elapsed = time.time() - t0
             record = row.to_dict()
             record["hypotheses"] = ""
-            record["model_used"] = ""
+            record["model_used"] = model_name
             record["elapsed_seconds"] = round(elapsed, 2)
             record["status"] = f"error: {exc}"
             results.append(record)
