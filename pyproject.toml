@@ -19,7 +19,9 @@ dependencies = [
     "langchain-google-genai",
     "torch",
     "pyyaml",
-    "google-genai"
+    "google-genai",
+    "openai",
+    "cerebras-cloud-sdk"
 ]
 
 [tool.setuptools.packages.find]

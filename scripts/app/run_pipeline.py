@@ -9,15 +9,18 @@ Explorer is selected from config (explorer.type):
     - "weaviate"  WeaviateExplorer  (Qwen3-Embedding-8B + Weaviate vector DB)
     - "const"     ConstExplorer     (placeholder, for testing without a DB)
 
-The API client randomly selects a model on each call weighted by the MODELS
-table below. Add or adjust entries there to change the pool.
+A model is randomly selected once at startup from the MODELS list below,
+weighted by the 'weight' field. The matching API client is then instantiated
+and used for the entire run. Add or adjust entries in MODELS to change the pool.
 
-Requires GOOGLE_API_KEY to be set in the environment or in a .env file at the
-project root.
+Requires the API key for the selected provider to be set in the environment or
+in a .env file at the project root (GOOGLE_API_KEY, OPENAI_API_KEY, or
+CEREBRAS_API_KEY).
 """
 
 import argparse
 import os
+import random
 import sys
 
 from dotenv import load_dotenv
@@ -32,8 +35,10 @@ env_path = os.path.join(PROJECT_ROOT, ".env")
 load_dotenv(env_path)
 
 from app import App
+from app.api_client.base import BaseAPIClient
+from app.api_client.cerebras_client import CerebrasAPIClient
 from app.api_client.google_client import GoogleAPIClient
-from app.api_client.random_client import RandomAPIClient
+from app.api_client.openai_client import OpenAIAPIClient
 from app.config import load_config
 from app.explorer.const_explorer import ConstExplorer
 from app.explorer.weaviate_explorer import WeaviateExplorer
@@ -41,21 +46,34 @@ from app.generator.api_llm_generator import APILLMGenerator
 from app.retriever.api_llm_retriever import APILLMRetriever
 
 CONFIG_PATH = "config/app/config.yaml"
-DEFAULT_QUERY = (
-    "I am interested in Mixtures of Experts (MoE) models for efficient inference. What are some recent research papers on this topic, and what hypotheses can we generate about future directions in this area?"
-)
+DEFAULT_QUERY = "I am interested in Mixtures of Experts (MoE) models for efficient inference. What are some recent research papers on this topic, and what hypotheses can we generate about future directions in this area?"
 
-# Provider classes available for random routing.
-PROVIDERS: dict[str, type] = {
+# Maps provider name -> client class.
+PROVIDERS: dict[str, type[BaseAPIClient]] = {
     "google": GoogleAPIClient,
+    "openai": OpenAIAPIClient,
+    "cerebras": CerebrasAPIClient,
 }
 
-# Model pool used by RandomAPIClient.
+# Model pool: each entry needs 'name', 'provider', and 'weight'.
 # weight controls relative selection probability (higher = more likely).
-MODELS: dict[str, dict] = {
-    "gemini-3-flash-preview": {"provider": "google", "weight": 7},
-    "gemini-3.1-flash-lite-preview": {"provider": "google", "weight": 30},
-}
+MODELS: list[dict] = [
+    {"name": "gemini-3-flash-preview", "provider": "google", "weight": 1},
+    {"name": "gemini-3.1-flash-lite-preview", "provider": "google", "weight": 1},
+    {"name": "gpt-5.4-mini", "provider": "openai", "weight": 1},
+]
+
+
+def select_model() -> dict:
+    """Randomly pick one model config from MODELS, respecting weights."""
+    weights = [m["weight"] for m in MODELS]
+    return random.choices(MODELS, weights=weights, k=1)[0]
+
+
+def build_api_client(model_cfg: dict) -> BaseAPIClient:
+    """Instantiate the API client for the given model config dict."""
+    client_cls = PROVIDERS[model_cfg["provider"]]
+    return client_cls(model=model_cfg["name"])
 
 
 def build_explorer(config: dict):
@@ -96,26 +114,23 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    if "GOOGLE_API_KEY" not in os.environ:
-        print("ERROR: GOOGLE_API_KEY is not set.")
-        print(
-            "Set it in your environment or add it to a .env file at the project root."
-        )
-        sys.exit(1)
-
     config = load_config(CONFIG_PATH)
     explorer_type = config.get("explorer", {}).get("type", "const")
 
-    model_pool = ", ".join(f"{name}(w={cfg['weight']})" for name, cfg in MODELS.items())
+    # Select a model once for this run.
+    model_cfg = select_model()
+    model_name = model_cfg["name"]
+    provider = model_cfg["provider"]
+
     print(f"Explorer     : {explorer_type}")
-    print(f"Model pool   : {model_pool}")
+    print(f"Model        : {model_name}  (provider={provider})")
     print(f"Refinements  : {args.refinement_turns}")
     print(f"Save steps   : {args.save_steps}")
     print(f"Query        : {args.query}")
     print()
 
-    # Wire up the pipeline components
-    api_client = RandomAPIClient(providers=PROVIDERS, models=MODELS)
+    # Instantiate the client (raises ValueError if the API key is missing).
+    api_client = build_api_client(model_cfg)
     explorer = build_explorer(config)
     retriever = APILLMRetriever(api_client=api_client)
     generator = APILLMGenerator(api_client=api_client)
