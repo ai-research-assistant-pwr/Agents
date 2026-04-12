@@ -9,6 +9,46 @@ from app.retriever.prompts import (
 )
 
 
+def _parse_chunks(explorer_output: ExplorerResult) -> str:
+    """Convert raw chunk data from an ExplorerResult into formatted text.
+
+    Iterates over ``explorer_output.chunk_ids`` in order and builds a
+    human-readable representation for each chunk.  Fields recognised by
+    name (``title``, ``type``, ``paperId``, ``distance``) are used to
+    construct a header line; the ``content`` field provides the body.
+    Unknown extra fields are ignored.
+
+    Args:
+        explorer_output: The result returned by an explorer.
+
+    Returns:
+        A single string with sections separated by ``"\\n\\n---\\n\\n"``, or
+        ``"No relevant materials found."`` when no chunks are present.
+    """
+    sections: list[str] = []
+    for chunk_id in explorer_output.chunk_ids:
+        chunk = explorer_output.chunks.get(chunk_id, {})
+
+        # Build an optional header from well-known metadata fields.
+        type_ = chunk.get("type", "")
+        title = chunk.get("title", "")
+        paper_id = chunk.get("paperId", "")
+        distance = chunk.get("distance")
+
+        header_parts = []
+        if type_ or title or paper_id:
+            dist_str = f" (distance={distance:.4f})" if distance is not None else ""
+            header_parts.append(
+                f"[{type_}] {title or 'Unknown'} (id={paper_id}){dist_str}"
+            )
+
+        body = chunk.get("content", "")
+        section = "\n".join(header_parts + [body]) if header_parts else body
+        sections.append(section)
+
+    return "\n\n---\n\n".join(sections) if sections else "No relevant materials found."
+
+
 class APILLMRetriever(BaseRetriever):
     """Retriever that uses an LLM API to filter and rank explorer output."""
 
@@ -16,18 +56,22 @@ class APILLMRetriever(BaseRetriever):
         self.api_client = api_client
 
     def retrieve(self, prompt: str, explorer_output: ExplorerResult) -> RetrieverResult:
-        """Call the LLM to extract the most relevant information.
+        """Parse explorer chunks into text, then call the LLM to extract the
+        most relevant information.
 
         Args:
             prompt: The user's research prompt / question.
-            explorer_output: Result returned by the explorer.
+            explorer_output: Result returned by the explorer (chunk IDs +
+                raw chunk data).
 
         Returns:
             A RetrieverResult with the LLM-filtered content.
         """
+        parsed_text = _parse_chunks(explorer_output)
+
         user_content = RETRIEVE_USER_TEMPLATE.format(
             prompt=prompt,
-            explorer_output=explorer_output.content,
+            explorer_output=parsed_text,
         )
         messages = [
             Message(role="system", content=RETRIEVER_SYSTEM_PROMPT),

@@ -14,9 +14,14 @@ class BaseRetriever(ABC):
     def retrieve(self, prompt: str, explorer_output: ExplorerResult) -> RetrieverResult:
         """Filter and rank the explorer output for the most relevant information.
 
+        The ``explorer_output`` now carries raw chunk IDs and chunk data rather
+        than pre-formatted text.  Implementations are responsible for converting
+        the chunk data into a textual representation before processing.
+
         Args:
             prompt: The user's research prompt / question.
-            explorer_output: Result returned by the explorer.
+            explorer_output: Result returned by the explorer (chunk IDs + raw
+                chunk data).
 
         Returns:
             A RetrieverResult containing the most important filtered information.

@@ -14,20 +14,24 @@ class ConstExplorer(BaseExplorer):
         "and return relevant papers, entities, and relationships."
     )
 
+    CHUNK_ID = "const_chunk_0"
+
     def __init__(self, text: str | None = None) -> None:
         self.text = text if text is not None else self.DEFAULT_TEXT
 
     def explore(self, prompt: str) -> ExplorerResult:
-        """Return constant text regardless of the prompt.
+        """Return a single constant chunk regardless of the prompt.
 
         Args:
             prompt: The user's research prompt (ignored).
 
         Returns:
-            An ExplorerResult with the constant text and metadata noting this
-            is a placeholder.
+            An ExplorerResult with one placeholder chunk ID and metadata
+            noting this is a placeholder.
         """
+        chunk_id = self.CHUNK_ID
         return ExplorerResult(
-            content=self.text,
+            chunk_ids=[chunk_id],
+            chunks={chunk_id: {"content": self.text}},
             metadata={"source": "const_explorer", "prompt_received": prompt},
         )

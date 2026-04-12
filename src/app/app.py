@@ -61,10 +61,17 @@ class App:
                 self._save_step(
                     save_dir,
                     f"03_feedback_turn_{i + 1}",
-                    {"feedback": feedback},
+                    asdict(feedback),
                 )
 
-            retriever_output = self.retriever.refine(prompt, retriever_output, feedback)
+            if feedback.skip_feedback:
+                # Generator is satisfied with the current context — skip
+                # retriever refinement and proceed directly to generation.
+                break
+
+            retriever_output = self.retriever.refine(
+                prompt, retriever_output, feedback.content
+            )
             if save_dir:
                 self._save_step(
                     save_dir,

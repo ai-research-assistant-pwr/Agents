@@ -18,6 +18,10 @@ class BaseExplorer(ABC):
             prompt: The user's research prompt / question.
 
         Returns:
-            An ExplorerResult containing relevant materials and metadata.
+            An ExplorerResult whose ``chunk_ids`` lists the identifiers of the
+            retrieved chunks in relevance order, and whose ``chunks`` dict maps
+            each ID to its raw data (must include at least a ``"content"`` key).
+            Text parsing / formatting is intentionally left to the downstream
+            retriever so that this layer stays storage-agnostic.
         """
         ...

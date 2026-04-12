@@ -109,7 +109,10 @@ class WeaviateExplorer(BaseExplorer):
             prompt: The user's research prompt / question.
 
         Returns:
-            ExplorerResult with concatenated paper excerpts as content.
+            ExplorerResult whose ``chunk_ids`` contains the Weaviate object
+            UUIDs in relevance order and whose ``chunks`` maps each UUID to
+            the raw object properties plus a ``"distance"`` field.  Text
+            formatting is left to the downstream retriever.
         """
         logger.info("Embedding query (%d chars)", len(prompt))
         vector = self._embed(prompt)
@@ -123,20 +126,19 @@ class WeaviateExplorer(BaseExplorer):
             return_metadata=MetadataQuery(distance=True),
         )
 
-        sections: list[str] = []
+        chunk_ids: list[str] = []
+        chunks: dict[str, dict] = {}
         for obj in response.objects:
-            p = obj.properties
-            distance = obj.metadata.distance
-            dist_str = f" (distance={distance:.4f})" if distance is not None else ""
-            header = f"[{p.get('type', '')}] {p.get('title', 'Unknown')} (id={p.get('paperId', '')}){dist_str}"
-            sections.append(f"{header}\n{p.get('content', '')}")
-
-        full_content = (
-            "\n\n---\n\n".join(sections) if sections else "No relevant papers found."
-        )
+            uid = str(obj.uuid)
+            chunk_ids.append(uid)
+            chunks[uid] = {
+                **obj.properties,
+                "distance": obj.metadata.distance,
+            }
 
         return ExplorerResult(
-            content=full_content,
+            chunk_ids=chunk_ids,
+            chunks=chunks,
             metadata={
                 "source": "weaviate_explorer",
                 "prompt": prompt,

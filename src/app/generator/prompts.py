@@ -7,6 +7,22 @@ class HypothesesResponse(BaseModel):
     hypotheses: list[str]
 
 
+class FeedbackResponse(BaseModel):
+    """Structured output schema for the feedback step.
+
+    Attributes:
+        skip_feedback: Set to ``true`` when the retrieved context is already
+            sufficient and no further retriever refinement is needed.  The
+            pipeline will then proceed directly to hypothesis generation.
+        content: The feedback text for the retriever.  Should be an empty
+            string (or a brief acknowledgement) when ``skip_feedback`` is
+            ``true``.
+    """
+
+    skip_feedback: bool
+    content: str
+
+
 GENERATOR_SYSTEM_PROMPT = (
     "You are an Expert Research Scientist specializing in scientific hypothesis "
     "generation. You operate as part of an automated research pipeline: a retriever "
@@ -94,7 +110,15 @@ FEEDBACK_SYSTEM_PROMPT = (
     "- Remember that the retriever cannot fetch new documents. Your feedback should focus "
     "on deeper extraction, better organization, and more careful reading of the existing "
     "materials, not on requesting entirely new sources.\n"
-    "- Frame feedback in terms of what would improve hypothesis generation quality."
+    "- Frame feedback in terms of what would improve hypothesis generation quality.\n\n"
+    "## Skip Option\n\n"
+    "If the retrieved context is already sufficient to generate strong, well-grounded "
+    "hypotheses — meaning it is complete, specific, mechanistically detailed, and "
+    "well-organized — you may skip the refinement step entirely.  In that case set "
+    "``skip_feedback`` to ``true`` and provide a brief confirmation in ``content`` "
+    "(e.g. 'Context is sufficient; proceeding to hypothesis generation.').  Only skip "
+    "when you are genuinely satisfied that further retriever refinement would add little "
+    "value."
 )
 
 FEEDBACK_USER_TEMPLATE = (

@@ -5,9 +5,10 @@ from app.generator.prompts import (
     FEEDBACK_USER_TEMPLATE,
     GENERATE_USER_TEMPLATE,
     GENERATOR_SYSTEM_PROMPT,
+    FeedbackResponse,
     HypothesesResponse,
 )
-from app.models import GeneratorResult, RetrieverResult
+from app.models import FeedbackResult, GeneratorResult, RetrieverResult
 
 
 class APILLMGenerator(BaseGenerator):
@@ -47,15 +48,22 @@ class APILLMGenerator(BaseGenerator):
             },
         )
 
-    def provide_feedback(self, prompt: str, retriever_output: RetrieverResult) -> str:
-        """Call the LLM to review retriever output and request refinements.
+    def provide_feedback(
+        self, prompt: str, retriever_output: RetrieverResult
+    ) -> FeedbackResult:
+        """Call the LLM to review retriever output and decide whether to refine.
+
+        Uses structured output so the LLM can explicitly signal that the
+        context is already sufficient (``skip_feedback=True``) instead of
+        always requesting retriever refinement.
 
         Args:
             prompt: The user's research prompt / question.
             retriever_output: Current result from the retriever.
 
         Returns:
-            A feedback string for the retriever.
+            A FeedbackResult with ``skip_feedback`` set to ``True`` to bypass
+            retriever refinement, or ``False`` with actionable feedback text.
         """
         user_content = FEEDBACK_USER_TEMPLATE.format(
             prompt=prompt,
@@ -66,4 +74,14 @@ class APILLMGenerator(BaseGenerator):
             Message(role="user", content=user_content),
         ]
 
-        return self.api_client.call(messages).content
+        result = self.api_client.call(messages, response_schema=FeedbackResponse)
+
+        return FeedbackResult(
+            skip_feedback=result.content.skip_feedback,
+            content=result.content.content,
+            metadata={
+                "source": "api_llm_generator",
+                "model": result.model,
+                "step": "feedback",
+            },
+        )
