@@ -4,6 +4,7 @@ Usage:
     python scripts/hypotheses_evaluation/evaluate_run.py
     python scripts/hypotheses_evaluation/evaluate_run.py --run-dir outputs/20260404_130041
     python scripts/hypotheses_evaluation/evaluate_run.py --run-dir outputs/20260404_130041 --model gemini-2.5-flash
+    python scripts/hypotheses_evaluation/evaluate_run.py --provider openai --model gpt-4o
 
 When --run-dir is omitted the script automatically picks the most recently
 modified run subdirectory inside outputs/.
@@ -17,8 +18,9 @@ Each generated hypothesis is scored on three metrics:
 If the run includes retriever-refinement turns the last refined retriever
 output is used as the evidence source for groundedness evaluation.
 
-Requires GOOGLE_API_KEY to be set in the environment or in a .env file at
-the project root.
+Requires GOOGLE_API_KEY (for --provider google) or OPENAI_API_KEY (for
+--provider openai) to be set in the environment or in a .env file at the
+project root.
 """
 
 import argparse
@@ -49,7 +51,9 @@ sys.modules.setdefault("weaviate", _weaviate)
 sys.modules.setdefault("weaviate.classes", _weaviate_classes)
 sys.modules.setdefault("weaviate.classes.query", _weaviate_classes_query)
 
+from app.api_client.base import BaseAPIClient
 from app.api_client.google_client import GoogleAPIClient
+from app.api_client.openai_client import OpenAIAPIClient
 from hypotheses_evaluation import (
     ClarityJudge,
     GroundednessJudge,
@@ -58,7 +62,12 @@ from hypotheses_evaluation import (
 )
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODELS = {
+    "google": "gemini-3-flash-preview",
+    "openai": "gpt-4o",
+}
+PROVIDERS = list(DEFAULT_MODELS.keys())
+DEFAULT_PROVIDER = "google"
 
 # Width of the label column in the per-hypothesis table.
 _LABEL_W = 15
@@ -186,7 +195,7 @@ def _print_summary(all_scores: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def evaluate_run(run_dir: Path, model: str) -> None:
+def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     # --- Load pipeline artifacts ---
     explorer_data = _load_json(run_dir / "01_explorer.json")
     retriever_path = _find_last_retriever_file(run_dir)
@@ -213,7 +222,6 @@ def evaluate_run(run_dir: Path, model: str) -> None:
     _print_rule()
 
     # --- Instantiate judges ---
-    api_client = GoogleAPIClient(model=model)
     groundedness_judge = GroundednessJudge(api_client)
     relevancy_judge = RelevancyJudge(api_client)
     clarity_judge = ClarityJudge(api_client)
@@ -270,26 +278,62 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--provider",
+        type=str,
+        choices=PROVIDERS,
+        default=DEFAULT_PROVIDER,
+        help=f"LLM provider to use for evaluation (default: {DEFAULT_PROVIDER}).",
+    )
+    parser.add_argument(
         "--model",
         type=str,
-        default=DEFAULT_MODEL,
-        help=f"Gemini model to use for all three judges (default: {DEFAULT_MODEL}).",
+        default=None,
+        help=(
+            "Model to use for all three judges. "
+            f"Defaults depend on provider: "
+            + ", ".join(f"{k}={v}" for k, v in DEFAULT_MODELS.items())
+            + "."
+        ),
     )
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def _build_api_client(provider: str, model: str) -> BaseAPIClient:
+    """Instantiate the appropriate API client for the given provider."""
+    if provider == "google":
+        return GoogleAPIClient(model=model)
+    elif provider == "openai":
+        return OpenAIAPIClient(model=model)
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
 
-    if "GOOGLE_API_KEY" not in os.environ:
-        print("ERROR: GOOGLE_API_KEY is not set.")
+
+def _check_api_key(provider: str) -> None:
+    """Verify the required API key is present in the environment."""
+    key_map = {
+        "google": "GOOGLE_API_KEY",
+        "openai": "OPENAI_API_KEY",
+    }
+    key_name = key_map[provider]
+    if key_name not in os.environ:
+        print(f"ERROR: {key_name} is not set.")
         print(
             "Set it in your environment or add it to a .env file at the project root."
         )
         sys.exit(1)
 
+
+def main() -> None:
+    args = parse_args()
+
+    provider: str = args.provider
+    model: str = args.model or DEFAULT_MODELS[provider]
+
+    _check_api_key(provider)
+
     run_dir = _resolve_run_dir(args.run_dir)
-    evaluate_run(run_dir=run_dir, model=args.model)
+    api_client = _build_api_client(provider, model)
+    evaluate_run(run_dir=run_dir, model=model, api_client=api_client)
 
 
 if __name__ == "__main__":

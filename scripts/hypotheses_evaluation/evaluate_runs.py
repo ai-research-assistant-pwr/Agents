@@ -3,10 +3,17 @@
 Usage:
     python scripts/hypotheses_evaluation/evaluate_runs.py --runs-dir outputs/batch_20260409
     python scripts/hypotheses_evaluation/evaluate_runs.py --runs-dir outputs/batch_20260409 --model gemini-2.5-flash
+    python scripts/hypotheses_evaluation/evaluate_runs.py --provider openai --model gpt-4o
+    python scripts/hypotheses_evaluation/evaluate_runs.py --runs-dir outputs/batch_20260409 --workers 8
 
 Each subdirectory of --runs-dir is treated as an individual pipeline run and
 evaluated in turn.  When --runs-dir is omitted the script falls back to the
 top-level outputs/ directory and evaluates every run found there.
+
+Runs are evaluated in parallel using a thread pool (--workers controls the
+degree of parallelism; default is 4).  Each run's output is buffered and
+printed atomically once that run finishes, so the console output remains
+readable even under high concurrency.
 
 Each generated hypothesis is scored on three metrics:
     Groundedness (0-4) — how well the hypothesis is grounded in the
@@ -17,16 +24,21 @@ Each generated hypothesis is scored on three metrics:
 A per-run summary and a final aggregate summary across all runs are printed at
 the end.
 
-Requires GOOGLE_API_KEY to be set in the environment or in a .env file at
-the project root.
+Requires GOOGLE_API_KEY (for --provider google) or OPENAI_API_KEY (for
+--provider openai) to be set in the environment or in a .env file at the
+project root.
 """
 
 import argparse
+import io
 import json
 import os
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import IO
 
 import types as _types
 
@@ -49,7 +61,9 @@ sys.modules.setdefault("weaviate", _weaviate)
 sys.modules.setdefault("weaviate.classes", _weaviate_classes)
 sys.modules.setdefault("weaviate.classes.query", _weaviate_classes_query)
 
+from app.api_client.base import BaseAPIClient
 from app.api_client.google_client import GoogleAPIClient
+from app.api_client.openai_client import OpenAIAPIClient
 from hypotheses_evaluation import (
     ClarityJudge,
     GroundednessJudge,
@@ -58,7 +72,12 @@ from hypotheses_evaluation import (
 )
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
-DEFAULT_MODEL = "gemini-3.1-pro-preview"
+DEFAULT_MODELS = {
+    "google": "gemini-3.1-pro-preview",
+    "openai": "gpt-5.4",
+}
+PROVIDERS = list(DEFAULT_MODELS.keys())
+DEFAULT_PROVIDER = "openai"
 
 _LABEL_W = 15
 
@@ -111,16 +130,18 @@ def _resolve_runs_dir(arg: str | None) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _print_rule(char: str = "-", width: int = 70) -> None:
-    print(char * width)
+def _print_rule(char: str = "-", width: int = 70, out: IO[str] = sys.stdout) -> None:
+    print(char * width, file=out)
 
 
-def _print_score_row(label: str, result: JudgeResult, max_score: int) -> None:
+def _print_score_row(
+    label: str, result: JudgeResult, max_score: int, out: IO[str] = sys.stdout
+) -> None:
     bar_filled = "#" * result.score
     bar_empty = "." * (max_score - result.score)
     bar = f"[{bar_filled}{bar_empty}]"
     score_str = f"{result.score}/{max_score}"
-    print(f"  {label:<{_LABEL_W}} {score_str:>4}  {bar}  ({result.model})")
+    print(f"  {label:<{_LABEL_W}} {score_str:>4}  {bar}  ({result.model})", file=out)
     reasoning = result.reasoning.strip().replace("\n", " ")
     indent = " " * (_LABEL_W + 10)
     words = reasoning.split()
@@ -134,38 +155,38 @@ def _print_score_row(label: str, result: JudgeResult, max_score: int) -> None:
     if line:
         lines.append(" ".join(line))
     for ln in lines:
-        print(f"{indent}{ln}")
+        print(f"{indent}{ln}", file=out)
 
 
-def _print_run_summary(all_scores: list[dict]) -> None:
+def _print_run_summary(all_scores: list[dict], out: IO[str] = sys.stdout) -> None:
     """Print a compact summary table of mean scores for a single run."""
     if not all_scores:
         return
     metrics = ["groundedness", "relevancy", "clarity"]
     max_scores = {"groundedness": 4, "relevancy": 4, "clarity": 3}
-    _print_rule("=")
-    print("RUN SUMMARY")
-    _print_rule("=")
+    _print_rule("=", out=out)
+    print("RUN SUMMARY", file=out)
+    _print_rule("=", out=out)
     header = f"  {'Hypothesis':<14}" + "".join(
         f"  {m.capitalize():>13}" for m in metrics
     )
-    print(header)
-    _print_rule()
+    print(header, file=out)
+    _print_rule(out=out)
     for i, scores in enumerate(all_scores, start=1):
         row = f"  {f'#{i}':<14}"
         for m in metrics:
             s = scores[m]
             mx = max_scores[m]
             row += f"  {s}/{mx}{'':>10}"
-        print(row)
-    _print_rule()
+        print(row, file=out)
+    _print_rule(out=out)
     means_row = f"  {'Mean':<14}"
     for m in metrics:
         mean = sum(s[m] for s in all_scores) / len(all_scores)
         mx = max_scores[m]
         means_row += f"  {mean:.2f}/{mx}{'':>7}"
-    print(means_row)
-    _print_rule("=")
+    print(means_row, file=out)
+    _print_rule("=", out=out)
 
 
 def _print_aggregate_summary(run_results: list[dict]) -> None:
@@ -217,6 +238,7 @@ def evaluate_run(
     groundedness_judge: GroundednessJudge,
     relevancy_judge: RelevancyJudge,
     clarity_judge: ClarityJudge,
+    out: IO[str] = sys.stdout,
 ) -> dict | None:
     """Evaluate a single run directory.
 
@@ -229,12 +251,12 @@ def evaluate_run(
         retriever_path = _find_last_retriever_file(run_dir)
         retriever_data = _load_json(retriever_path)
     except (FileNotFoundError, KeyError) as exc:
-        print(f"  SKIP: could not load run artifacts — {exc}")
+        print(f"  SKIP: could not load run artifacts — {exc}", file=out)
         return None
 
     generator_path = run_dir / "04_generator.json"
     if not generator_path.exists():
-        print(f"  SKIP: generator output not found (run may be incomplete).")
+        print(f"  SKIP: generator output not found (run may be incomplete).", file=out)
         return None
 
     generator_data = _load_json(generator_path)
@@ -243,32 +265,32 @@ def evaluate_run(
     evidence: str = retriever_data["content"]
     hypotheses: list[str] = generator_data["hypotheses"]
 
-    _print_rule("=")
-    print(f"Run directory : {run_dir.relative_to(PROJECT_ROOT)}")
-    print(f"Evidence from : {retriever_path.name}")
-    print(f"Hypotheses    : {len(hypotheses)}")
-    print(f"Judge model   : {model}")
-    _print_rule("=")
-    print(f"Query: {query}")
-    _print_rule()
+    _print_rule("=", out=out)
+    print(f"Run directory : {run_dir.relative_to(PROJECT_ROOT)}", file=out)
+    print(f"Evidence from : {retriever_path.name}", file=out)
+    print(f"Hypotheses    : {len(hypotheses)}", file=out)
+    print(f"Judge model   : {model}", file=out)
+    _print_rule("=", out=out)
+    print(f"Query: {query}", file=out)
+    _print_rule(out=out)
 
     hypothesis_results: list[dict] = []
 
     for i, hypothesis in enumerate(hypotheses, start=1):
-        print(f"\nHypothesis {i}/{len(hypotheses)}")
-        _print_rule()
-        print(hypothesis)
-        _print_rule()
-        print("  Evaluating...")
+        print(f"\nHypothesis {i}/{len(hypotheses)}", file=out)
+        _print_rule(out=out)
+        print(hypothesis, file=out)
+        _print_rule(out=out)
+        print("  Evaluating...", file=out)
 
         g_result = groundedness_judge.judge(hypothesis=hypothesis, evidence=evidence)
         r_result = relevancy_judge.judge(hypothesis=hypothesis, query=query)
         c_result = clarity_judge.judge(hypothesis=hypothesis)
 
-        print()
-        _print_score_row("Groundedness", g_result, max_score=4)
-        _print_score_row("Relevancy", r_result, max_score=4)
-        _print_score_row("Clarity", c_result, max_score=3)
+        print(file=out)
+        _print_score_row("Groundedness", g_result, max_score=4, out=out)
+        _print_score_row("Relevancy", r_result, max_score=4, out=out)
+        _print_score_row("Clarity", c_result, max_score=3, out=out)
 
         hypothesis_results.append(
             {
@@ -292,8 +314,8 @@ def evaluate_run(
         for h in hypothesis_results
     ]
 
-    print()
-    _print_run_summary(all_scores)
+    print(file=out)
+    _print_run_summary(all_scores, out=out)
 
     metrics = ["groundedness", "relevancy", "clarity"]
     mean_scores = {m: sum(s[m] for s in all_scores) / len(all_scores) for m in metrics}
@@ -346,6 +368,31 @@ def _save_results(runs_dir: Path, model: str, run_results: list[dict]) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _build_api_client(provider: str, model: str) -> BaseAPIClient:
+    """Instantiate the appropriate API client for the given provider."""
+    if provider == "google":
+        return GoogleAPIClient(model=model)
+    elif provider == "openai":
+        return OpenAIAPIClient(model=model)
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
+
+
+def _check_api_key(provider: str) -> None:
+    """Verify the required API key is present in the environment."""
+    key_map = {
+        "google": "GOOGLE_API_KEY",
+        "openai": "OPENAI_API_KEY",
+    }
+    key_name = key_map[provider]
+    if key_name not in os.environ:
+        print(f"ERROR: {key_name} is not set.")
+        print(
+            "Set it in your environment or add it to a .env file at the project root."
+        )
+        sys.exit(1)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -364,58 +411,123 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--provider",
+        type=str,
+        choices=PROVIDERS,
+        default=DEFAULT_PROVIDER,
+        help=f"LLM provider to use for evaluation (default: {DEFAULT_PROVIDER}).",
+    )
+    parser.add_argument(
         "--model",
         type=str,
-        default=DEFAULT_MODEL,
-        help=f"Gemini model to use for all three judges (default: {DEFAULT_MODEL}).",
+        default=None,
+        help=(
+            "Model to use for all three judges. "
+            f"Defaults depend on provider: "
+            + ", ".join(f"{k}={v}" for k, v in DEFAULT_MODELS.items())
+            + "."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        metavar="N",
+        help=(
+            "Maximum number of runs to evaluate in parallel (default: 8). "
+            "Each worker uses a separate API client. "
+            "Set to 1 to disable parallelism."
+        ),
     )
     return parser.parse_args()
+
+
+def _evaluate_run_worker(
+    run_dir: Path,
+    model: str,
+    provider: str,
+    run_index: int,
+    total_runs: int,
+) -> tuple[Path, dict | None, str]:
+    """Worker that runs in a thread pool, capturing all output to a buffer.
+
+    Creates its own API client and judge instances so that concurrent workers
+    do not share any mutable state.  Returns the run directory, the result
+    dict (or None if the run was skipped), and the captured output string.
+    """
+    buf = io.StringIO()
+    print(f"\n{'#' * 70}", file=buf)
+    print(f"# Run {run_index}/{total_runs}: {run_dir.name}", file=buf)
+    print(f"{'#' * 70}", file=buf)
+
+    api_client = _build_api_client(provider, model)
+    groundedness_judge = GroundednessJudge(api_client)
+    relevancy_judge = RelevancyJudge(api_client)
+    clarity_judge = ClarityJudge(api_client)
+
+    result = evaluate_run(
+        run_dir=run_dir,
+        model=model,
+        groundedness_judge=groundedness_judge,
+        relevancy_judge=relevancy_judge,
+        clarity_judge=clarity_judge,
+        out=buf,
+    )
+    return run_dir, result, buf.getvalue()
 
 
 def main() -> None:
     args = parse_args()
 
-    if "GOOGLE_API_KEY" not in os.environ:
-        print("ERROR: GOOGLE_API_KEY is not set.")
-        print(
-            "Set it in your environment or add it to a .env file at the project root."
-        )
-        sys.exit(1)
+    provider: str = args.provider
+    model: str = args.model or DEFAULT_MODELS[provider]
+    workers: int = max(1, args.workers)
+
+    _check_api_key(provider)
 
     runs_dir = _resolve_runs_dir(args.runs_dir)
     run_dirs = _find_run_dirs(runs_dir)
 
-    print(f"Found {len(run_dirs)} run(s) in {runs_dir.relative_to(PROJECT_ROOT)}")
+    print(
+        f"Found {len(run_dirs)} run(s) in {runs_dir.relative_to(PROJECT_ROOT)} "
+        f"(workers={workers})"
+    )
 
-    api_client = GoogleAPIClient(model=args.model)
-    groundedness_judge = GroundednessJudge(api_client)
-    relevancy_judge = RelevancyJudge(api_client)
-    clarity_judge = ClarityJudge(api_client)
+    print_lock = threading.Lock()
+    results_map: dict[Path, dict | None] = {}
 
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_run = {
+            executor.submit(
+                _evaluate_run_worker, run_dir, model, provider, idx, len(run_dirs)
+            ): run_dir
+            for idx, run_dir in enumerate(run_dirs, start=1)
+        }
+
+        for future in as_completed(future_to_run):
+            run_dir_key = future_to_run[future]
+            try:
+                _, result, output = future.result()
+            except Exception as exc:
+                with print_lock:
+                    print(f"\nERROR evaluating {run_dir_key.name}: {exc}")
+                results_map[run_dir_key] = None
+            else:
+                with print_lock:
+                    print(output, end="")
+                results_map[run_dir_key] = result
+
+    # Restore submission order for the aggregate summary and saved JSON.
     run_results: list[dict] = []
-
-    for idx, run_dir in enumerate(run_dirs, start=1):
-        print(f"\n{'#' * 70}")
-        print(f"# Run {idx}/{len(run_dirs)}: {run_dir.name}")
-        print(f"{'#' * 70}")
-
-        result = evaluate_run(
-            run_dir=run_dir,
-            model=args.model,
-            groundedness_judge=groundedness_judge,
-            relevancy_judge=relevancy_judge,
-            clarity_judge=clarity_judge,
-        )
-
+    for run_dir in run_dirs:
+        result = results_map.get(run_dir)
         if result is not None:
             run_results.append({"run_name": run_dir.name, **result})
 
     print()
     _print_aggregate_summary(run_results)
 
-    out_path = _save_results(
-        runs_dir=runs_dir, model=args.model, run_results=run_results
-    )
+    out_path = _save_results(runs_dir=runs_dir, model=model, run_results=run_results)
     print(f"\nResults saved to: {out_path.relative_to(PROJECT_ROOT)}")
 
 
