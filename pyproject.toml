@@ -21,7 +21,8 @@ dependencies = [
     "pyyaml",
     "google-genai",
     "openai",
-    "cerebras-cloud-sdk"
+    "cerebras-cloud-sdk",
+    "weaviate-client"
 ]
 
 [tool.setuptools.packages.find]

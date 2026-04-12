@@ -1,6 +1,7 @@
 """Weaviate vector-database explorer using Qwen3-Embedding-8B."""
 
 import logging
+import os
 from urllib.parse import urlparse
 
 import torch
@@ -64,6 +65,7 @@ class WeaviateExplorer(BaseExplorer):
             grpc_host=http_host,
             grpc_port=grpc_port,
             grpc_secure=False,
+            auth_credentials=weaviate.auth.AuthApiKey(os.getenv("WEAVIATE_API_KEY"))
         )
         self._collection = self._client.collections.get(self.collection_name)
         logger.info("Connected to collection: %s", self.collection_name)
