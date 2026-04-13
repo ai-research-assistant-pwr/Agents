@@ -148,12 +148,11 @@ def main():
 
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
         train_dataset=dataset["train"],
         eval_dataset=dataset["eval"],
         peft_config=peft_config,
         args=training_args,
-        dataset_text_field="messages",
+        processing_class=tokenizer,
     )
 
     print("Starting training...")
