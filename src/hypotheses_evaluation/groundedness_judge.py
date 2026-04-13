@@ -30,8 +30,7 @@ class GroundednessJudge(BaseJudge):
 
         Args:
             hypothesis: A single hypothesis string to evaluate.
-            evidence: The retriever's evidence summary that was available
-                to the hypothesis generator (``RetrieverResult.content``).
+            evidence: Evidence from knowledge graph.
 
         Returns:
             A :class:`JudgeResult` with ``score`` in ``[0, 4]``, a

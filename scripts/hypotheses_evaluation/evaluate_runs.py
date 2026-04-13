@@ -17,7 +17,8 @@ readable even under high concurrency.
 
 Each generated hypothesis is scored on three metrics:
     Groundedness (0-4) — how well the hypothesis is grounded in the
-                          evidence produced by the retriever.
+                          raw evidence retrieved directly from Weaviate
+                          (the explorer output, before any LLM processing).
     Relevancy    (0-4) — how relevant the hypothesis is to the user query.
     Clarity      (0-3) — how clear and well-expressed the hypothesis is.
 
@@ -100,14 +101,32 @@ def _find_run_dirs(runs_dir: Path) -> list[Path]:
     return dirs
 
 
-def _find_last_retriever_file(run_dir: Path) -> Path:
-    refinement_files = sorted(run_dir.glob("03_retriever_refinement_turn_*.json"))
-    if refinement_files:
-        return refinement_files[-1]
-    plain = run_dir / "02_retriever.json"
-    if plain.exists():
-        return plain
-    raise FileNotFoundError(f"No retriever output file found in {run_dir}")
+def _extract_explorer_evidence(explorer_data: dict) -> str:
+    """Extract raw Weaviate evidence from explorer output.
+
+    Handles both the old format (single ``content`` string) and the new
+    format (``chunk_ids`` + ``chunks`` dict).
+    """
+    # Old format: a single pre-formatted string
+    if "content" in explorer_data:
+        return explorer_data["content"]
+
+    # New format: structured chunks dict
+    chunk_ids: list[str] = explorer_data.get("chunk_ids", [])
+    chunks: dict = explorer_data.get("chunks", {})
+    parts: list[str] = []
+    for uid in chunk_ids:
+        chunk = chunks.get(uid, {})
+        title = chunk.get("title", "Unknown")
+        content = chunk.get("content", "")
+        paper_id = chunk.get("paperId", "")
+        distance = chunk.get("distance", "")
+        parts.append(
+            f"[CHUNK] {title} (id={paper_id}) (distance={distance})\n"
+            f"TITLE: {title}\n"
+            f"CONTENT: {content}"
+        )
+    return "\n\n---\n\n".join(parts)
 
 
 def _resolve_runs_dir(arg: str | None) -> Path:
@@ -248,8 +267,6 @@ def evaluate_run(
 
     try:
         explorer_data = _load_json(run_dir / "01_explorer.json")
-        retriever_path = _find_last_retriever_file(run_dir)
-        retriever_data = _load_json(retriever_path)
     except (FileNotFoundError, KeyError) as exc:
         print(f"  SKIP: could not load run artifacts — {exc}", file=out)
         return None
@@ -262,12 +279,12 @@ def evaluate_run(
     generator_data = _load_json(generator_path)
 
     query: str = explorer_data["metadata"]["prompt"]
-    evidence: str = retriever_data["content"]
+    evidence: str = _extract_explorer_evidence(explorer_data)
     hypotheses: list[str] = generator_data["hypotheses"]
 
     _print_rule("=", out=out)
     print(f"Run directory : {run_dir.relative_to(PROJECT_ROOT)}", file=out)
-    print(f"Evidence from : {retriever_path.name}", file=out)
+    print(f"Evidence from : 01_explorer.json (Weaviate raw)", file=out)
     print(f"Hypotheses    : {len(hypotheses)}", file=out)
     print(f"Judge model   : {model}", file=out)
     _print_rule("=", out=out)

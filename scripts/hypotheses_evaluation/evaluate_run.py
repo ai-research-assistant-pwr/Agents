@@ -11,12 +11,10 @@ modified run subdirectory inside outputs/.
 
 Each generated hypothesis is scored on three metrics:
     Groundedness (0-4) — how well the hypothesis is grounded in the
-                          evidence produced by the retriever.
+                          raw evidence retrieved directly from Weaviate
+                          (the explorer output, before any LLM processing).
     Relevancy    (0-4) — how relevant the hypothesis is to the user query.
     Clarity      (0-3) — how clear and well-expressed the hypothesis is.
-
-If the run includes retriever-refinement turns the last refined retriever
-output is used as the evidence source for groundedness evaluation.
 
 Requires GOOGLE_API_KEY (for --provider google) or OPENAI_API_KEY (for
 --provider openai) to be set in the environment or in a .env file at the
@@ -95,20 +93,32 @@ def _find_latest_run(outputs_dir: Path) -> Path:
     return candidates[0]
 
 
-def _find_last_retriever_file(run_dir: Path) -> Path:
-    """Return the last retriever output file in the run directory.
+def _extract_explorer_evidence(explorer_data: dict) -> str:
+    """Extract raw Weaviate evidence from explorer output.
 
-    Handles both the plain ``02_retriever.json`` and any
-    ``03_retriever_refinement_turn_N.json`` files produced by the
-    refinement loop, always returning the one that feeds the generator.
+    Handles both the old format (single ``content`` string) and the new
+    format (``chunk_ids`` + ``chunks`` dict).
     """
-    refinement_files = sorted(run_dir.glob("03_retriever_refinement_turn_*.json"))
-    if refinement_files:
-        return refinement_files[-1]
-    plain = run_dir / "02_retriever.json"
-    if plain.exists():
-        return plain
-    raise FileNotFoundError(f"No retriever output file found in {run_dir}")
+    # Old format: a single pre-formatted string
+    if "content" in explorer_data:
+        return explorer_data["content"]
+
+    # New format: structured chunks dict
+    chunk_ids: list[str] = explorer_data.get("chunk_ids", [])
+    chunks: dict = explorer_data.get("chunks", {})
+    parts: list[str] = []
+    for uid in chunk_ids:
+        chunk = chunks.get(uid, {})
+        title = chunk.get("title", "Unknown")
+        content = chunk.get("content", "")
+        paper_id = chunk.get("paperId", "")
+        distance = chunk.get("distance", "")
+        parts.append(
+            f"[CHUNK] {title} (id={paper_id}) (distance={distance})\n"
+            f"TITLE: {title}\n"
+            f"CONTENT: {content}"
+        )
+    return "\n\n---\n\n".join(parts)
 
 
 def _resolve_run_dir(arg: str | None) -> Path:
@@ -198,8 +208,6 @@ def _print_summary(all_scores: list[dict]) -> None:
 def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     # --- Load pipeline artifacts ---
     explorer_data = _load_json(run_dir / "01_explorer.json")
-    retriever_path = _find_last_retriever_file(run_dir)
-    retriever_data = _load_json(retriever_path)
     generator_path = run_dir / "04_generator.json"
     if not generator_path.exists():
         print(f"ERROR: Generator output not found at {generator_path}.")
@@ -208,13 +216,13 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     generator_data = _load_json(generator_path)
 
     query: str = explorer_data["metadata"]["prompt"]
-    evidence: str = retriever_data["content"]
+    evidence: str = _extract_explorer_evidence(explorer_data)
     hypotheses: list[str] = generator_data["hypotheses"]
 
     # --- Summarise what we loaded ---
     _print_rule("=")
     print(f"Run directory : {run_dir.relative_to(PROJECT_ROOT)}")
-    print(f"Evidence from : {retriever_path.name}")
+    print(f"Evidence from : 01_explorer.json (Weaviate raw)")
     print(f"Hypotheses    : {len(hypotheses)}")
     print(f"Judge model   : {model}")
     _print_rule("=")
