@@ -132,6 +132,8 @@ def main():
         warmup_ratio=0.1,
         max_length=CONFIG["training"]["max_seq_length"],
         assistant_only_loss=True,
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
     )
 
     if local_rank <= 0:
@@ -146,11 +148,12 @@ def main():
 
     trainer = SFTTrainer(
         model=model,
+        tokenizer=tokenizer,
         train_dataset=dataset["train"],
         eval_dataset=dataset["eval"],
         peft_config=peft_config,
         args=training_args,
-        processing_class=tokenizer,
+        dataset_text_field="messages",
     )
 
     print("Starting training...")

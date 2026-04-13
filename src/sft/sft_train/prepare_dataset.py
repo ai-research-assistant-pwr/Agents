@@ -18,7 +18,7 @@ DATASETS_DIR = os.path.join(AGENTS_DIR, "data", "datasets")
 OUTPUT_DATASET_DIR = os.path.join(AGENTS_DIR, CONFIG["paths"]["dataset_prepped"])
 os.makedirs(OUTPUT_DATASET_DIR, exist_ok=True)
 
-INPUT_FILE = os.path.join(DATASETS_DIR, CONFIG["files"]["synthetic_sft_dataset"])
+INPUT_FILE = os.path.join(DATASETS_DIR, CONFIG["files"].get("updated_sft_dataset", "multiagent_sft_dataset_v2.jsonl"))
 
 RETRIEVER_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "retriever_train.jsonl")
 RETRIEVER_EVAL  = os.path.join(OUTPUT_DATASET_DIR, "retriever_eval.jsonl")
@@ -28,83 +28,23 @@ GENERATOR_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "generator_train.jsonl")
 GENERATOR_EVAL  = os.path.join(OUTPUT_DATASET_DIR, "generator_eval.jsonl")
 GENERATOR_TEST  = os.path.join(OUTPUT_DATASET_DIR, "generator_test.jsonl")
 
-GENERATOR_INSUFFICIENT_MSG = (
-    "A valid hypothesis cannot be generated because the provided context "
-    "does not contain sufficient variables or relationships to support "
-    "a grounded causal claim relevant to the query."
-)
 
-RETRIEVER_SYSTEM_PROMPT = """You are an Expert Scientific Retriever Agent.
+RETRIEVER_SYSTEM_PROMPT = """You are an Expert Scientific Retriever Agent in a multi-agent system.
+Your task is to analyze raw scientific context based on a user's research query.
+You must extract the key variables, relationships, mechanisms, and evidence, and synthesize them into a concise, professional, natural-language message for the Generator agent.
+Do NOT hallucinate or add any information outside of the provided context. Do NOT generate the final hypothesis yourself."""
 
-Your job is to analyze raw scientific context, extract structured knowledge, and THEN determine if it is sufficient for hypothesis generation.
+GENERATOR_SYSTEM_PROMPT = """You are an AI Research Scientist agent.
+You will receive a summary message from the Retriever agent containing extracted scientific data.
+Your task is to formulate a strict, testable, causal hypothesis based ONLY on that data.
 
-Your output MUST be formatted EXACTLY using the following XML tags IN THIS EXACT ORDER:
-
-<extracted_information>
-- Structured extraction of key variables, relationships, mechanisms, and data points relevant to the query.
-</extracted_information>
-
-<reasoning>
-- Step-by-step explanation.
-- Count the extracted variables and relationships.
-- Evaluate if the conditions are met (≥2 variables and ≥1 relationship).
-</reasoning>
-
-<is_sufficient>
-True or False
-</is_sufficient>
-
-IMPORTANT:
-- Do NOT generate hypotheses.
-- You MUST follow the exact order: extracted_information -> reasoning -> is_sufficient."""
-
-GENERATOR_SYSTEM_PROMPT = """You are an AI Research Scientist generating scientific hypotheses.
-
-You will receive:
-- Research Query
-- Raw Context
-- Retriever Sufficiency
-- Retriever Reasoning
-- Extracted Information
-
-Your output MUST be formatted EXACTLY using the following XML tags:
-
-<is_answerable>
-True or False
-</is_answerable>
-
-<reasoning>
-- Step-by-step scientific reasoning
-- Explain how extracted variables and relationships lead to the hypothesis
-- Be concise but precise
-</reasoning>
-
-<hypothesis>
-- MUST follow EXACT format:
-"If X increases/decreases, then Y will [effect], because [mechanism]."
-- MUST use ONLY variables from EXTRACTED INFORMATION
-- MUST be causal and measurable
-- NO deviations from format
-</hypothesis>
-
-<natural_hypothesis>
-- Rewrite the SAME hypothesis in natural academic style (1-2 sentences)
-- Do NOT introduce new variables
-</natural_hypothesis>
-
-<falsification_criteria>
-- A specific measurable condition that would DISPROVE the hypothesis
-</falsification_criteria>
-
-CRITICAL RULES:
-- If RETRIEVER SUFFICIENCY is False → set <is_answerable>False</is_answerable> and leave all other fields EMPTY
-- If variables are insufficient → set <is_answerable>False</is_answerable>
-- DO NOT generate hypothesis when not answerable
-- DO NOT introduce new variables
-- NO placeholders
-- NO vague statements
-"""
-
+Format your response into two parts:
+1. An internal reasoning block wrapped in <THOUGHT>...</THOUGHT> explaining if the data is sufficient and what the causal link is (or what is missing).
+2. The final output:
+   - If sufficient: Write the hypothesis directly as a continuous natural sentence.
+   - If INSUFFICIENT: Write a direct request for specific missing information from the articles, wrapped in <REQUEST>...</REQUEST>.
+   
+Do NOT introduce new variables outside of what the Retriever provided."""
 
 def create_chatml_record(prompt_id, system_msg, user_msg, assistant_msg):
     return {
@@ -115,8 +55,6 @@ def create_chatml_record(prompt_id, system_msg, user_msg, assistant_msg):
             {"role": "assistant", "content": assistant_msg},
         ],
     }
-
-
 
 def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
     print("\n" + "=" * 50)
@@ -157,11 +95,8 @@ def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
     if r_train_ids == g_train_ids and r_eval_ids == g_eval_ids and r_test_ids == g_test_ids:
         print("OK!")
     else:
-        if g_train_ids.issubset(r_train_ids) and g_eval_ids.issubset(r_eval_ids) and g_test_ids.issubset(r_test_ids):
-            print("OK (generator is subset of retriever — expected).")
-        else:
-            print("\n   ERROR! Generator IDs nie są podzbiorem retriever IDs w którymś splicie.")
-            tests_passed = False
+        print("\n   ERROR! Generator IDs nie są identyczne z retriever IDs.")
+        tests_passed = False
 
     print("4. Checking for empty required fields...", end=" ")
     empty_found = False
@@ -212,33 +147,21 @@ def main():
                 continue
 
             prompt_id = data.get("prompt_id", "unknown")
-            is_sufficient = data.get("retriever_is_sufficient", False)
-            is_answerable = data.get("generator_is_answerable", False)
+            is_success = data.get("is_success", False)
 
-            combo = f"ret={is_sufficient}/gen={is_answerable}"
+            combo = f"success={is_success}"
             stats[combo] += 1
             prompt_combo[prompt_id] = combo
 
             # -------------------------
             # RETRIEVER RECORD
             # -------------------------
-            retriever_user = f"""QUERY:
-{data['user_query']}
+            retriever_user = f"USER QUERY:\n{data['user_query']}\n\nRAW CONTEXT:\n{raw_context}"
 
-CONTEXT:
-{raw_context}"""
+            retriever_assistant = data.get("retriever_message", "").strip()
 
-            retriever_assistant = f"""<extracted_information>
-{data['retriever_extracted_info']}
-</extracted_information>
-
-<reasoning>
-{data['retriever_reasoning']}
-</reasoning>
-
-<is_sufficient>
-{data['retriever_is_sufficient']}
-</is_sufficient>"""
+            if len(retriever_assistant) < 10:
+                continue
 
             retriever_records.append(
                 create_chatml_record(
@@ -252,60 +175,18 @@ CONTEXT:
             # -------------------------
             # GENERATOR RECORD
             # -------------------------
+            generator_user = data.get("retriever_message", "")
 
-            generator_user = f"""QUERY: 
-{data['user_query']}
+            generator_assistant = data.get("generator_response", "").strip()
 
-CONTEXT:
-{raw_context}
+            if len(generator_assistant) < 20:
+                continue
 
-SUFFICIENCY:
-{data['retriever_is_sufficient']}
+            if "<REQUEST>" in generator_assistant and len(generator_assistant) < 40:
+                continue
 
-EXTRACTED:
-{data['retriever_extracted_info']}"""
-
-            if is_answerable:
-                gen_hyp = data.get("generator_hypothesis", "").strip()
-                gen_nat = data.get("generator_natural_hypothesis", "").strip()
-                gen_fal = data.get("generator_falsification", "").strip()
-
-                generator_assistant = f"""<is_answerable>
-True
-</is_answerable>
-
-<reasoning>
-{data['generator_reasoning']}
-</reasoning>
-
-<hypothesis>
-{gen_hyp}
-</hypothesis>
-
-<natural_hypothesis>
-{gen_nat}
-</natural_hypothesis>
-
-<falsification_criteria>
-{gen_fal}
-</falsification_criteria>"""
-            else:
-                generator_assistant = f"""<is_answerable>
-False
-</is_answerable>
-
-<reasoning>
-{data['generator_reasoning']}
-</reasoning>
-
-<hypothesis>
-</hypothesis>
-
-<natural_hypothesis>
-</natural_hypothesis>
-
-<falsification_criteria>
-</falsification_criteria>"""
+            if generator_assistant.replace("<THOUGHT>", "").replace("</THOUGHT>", "").strip() == "":
+                continue
 
             generator_records.append(
                 create_chatml_record(
@@ -381,4 +262,3 @@ False
 
 if __name__ == "__main__":
     main()
-

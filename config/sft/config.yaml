@@ -9,23 +9,24 @@ paths:
   prompts_dir: "data/prompts"
   articles_dir: "articles"
   models_dir: "models"
-  models_output_dir: "models_output/run3"
+  models_output_dir: "models_output/run4"
 
   datasets: "data/datasets"
-  dataset_prepped: "data/datasets/sft"
+  dataset_prepped: "data/datasets/sft2"
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
   prompts: "sft.csv"
   prompt_embeddings: "sft_embeddings.pkl"
   synthetic_sft_dataset: "sft_dataset_v2.jsonl"
+  updated_sft_dataset: "multiagent_sft_dataset_v2.jsonl"
 
   index: "chunks"
   retrieved_contexts: "sft_contexts_v2.pkl"
 
 inference:
   temperature: 0.25
-  semaphore_size: 5
+  semaphore_size: 1
   target_prompt_count: 500
   batch_size_encode: 64
 
@@ -49,7 +50,7 @@ training:
 
 
 models:
-  generation_model: "gemini-3-flash-preview"
+  generation_model: "gemini-2.5-flash"
   embedding_model: "/home/tymrom7227/disk/models/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
   reranker_model: "Qwen/Qwen3-Reranker-8B"
   vllm_api_url: "http://localhost"
