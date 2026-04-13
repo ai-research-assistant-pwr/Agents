@@ -67,8 +67,8 @@ done
 
 FILES_TO_CHECK=(
     "$AGENTS_DIR/src/sft/sft_train/run_sft.py"
-    "$AGENTS_DIR/data/datasets/sft/retriever_train.jsonl"
-    "$AGENTS_DIR/data/datasets/sft/generator_train.jsonl"
+    "$AGENTS_DIR/data/datasets/sft2/retriever_train.jsonl"
+    "$AGENTS_DIR/data/datasets/sft2/generator_train.jsonl"
 )
 
 for FILE in "${FILES_TO_CHECK[@]}"; do
