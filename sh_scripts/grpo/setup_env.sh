@@ -26,31 +26,74 @@ export HF_HOME=$MY_DISK/.cache/hf
 export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
 
 echo "=========================================="
-echo "START SETUP"
+echo "INSTALLING PYTORCH (CUDA 12.4)"
 echo "=========================================="
 
-echo "-> Installing PyTorch 2.4.0 with CUDA 12.4 binaries..."
-$VENV_PYTHON -m pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu124
+$VENV_PYTHON -m pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 \
+  --index-url https://download.pytorch.org/whl/cu124
 
-echo "-> Installing compatible core libraries..."
-$VENV_PYTHON -m pip install "opentelemetry-sdk>=1.26.0,<1.27.0" "opentelemetry-api>=1.26.0,<1.27.0"
-$VENV_PYTHON -m pip install ray==2.30.0
+echo "=========================================="
+echo "INSTALLING CORE LIBRARIES"
+echo "=========================================="
 
-echo "-> Managing MARTI repository..."
+$VENV_PYTHON -m pip install \
+  accelerate \
+  datasets \
+  einops \
+  jsonlines \
+  loralib \
+  optimum \
+  packaging \
+  peft \
+  pynvml \
+  tensorboard \
+  torchmetrics \
+  tqdm \
+  transformers==4.57.0 \
+  transformers_stream_generator \
+  wandb \
+  ray[default]==2.48.0
+
+echo "=========================================="
+echo "INSTALLING DEEPSPEED (SAFE MODE)"
+echo "=========================================="
+
+DS_BUILD_OPS=0 $VENV_PYTHON -m pip install deepspeed==0.18.0
+
+echo "=========================================="
+echo "CLONING MARTI"
+echo "=========================================="
+
 cd $MY_DISK
+
 if [ ! -d "MARTI" ]; then
-    echo "Cloning MARTI from GitHub..."
     git clone https://github.com/TsinghuaC3I/MARTI.git
 else
     echo "Directory MARTI already exists, skipping clone."
 fi
 
 cd $MY_DISK/MARTI
-echo "-> Installing MARTI..."
-$VENV_PYTHON -m pip install --no-build-isolation -e . --no-deps
 
-echo "-> Installing utility libraries..."
-$VENV_PYTHON -m pip install wandb pyyaml transformers peft datasets accelerate deepspeed flash-attn --no-build-isolation
+echo "=========================================="
+echo "INSTALLING MARTI (NO AUTO-DEPS)"
+echo "=========================================="
+
+$VENV_PYTHON -m pip install -e . --no-deps
+
+echo "=========================================="
+echo "TESTING INSTALLATION"
+echo "=========================================="
+
+$VENV_PYTHON - <<EOF
+import torch
+print("Torch CUDA:", torch.cuda.is_available())
+
+import transformers
+print("Transformers OK")
+
+import accelerate
+print("Accelerate OK")
+EOF
 
 echo "=========================================="
 echo "SETUP COMPLETED SUCCESSFULLY"
