@@ -14,11 +14,18 @@ set -e
 source /usr/local/sbin/modules.sh
 module load Python/3.12.3-GCCcore-13.3.0
 
-source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
-VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
-
 MY_DISK="/home/tymrom7227/disk"
+VENV_PATH="$MY_DISK/venvs/pnw-3"
 AGENTS_DIR="$MY_DISK/Agents"
+
+echo "=========================================="
+echo "CREATING NEW ENV: pnw-3"
+echo "=========================================="
+
+python -m venv $VENV_PATH
+source $VENV_PATH/bin/activate
+
+pip install --upgrade pip setuptools wheel
 
 export XDG_CACHE_HOME=$MY_DISK/.cache
 export HOME=$MY_DISK
@@ -26,17 +33,23 @@ export HF_HOME=$MY_DISK/.cache/hf
 export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
 
 echo "=========================================="
-echo "INSTALLING PYTORCH (CUDA 12.4)"
+echo "INSTALLING PYTORCH (CUDA 12.1 - vLLM SAFE)"
 echo "=========================================="
 
-$VENV_PYTHON -m pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 \
-  --index-url https://download.pytorch.org/whl/cu124
+pip install torch==2.3.1 torchvision torchaudio \
+  --index-url https://download.pytorch.org/whl/cu121
+
+echo "=========================================="
+echo "INSTALLING vLLM"
+echo "=========================================="
+
+pip install vllm==0.5.4
 
 echo "=========================================="
 echo "INSTALLING CORE LIBRARIES"
 echo "=========================================="
 
-$VENV_PYTHON -m pip install \
+pip install \
   accelerate \
   datasets \
   einops \
@@ -52,13 +65,29 @@ $VENV_PYTHON -m pip install \
   transformers==4.57.0 \
   transformers_stream_generator \
   wandb \
-  ray[default]==2.48.0
+  ray[default]==2.48.0 \
+  pydantic \
+  python-dotenv \
+  langchain-core \
+  langchain-google-genai \
+  pyyaml \
+  google-genai \
+  openai \
+  cerebras-cloud-sdk \
+  numpy \
+  pandas
 
 echo "=========================================="
 echo "INSTALLING DEEPSPEED (SAFE MODE)"
 echo "=========================================="
 
-DS_BUILD_OPS=0 $VENV_PYTHON -m pip install deepspeed==0.18.0
+DS_BUILD_OPS=0 pip install deepspeed==0.18.0
+
+echo "=========================================="
+echo "INSTALLING OpenRLHF"
+echo "=========================================="
+
+pip install openrlhf
 
 echo "=========================================="
 echo "CLONING MARTI"
@@ -78,21 +107,24 @@ echo "=========================================="
 echo "INSTALLING MARTI (NO AUTO-DEPS)"
 echo "=========================================="
 
-$VENV_PYTHON -m pip install -e . --no-deps
+pip install -e . --no-deps
 
 echo "=========================================="
 echo "TESTING INSTALLATION"
 echo "=========================================="
 
-$VENV_PYTHON - <<EOF
+python - <<EOF
 import torch
 print("Torch CUDA:", torch.cuda.is_available())
+
+import vllm
+print("vLLM OK")
 
 import transformers
 print("Transformers OK")
 
-import accelerate
-print("Accelerate OK")
+import openrlhf
+print("OpenRLHF OK")
 EOF
 
 echo "=========================================="
