@@ -5,7 +5,7 @@
 #SBATCH --mem=8gb
 #SBATCH --time=0-00:10:00
 #SBATCH --job-name=prep_grpo
-#SBATCH --output=Agents/out/prep__exp_grpo.out
+#SBATCH --output=Agents/out/prep_mock_grpo.out
 #SBATCH -p lem-cpu
 
 source /usr/local/sbin/modules.sh
@@ -33,6 +33,6 @@ echo "====================================="
 echo "Starting GRPO Dataset Preparation..."
 echo "====================================="
 
-$VENV_PYTHON $AGENTS_DIR/src/grpo/grpo_train/prepare_grpo_dataset.py
+$VENV_PYTHON $AGENTS_DIR/src/grpo/grpo_train/prepare_mock_grpo_dataset.py
 
 echo "Done!"
