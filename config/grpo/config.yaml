@@ -1,0 +1,36 @@
+paths:
+  base_dir: "/home/tymrom7227/disk"
+  data_path: "Agents/data/datasets/grpo_exp_dataset/mock_data.json"
+  sft_adapter: "models_output/run4/lora_generator_Qwen3-4B-Instruct-2507"
+  output_dir: "models_output/grpo_results"
+  agent_env_script: "Agents/src/grpo/grpo_train/environment.py"
+
+models:
+  generator_base: "Qwen/Qwen3-4B-Instruct-2507"
+
+environment:
+  max_turns: 3
+
+rewards:
+  valid_json: 0.5
+  turn_penalty: -0.1
+  correct_ask: 1.0
+  correct_generate_immediate: 1.0
+  correct_generate_after_ask: 0.5
+  hallucination_penalty: -1.0
+  unknown_action_penalty: -1.0
+  invalid_json_penalty: -1.0
+
+training:
+  algorithm: "group_norm"
+  actor_lr: 5.0e-7
+  critic_lr: 5.0e-6
+  train_batch_size: 16
+  micro_train_batch_size: 1
+  rollout_batch_size: 16
+  n_samples_per_prompt: 4
+  max_epochs: 1
+  prompt_max_len: 2048
+  generate_max_len: 1024
+  zero_stage: 3
+  seed: 42

@@ -43,6 +43,18 @@ def main():
     success_records = []
     fail_records = []
     
+    GENERATOR_SYSTEM_PROMPT = """You are an AI Research Scientist agent.
+You will receive a summary message from the Retriever agent containing extracted scientific data.
+Your task is to formulate a strict, testable, causal hypothesis based ONLY on that data.
+
+Format your response into two parts:
+1. An internal reasoning block wrapped in <THOUGHT>...</THOUGHT> explaining if the data is sufficient and what the causal link is (or what is missing).
+2. The final output:
+   - If sufficient: Write the hypothesis directly as a continuous natural sentence.
+   - If INSUFFICIENT: Write a direct request for specific missing information from the articles, wrapped in <REQUEST>...</REQUEST>.
+   
+Do NOT introduce new variables outside of what the Retriever provided."""
+
     with open(SOURCE_DATASET_FILE, "r", encoding="utf-8") as f:
         for line in f:
             if not line.strip(): continue
@@ -52,11 +64,14 @@ def main():
             
             if prompt_id in test_ids:
                 is_success = data.get("is_success", False)
+                retriever_message = data.get("retriever_message", "").strip()
+                
+                full_prompt = f"<|im_start|>system\n{GENERATOR_SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n{retriever_message}<|im_end|>\n<|im_start|>assistant\n"
                 
                 grpo_record = {
                     "id": prompt_id,
-                    "query": data.get("user_query", ""),
-                    "visible_chunks": [data.get("raw_context", "").strip()],
+                    "query": full_prompt,
+                    "visible_chunks": [retriever_message],
                     "hidden_chunks": [],
                     "expected_action": "GENERATE" if is_success else "ASK"
                 }
