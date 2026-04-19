@@ -29,10 +29,12 @@ echo "=========================================="
 echo "START SETUP"
 echo "=========================================="
 
-
-
 echo "-> Installing PyTorch 2.4.0 with CUDA 12.4 binaries..."
 $VENV_PYTHON -m pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu124
+
+echo "-> Installing compatible core libraries..."
+$VENV_PYTHON -m pip install "opentelemetry-sdk>=1.26.0,<1.27.0" "opentelemetry-api>=1.26.0,<1.27.0"
+$VENV_PYTHON -m pip install ray==2.30.0
 
 echo "-> Managing MARTI repository..."
 cd $MY_DISK
@@ -44,11 +46,11 @@ else
 fi
 
 cd $MY_DISK/MARTI
-echo "-> Installing MARTI and vLLM dependencies..."
-$VENV_PYTHON -m pip install --no-build-isolation -e .[vllm]
+echo "-> Installing MARTI..."
+$VENV_PYTHON -m pip install --no-build-isolation -e . --no-deps
 
 echo "-> Installing utility libraries..."
-$VENV_PYTHON -m pip install ray wandb pyyaml transformers peft
+$VENV_PYTHON -m pip install wandb pyyaml transformers peft datasets accelerate deepspeed flash-attn --no-build-isolation
 
 echo "=========================================="
 echo "SETUP COMPLETED SUCCESSFULLY"
