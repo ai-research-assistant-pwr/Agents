@@ -6,10 +6,14 @@
 #SBATCH --time=0-01:00:00
 #SBATCH --job-name=setup_marti
 #SBATCH --output=/home/tymrom7227/disk/Agents/out/setup_marti.out
-#SBATCH -p lem-cpu-short
+#SBATCH -p lem-gpu-short
+#SBATCH --gres=gpu:hopper:1
+
+set -e
 
 source /usr/local/sbin/modules.sh
 module load Python/3.12.3-GCCcore-13.3.0
+module load CUDA/12.4.1
 
 source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
 VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
@@ -23,25 +27,21 @@ export HF_HOME=$MY_DISK/.cache/hf
 export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
 
 echo "=========================================="
-echo "Starting setup for PNW-2 on $MY_DISK"
+echo "START SETUP"
 echo "=========================================="
 
-cd $MY_DISK
+$VENV_PYTHON -m pip install --upgrade pip setuptools wheel packaging
 
-if [ ! -d "MARTI" ]; then
-    echo "-> Cloning MARTI..."
-    git clone https://github.com/TsinghuaC3I/MARTI.git
-fi
+$VENV_PYTHON -m pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu124
 
-cd MARTI
+cd $MY_DISK/MARTI
+echo "-> Installing MARTI with vLLM (using no-build-isolation)..."
+$VENV_PYTHON -m pip install --no-build-isolation -e .[vllm]
 
-echo "-> Installing MARTI and vLLM..."
-$VENV_PYTHON -m pip install --upgrade pip
-$VENV_PYTHON -m pip install -e .[vllm]
-
-echo "-> Installing additional utility libraries..."
+# 4. Instalacja pozostałych bibliotek
+echo "-> Installing utility libraries..."
 $VENV_PYTHON -m pip install ray wandb pyyaml transformers peft
 
 echo "=========================================="
-echo "Installation completed successfully"
+echo "SETUP COMPLETED: $(date)"
 echo "=========================================="
