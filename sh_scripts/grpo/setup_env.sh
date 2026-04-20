@@ -47,13 +47,33 @@ pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 \
     --index-url https://download.pytorch.org/whl/cu121
 
 # =================================================
-# CLONE MARTI
+# CLONE REPOSITORIES
 # =================================================
-echo "-> Cloning MARTI..."
+echo "-> Cloning repositories..."
+
 cd "$MY_DISK"
+
+if [ ! -d "OpenRLHF" ]; then
+    git clone https://github.com/OpenRLHF/OpenRLHF.git
+fi
+
 if [ ! -d "MARTI" ]; then
     git clone https://github.com/TsinghuaC3I/MARTI.git
 fi
+
+# =================================================
+# INSTALL OPENRLHF
+# =================================================
+echo "-> Installing OpenRLHF..."
+cd "$MY_DISK/OpenRLHF"
+pip install -e .
+
+# =================================================
+# INSTALL MARTI
+# =================================================
+echo "-> Installing MARTI..."
+cd "$MY_DISK/MARTI"
+pip install -e . --no-deps
 
 # =================================================
 # DEPENDENCIES
