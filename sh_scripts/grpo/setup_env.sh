@@ -26,6 +26,9 @@ if [ ! -d "$VENV_PATH" ]; then
     python -m venv $VENV_PATH
 fi
 
+mkdir -p $MY_DISK/.tmp
+export TMPDIR=$MY_DISK/.tmp
+
 source $VENV_PATH/bin/activate
 
 pip uninstall openrlhf -y || true
