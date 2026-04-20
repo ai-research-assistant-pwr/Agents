@@ -27,6 +27,10 @@ MARTI_DIR="$MY_DISK/MARTI"
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
+echo "=> Wymuszenie paczki FlashInfer skompilowanej pod PyTorch 2.4.0..."
+$VENV_PYTHON -m pip uninstall -y flashinfer flashinfer-python tvm-ffi torch-c-dlpack-ext
+$VENV_PYTHON -m pip install flashinfer -i https://flashinfer.ai/whl/cu121/torch2.4
+
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 
 export XDG_CACHE_HOME=$MY_DISK/.cache
