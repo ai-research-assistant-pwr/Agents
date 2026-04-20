@@ -2,7 +2,9 @@ import os
 import sys
 import torch
 import yaml
-from openrlhf.utils.agent import AgentInstanceBase
+from typing import Dict, Any
+
+from openrlhf.utils.agent import AgentExecutorBase, AgentInstanceBase
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
@@ -10,7 +12,7 @@ if current_dir not in sys.path:
 
 from rewards import calculate_step_reward
 
-class AgentExecutor(AgentInstanceBase):
+class MockHypothesisEnvInstance(AgentInstanceBase):
     def __init__(self, *args, **kwargs):
         config_path = os.getenv("MARTI_CONFIG_PATH", "config.yaml")
         
@@ -34,7 +36,7 @@ class AgentExecutor(AgentInstanceBase):
         else:
             return "GENERATE"
 
-    async def step(self, states: dict, **kwargs) -> dict:
+    async def step(self, states: dict, **kwargs) -> Dict[str, Any]:
         action_text = states["action_text"]
         current_turn = states.get("current_turn", 0)
         expected_action = states.get("expected_action")
@@ -89,8 +91,14 @@ class AgentExecutor(AgentInstanceBase):
             "scores": torch.tensor(reward, dtype=torch.float32),
             "environment_feedback": env_feedback,
             "done": done,
+            "sampling_params": states.get("sampling_params", None),
             "extra_logs": {
                 "reward_reason": reason,
                 "turn": current_turn
             }
         }
+
+
+class AgentExecutor(AgentExecutorBase):
+    def __init__(self, max_steps, max_length, llm_engine, hf_tokenizer, result_queue):
+        super().__init__(MockHypothesisEnvInstance, max_steps, max_length, llm_engine, hf_tokenizer, result_queue)
