@@ -19,114 +19,48 @@ VENV_PATH="$MY_DISK/venvs/pnw-3"
 AGENTS_DIR="$MY_DISK/Agents"
 
 echo "=========================================="
-echo "CREATING NEW ENV: pnw-3"
+echo "CLEANING AND UPDATING ENV: pnw-3"
 echo "=========================================="
 
-python -m venv $VENV_PATH
+if [ ! -d "$VENV_PATH" ]; then
+    python -m venv $VENV_PATH
+fi
+
 source $VENV_PATH/bin/activate
 
-pip install --upgrade pip setuptools wheel
+pip uninstall openrlhf -y || true
+
+pip install --upgrade pip setuptools wheel packaging ninja
 
 export XDG_CACHE_HOME=$MY_DISK/.cache
 export HOME=$MY_DISK
 export HF_HOME=$MY_DISK/.cache/hf
 export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
 
-echo "=========================================="
-echo "INSTALLING PYTORCH (CUDA 12.1 - vLLM SAFE)"
-echo "=========================================="
+echo "-> Installing PyTorch 2.4.0 (Better for Python 3.12 and Hopper)"
+pip install torch==2.4.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
-pip install torch==2.3.1 torchvision torchaudio \
-  --index-url https://download.pytorch.org/whl/cu121
+echo "-> Installing core dependencies (fixed versions for stability)"
+pip install vllm==0.6.3.post1
+pip install ray==2.30.0
+pip install "opentelemetry-sdk>=1.26.0,<1.27.0" "opentelemetry-api>=1.26.0,<1.27.0"
 
-echo "=========================================="
-echo "INSTALLING vLLM"
-echo "=========================================="
-
-pip install vllm==0.5.4
-
-echo "=========================================="
-echo "INSTALLING CORE LIBRARIES"
-echo "=========================================="
-
+echo "-> Installing other libraries"
 pip install \
-  accelerate \
-  datasets \
-  einops \
-  jsonlines \
-  loralib \
-  optimum \
-  packaging \
-  peft \
-  pynvml \
-  tensorboard \
-  torchmetrics \
-  tqdm \
-  transformers==4.57.0 \
-  transformers_stream_generator \
-  wandb \
-  ray[default]==2.48.0 \
-  pydantic \
-  python-dotenv \
-  langchain-core \
-  langchain-google-genai \
-  pyyaml \
-  google-genai \
-  openai \
-  cerebras-cloud-sdk \
-  numpy \
-  pandas
+  accelerate datasets einops jsonlines loralib optimum \
+  peft pynvml tensorboard torchmetrics tqdm transformers==4.44.2 \
+  wandb pyyaml pydantic python-dotenv openai pandas flash-attn --no-build-isolation
 
-echo "=========================================="
-echo "INSTALLING DEEPSPEED (SAFE MODE)"
-echo "=========================================="
-
-DS_BUILD_OPS=0 pip install deepspeed==0.18.0
-
-echo "=========================================="
-echo "INSTALLING OpenRLHF"
-echo "=========================================="
-
-pip install openrlhf
-
-echo "=========================================="
-echo "CLONING MARTI"
-echo "=========================================="
-
+echo "-> Managing MARTI repository"
 cd $MY_DISK
-
 if [ ! -d "MARTI" ]; then
     git clone https://github.com/TsinghuaC3I/MARTI.git
-else
-    echo "Directory MARTI already exists, skipping clone."
 fi
 
 cd $MY_DISK/MARTI
-
-echo "=========================================="
-echo "INSTALLING MARTI (NO AUTO-DEPS)"
-echo "=========================================="
-
 pip install -e . --no-deps
 
-echo "=========================================="
-echo "TESTING INSTALLATION"
-echo "=========================================="
+echo "-> Final Verification"
+python -c "import torch; print('CUDA:', torch.cuda.is_available()); import openrlhf; print('OpenRLHF/MARTI OK'); import vllm; print('vLLM OK')"
 
-python - <<EOF
-import torch
-print("Torch CUDA:", torch.cuda.is_available())
-
-import vllm
-print("vLLM OK")
-
-import transformers
-print("Transformers OK")
-
-import openrlhf
-print("OpenRLHF OK")
-EOF
-
-echo "=========================================="
 echo "SETUP COMPLETED SUCCESSFULLY"
-echo "=========================================="
