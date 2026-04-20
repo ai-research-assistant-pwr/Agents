@@ -27,14 +27,17 @@ MARTI_DIR="$MY_DISK/MARTI"
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-echo "=> Usuwanie konfliktowych wersji..."
-$VENV_PYTHON -m pip uninstall -y vllm transformers
+echo "=> Usuwanie zepsutych, najnowszych paczek..."
+$VENV_PYTHON -m pip uninstall -y vllm transformers torch torchvision torchaudio xformers
 
-echo "=> Instalacja najnowszego transformers (dla Qwen3)..."
-$VENV_PYTHON -m pip install transformers
+echo "=> 1. Przywracanie PyTorch 2.4.0 (wymagane przez Flash-Attention)..."
+$VENV_PYTHON -m pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
 
-echo "=> Instalacja vLLM z łatką (bez psucia Flash-Attention)..."
-$VENV_PYTHON -m pip install vllm --no-build-isolation
+echo "=> 2. Powrót do transformers 4.57.0 (wymagane przez MARTI i Qwen3)..."
+$VENV_PYTHON -m pip install "transformers==4.57.0"
+
+echo "=> 3. Instalacja vLLM z konkretną łatką (bez psucia środowiska)..."
+$VENV_PYTHON -m pip install "vllm==0.8.6" --no-build-isolation
 
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 
