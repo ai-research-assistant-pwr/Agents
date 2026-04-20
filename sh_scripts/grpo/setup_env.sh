@@ -42,7 +42,7 @@ pip install torch==2.4.0 torchvision torchaudio --index-url https://download.pyt
 
 echo "-> Installing core dependencies (fixed versions for stability)"
 pip install vllm==0.6.3.post1
-pip install ray==2.30.0
+pip install ray==2.31.0
 pip install "opentelemetry-sdk>=1.26.0,<1.27.0" "opentelemetry-api>=1.26.0,<1.27.0"
 
 echo "-> Installing other libraries"
