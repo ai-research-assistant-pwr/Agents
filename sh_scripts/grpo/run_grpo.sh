@@ -27,8 +27,14 @@ MARTI_DIR="$MY_DISK/MARTI"
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-echo "=> Installing required packages..."
-$VENV_PYTHON -m pip install "transformers==4.55.2"
+echo "=> Usuwanie konfliktowych wersji..."
+$VENV_PYTHON -m pip uninstall -y vllm transformers
+
+echo "=> Instalacja najnowszego transformers (dla Qwen3)..."
+$VENV_PYTHON -m pip install transformers
+
+echo "=> Instalacja vLLM z łatką (bez psucia Flash-Attention)..."
+$VENV_PYTHON -m pip install vllm --no-build-isolation
 
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 
