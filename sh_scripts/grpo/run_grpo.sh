@@ -51,7 +51,7 @@ SFT_ADAPTER="$MY_DISK/models_output/run4/lora_generator_Qwen3-4B-Instruct-2507"
 DATA_PATH="$AGENTS_DIR/data/datasets/grpo_exp_dataset/mock_data.json"
 AGENT_ENV_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/environment.py"
 OUTPUT_DIR="$MY_DISK/models_output/grpo_results"
-export MARTI_CONFIG_PATH="$AGENTS_DIR/config.yaml"
+export MARTI_CONFIG_PATH="$AGENTS_DIR/config/grpo/config.yaml"
 
 if [ ! -z "$WANDB_API_KEY" ]; then
     WANDB_FLAG="--logger.wandb.key $WANDB_API_KEY --logger.wandb.project MARTI_GRPO --logger.wandb.run_name grpo_exp_1"
