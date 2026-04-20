@@ -101,7 +101,8 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
 
 class AgentExecutor(AgentExecutorBase):
     def __init__(self, *args, **kwargs):
-        super().__init__(MockHypothesisEnvInstance, *args, **kwargs)
+        super().__init__()        
+        self.env = MockHypothesisEnvInstance()
 
     async def execute(self, *args, **kwargs):
         return await super().execute(*args, **kwargs)
