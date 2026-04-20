@@ -27,17 +27,18 @@ MARTI_DIR="$MY_DISK/MARTI"
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-echo "=> Usuwanie zepsutych paczek..."
-$VENV_PYTHON -m pip uninstall -y vllm transformers torch torchvision torchaudio xformers deepspeed
+echo "=> 1. Usuwanie całego bałaganu..."
+$VENV_PYTHON -m pip uninstall -y vllm transformers torch torchvision torchaudio xformers deepspeed openrlhf huggingface-hub
 
-echo "=> 1. Instalacja PyTorch 2.4.0..."
+echo "=> 2. Fundament: PyTorch 2.4.0 (zgodny z Twoim Flash-Attention)..."
 $VENV_PYTHON -m pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
 
-echo "=> 2. Instalacja zgodnych wersji Transformers i DeepSpeed..."
-$VENV_PYTHON -m pip install "transformers==4.57.0" deepspeed==0.18.0
+echo "=> 3. Stabilne wersje dla MARTI i vLLM..."
+$VENV_PYTHON -m pip install "transformers==4.57.0" "deepspeed==0.18.0" "vllm==0.8.5.post1" "huggingface-hub==0.36.2" --no-build-isolation
 
-echo "=> 3. Instalacja vLLM 0.9.0..."
-$VENV_PYTHON -m pip install "vllm==0.9.0" torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --no-build-isolation
+echo "=> 4. Instalacja OpenRLHF z KAGAŃCEM (bez prawa do zmiany paczek!)..."
+cd $MY_DISK/OpenRLHF && $VENV_PYTHON -m pip install -e . --no-deps
+cd $MY_DISK
 
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 

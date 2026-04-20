@@ -4,6 +4,10 @@ import torch
 import yaml
 from typing import Dict, Any
 
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
+    PreTrainedTokenizerBase.all_special_tokens_extended = property(lambda self: self.all_special_tokens)
+
 from openrlhf.utils.agent import AgentExecutorBase, AgentInstanceBase
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
