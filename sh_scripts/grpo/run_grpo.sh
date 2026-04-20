@@ -17,7 +17,7 @@ WANDB_API_KEY=$1
 # ENV SETUP
 # =================================================
 source /usr/local/sbin/modules.sh
-module load Python/3.12.3-GCCcore-13.3.0
+module load Python/3.11.5-GCCcore-13.2.0
 
 MY_DISK="/home/tymrom7227/disk"
 VENV_PATH="$MY_DISK/venvs/pnw-3"
