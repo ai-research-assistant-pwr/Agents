@@ -60,10 +60,10 @@ if [ ! -d "MARTI" ]; then
     git clone https://github.com/TsinghuaC3I/MARTI.git
 fi
 
-cd $MY_DISK/MARTI
-pip install -e . --no-deps
+cd $MARTI_DIR
+pip install --no-build-isolation --no-deps --force-reinstall -e .
 
 echo "-> Final Verification"
-python -c "import torch; print('CUDA:', torch.cuda.is_available()); import openrlhf; print('OpenRLHF/MARTI OK'); import vllm; print('vLLM OK')"
+$VENV_PATH/bin/python -c "import sys; sys.path.insert(0, '$MARTI_DIR'); import torch; import openrlhf; import vllm; print('CUDA:', torch.cuda.is_available()); print('OpenRLHF/MARTI OK'); print('vLLM OK')"
 
 echo "SETUP COMPLETED SUCCESSFULLY"
