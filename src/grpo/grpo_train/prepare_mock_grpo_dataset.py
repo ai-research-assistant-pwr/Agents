@@ -66,7 +66,19 @@ Do NOT introduce new variables outside of what the Retriever provided."""
                 is_success = data.get("is_success", False)
                 retriever_message = data.get("retriever_message", "").strip()
                 
-                full_prompt = f"<|im_start|>system\n{GENERATOR_SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n{retriever_message}<|im_end|>\n<|im_start|>assistant\n"
+                full_prompt = f"""<|im_start|>system
+                {GENERATOR_SYSTEM_PROMPT}
+
+                IMPORTANT:
+                - Use <THOUGHT>...</THOUGHT> for reasoning
+                - Use <REQUEST>...</REQUEST> if more data is needed
+
+                <|im_end|>
+                <|im_start|>user
+                {retriever_message}
+                <|im_end|>
+                <|im_start|>assistant
+                """
                 
                 grpo_record = {
                     "id": prompt_id,
