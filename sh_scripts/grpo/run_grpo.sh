@@ -9,6 +9,8 @@
 #SBATCH -p lem-gpu-short
 #SBATCH --gres=gpu:hopper:1
 
+set -e  #
+
 WANDB_API_KEY=$1
 
 if [ -z "$WANDB_API_KEY" ]; then
@@ -19,13 +21,52 @@ else
     WANDB_FLAG="--use_wandb $WANDB_API_KEY --wandb_project MARTI_GRPO --wandb_run_name grpo_exp_1"
 fi
 
+# =================================================
+# ENV SETUP
+# =================================================
 source /usr/local/sbin/modules.sh
 module load Python/3.12.3-GCCcore-13.3.0
-source /home/tymrom7227/disk/venvs/pnw-3/bin/activate
-VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-3/bin/python"
 
+VENV_PATH="/home/tymrom7227/disk/venvs/pnw-3"
+source $VENV_PATH/bin/activate
+VENV_PYTHON="$VENV_PATH/bin/python"
+
+echo "Using Python: $VENV_PYTHON"
+
+# =================================================
+# AUTO-INSTALL OPENRLHF (if missing)
+# =================================================
+echo "Checking openrlhf installation..."
+
+if ! python -c "import openrlhf" &> /dev/null; then
+    echo "openrlhf not found. Installing..."
+
+    pip install openrlhf || true
+
+    LOCAL_OPENRLHF="/home/tymrom7227/disk/Agents/openrlhf"
+
+    if [ -d "$LOCAL_OPENRLHF" ]; then
+        echo "Installing openrlhf from local repo..."
+        pip install -e $LOCAL_OPENRLHF
+    fi
+fi
+
+# =================================================
+# FINAL CHECK
+# =================================================
+echo "Verifying openrlhf import..."
+
+python - <<EOF
+import openrlhf
+print("openrlhf successfully imported")
+EOF
+
+# =================================================
+# PATH CONFIG
+# =================================================
 MY_DISK="/home/tymrom7227/disk"
 AGENTS_DIR="$MY_DISK/Agents"
+
 export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
 
 export XDG_CACHE_HOME=$MY_DISK/.cache
@@ -34,7 +75,7 @@ export TORCHINDUCTOR_CACHE_DIR=$MY_DISK/.cache/torch_inductor
 export TRANSFORMERS_OFFLINE=0
 
 # =================================================
-# PATH CONFIGURATION
+# PATHS
 # =================================================
 BASE_MODEL="$MY_DISK/models/Qwen/Qwen3-4B-Instruct-2507"
 SFT_ADAPTER="$MY_DISK/models_output/run4/lora_generator_Qwen3-4B-Instruct-2507"
@@ -42,8 +83,11 @@ DATA_PATH="$AGENTS_DIR/data/datasets/grpo_exp_dataset/mock_data.json"
 AGENT_ENV_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/environment.py"
 OUTPUT_DIR="$MY_DISK/models_output/grpo_results"
 
-export MARTI_CONFIG_PATH="$AGENTS_DIR/config/grpo/config.yaml"
+export MARTI_CONFIG_PATH="$AGENTS_DIR/config.yaml"
 
+# =================================================
+# SANITY CHECK
+# =================================================
 echo "================================================="
 echo "TESTING CONFIGURATION BEFORE GRPO TRAINING"
 echo "================================================="
@@ -65,6 +109,9 @@ for FILE in "${FILES_TO_CHECK[@]}"; do
     fi
 done
 
+# =================================================
+# START TRAINING
+# =================================================
 echo "================================================="
 echo "Starting GRPO training via MARTI / OpenRLHF..."
 echo "================================================="
@@ -94,12 +141,11 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --n_samples_per_prompt 4 \
     --max_epochs 1 \
     --prompt_max_len 2048 \
-    --generate_max_len 1024 \
+    --generate_max_len 256 \
     --zero_stage 3 \
     --bf16 \
     --gradient_checkpointing \
     --save_hf_ckpt \
-    --log_level debug
     $WANDB_FLAG
 
 echo "====================================="
