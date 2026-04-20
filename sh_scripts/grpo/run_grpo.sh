@@ -101,10 +101,9 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --data.input_key "query" \
     --data.label_key "expected_action" \
     --algo.advantage.estimator "group_norm" \
-    --train.colocate_all \
     --vllm.num_engines 1 \
     --vllm.tensor_parallel_size 1 \
-    --vllm.gpu_memory_utilization 0.5 \
+    --vllm.gpu_memory_utilization 0.3 \
     --vllm.enable_sleep \
     --ds.enable_sleep \
     --vllm.enforce_eager \
@@ -113,9 +112,9 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --actor.num_nodes 1 \
     --actor.num_gpus_per_node 1 \
     --actor.adam.lr 5e-7 \
-    --train.batch_size 16 \
+    --train.batch_size 4 \
     --train.micro_batch_size 1 \
-    --rollout.batch_size 16 \
+    --rollout.batch_size 4 \
     --rollout.n_samples_per_prompt 4 \
     --train.max_epochs 1 \
     --data.max_len 2048 \
