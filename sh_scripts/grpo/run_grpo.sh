@@ -44,10 +44,41 @@ if ! $VENV_PYTHON -c "import openrlhf" &> /dev/null; then
 fi
 
 # =================================================
-# START TRAINING
+# AUTOMATYCZNE MERGOWANIE MODELU (LORA + BASE)
 # =================================================
 BASE_MODEL="$MY_DISK/models/Qwen/Qwen3-4B-Instruct-2507"
 SFT_ADAPTER="$MY_DISK/models_output/run4/lora_generator_Qwen3-4B-Instruct-2507"
+MERGED_MODEL="$MY_DISK/models_output/run4/Qwen3-4B-SFT-Merged"
+
+if [ ! -d "$MERGED_MODEL" ]; then
+    echo "=> No merged model found. Starting LoRA weight merging on CPU..."
+    $VENV_PYTHON << EOF
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+
+print("1/4 Loading base model...")
+base_model = AutoModelForCausalLM.from_pretrained("$BASE_MODEL", torch_dtype=torch.bfloat16, device_map="cpu")
+tokenizer = AutoTokenizer.from_pretrained("$BASE_MODEL")
+
+print("2/4 Applying SFT (LoRA) weights...")
+model = PeftModel.from_pretrained(base_model, "$SFT_ADAPTER")
+
+print("3/4 Merging weights into base model...")
+model = model.merge_and_unload()
+
+print("4/4 Saving to disk...")
+model.save_pretrained("$MERGED_MODEL")
+tokenizer.save_pretrained("$MERGED_MODEL")
+print("Success! Weights merged.")
+EOF
+else
+    echo "=> Merged model found: $MERGED_MODEL. Skipping merging."
+fi
+
+# =================================================
+# START TRAINING
+# =================================================
 DATA_PATH="$AGENTS_DIR/data/datasets/grpo_exp_dataset/mock_data.json"
 AGENT_ENV_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/environment.py"
 OUTPUT_DIR="$MY_DISK/models_output/grpo_results"
@@ -57,8 +88,9 @@ if [ ! -z "$WANDB_API_KEY" ]; then
     WANDB_FLAG="--logger.wandb.key $WANDB_API_KEY --logger.wandb.project MARTI_GRPO --logger.wandb.run_name grpo_exp_1"
 fi
 
+echo "=> Running GRPO training..."
 $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
-    --actor.model_name_or_path $SFT_ADAPTER \
+    --actor.model_name_or_path $MERGED_MODEL \
     --ckpt.output_dir $OUTPUT_DIR \
     --train.agent_func_path $AGENT_ENV_SCRIPT \
     --data.prompt_dataset "json@$DATA_PATH" \
