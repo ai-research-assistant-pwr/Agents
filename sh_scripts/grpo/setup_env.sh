@@ -47,6 +47,52 @@ pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 \
     --index-url https://download.pytorch.org/whl/cu121
 
 # =================================================
+# FLASH-ATTN
+# =================================================
+echo "-> Installing Flash-Attn (prebuilt binary)..."
+pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
+
+# =================================================
+# vLLM 0.8.5
+# =================================================
+echo "-> Installing vLLM 0.8.5.post1..."
+pip install "vllm==0.8.5.post1"
+
+# =================================================
+# DEPENDENCIES
+# =================================================
+echo "-> Installing Ray 2.48.0..."
+pip install "ray[default]==2.48.0"
+
+echo "-> Installing Transformers 4.57.0..."
+pip install "transformers==4.57.0"
+
+echo "-> Installing DeepSpeed 0.18.0..."
+DS_BUILD_OPS=0 pip install deepspeed==0.18.0
+
+echo "-> Installing remaining requirements..."
+pip install \
+    accelerate \
+    bitsandbytes \
+    datasets \
+    einops \
+    "grpcio>=1.74.0" \
+    isort \
+    jsonlines \
+    loralib \
+    optimum \
+    "optree>=0.13.0" \
+    peft \
+    "pynvml>=12.0.0" \
+    tensorboard \
+    torchdata \
+    torchmetrics \
+    tqdm \
+    transformers_stream_generator \
+    wandb \
+    pyyaml pydantic python-dotenv openai pandas
+
+# =================================================
 # CLONE REPOSITORIES
 # =================================================
 echo "-> Cloning repositories..."
@@ -73,59 +119,6 @@ pip install -e .
 # =================================================
 echo "-> Installing MARTI..."
 cd "$MY_DISK/MARTI"
-pip install -e . --no-deps
-
-# =================================================
-# DEPENDENCIES
-# =================================================
-echo "-> Installing Ray 2.48.0..."
-pip install "ray[default]==2.48.0"
-
-echo "-> Installing Transformers 4.57.0..."
-pip install "transformers==4.57.0"
-
-echo "-> Installing DeepSpeed 0.18.0..."
-DS_BUILD_OPS=0 pip install deepspeed==0.18.0
-
-echo "-> Installing remaining MARTI requirements..."
-pip install \
-    accelerate \
-    bitsandbytes \
-    datasets \
-    einops \
-    "grpcio>=1.74.0" \
-    isort \
-    jsonlines \
-    loralib \
-    optimum \
-    "optree>=0.13.0" \
-    peft \
-    "pynvml>=12.0.0" \
-    tensorboard \
-    torchdata \
-    torchmetrics \
-    tqdm \
-    transformers_stream_generator \
-    wandb \
-    pyyaml pydantic python-dotenv openai pandas
-
-# =================================================
-# vLLM 0.8.5
-# =================================================
-echo "-> Installing vLLM 0.8.5.post1..."
-pip install "vllm==0.8.5.post1"
-
-# =================================================
-# FLASH-ATTN
-# =================================================
-echo "-> Installing Flash-Attn (prebuilt binary)..."
-pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
-
-# =================================================
-# MARTI
-# =================================================
-echo "-> Installing MARTI package (editable, no-deps)..."
-cd "$MARTI_DIR"
 pip install -e . --no-deps
 
 echo "-> Injecting .pth file for bulletproof linking..."
@@ -171,7 +164,7 @@ if errors:
         print(f'  [FAIL] {err}')
     sys.exit(1)
 
-print('\nSUCCESS: All imports successful. MARTI environment is set up correctly.')
+print('\nSUCCESS: All imports successful. Environment is set up correctly.')
 PYEOF
 
 echo "=========================================="
