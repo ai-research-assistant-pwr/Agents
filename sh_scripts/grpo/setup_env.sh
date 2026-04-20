@@ -61,8 +61,27 @@ pip install --no-build-isolation --no-deps -e .
 
 echo "-> Final Verification..."
 export PYTHONPATH="$MARTI_DIR:$PYTHONPATH"
-python -c "import sys; sys.path.insert(0, '$MARTI_DIR'); import torch; import openrlhf; import vllm; print('CUDA:', torch.cuda.is_available()); print('OpenRLHF/MARTI OK'); print('vLLM OK')"
+
+$VENV_PATH/bin/python -c "
+import sys
+import os
+# Siłowe dodanie ścieżki na początek
+sys.path.insert(0, '$MARTI_DIR')
+try:
+    import torch
+    import openrlhf
+    import vllm
+    print('CUDA:', torch.cuda.is_available())
+    print('OpenRLHF/MARTI path:', openrlhf.__file__)
+    print('vLLM OK')
+    print('SUCCESS: Wszystko działa!')
+except ImportError as e:
+    print(f'BŁĄD: Nie znaleziono modułu: {e}')
+    print('Zawartość folderu MARTI:')
+    os.system('ls -F $MARTI_DIR')
+    sys.exit(1)
+"
 
 echo "=========================================="
-echo "SETUP COMPLETED SUCCESSFULLY ON PYTHON 3.11"
+echo "SETUP COMPLETED SUCCESSFULLY"
 echo "=========================================="
