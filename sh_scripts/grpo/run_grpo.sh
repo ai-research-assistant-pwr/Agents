@@ -40,6 +40,9 @@ echo "=> 4. Instalacja OpenRLHF z KAGAŃCEM (bez prawa do zmiany paczek!)..."
 cd $MY_DISK/OpenRLHF && $VENV_PYTHON -m pip install -e . --no-deps
 cd $MY_DISK
 
+echo "=> 5. Łatka na błąd Ray Dashboard (Uciszenie OpenTelemetry)..."
+$VENV_PYTHON -m pip install "opentelemetry-semantic-conventions==0.45b0" "opentelemetry-exporter-prometheus==0.45b0"
+
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 
 export XDG_CACHE_HOME=$MY_DISK/.cache
