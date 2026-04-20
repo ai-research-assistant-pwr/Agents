@@ -12,58 +12,57 @@
 set -e
 
 source /usr/local/sbin/modules.sh
-module load Python/3.12.3-GCCcore-13.3.0
+module load Python/3.11.5-GCCcore-13.2.0 || module load Python/3.11.3-GCCcore-12.3.0
 
 MY_DISK="/home/tymrom7227/disk"
 VENV_PATH="$MY_DISK/venvs/pnw-3"
-AGENTS_DIR="$MY_DISK/Agents"
+MARTI_DIR="$MY_DISK/MARTI"
 
-echo "=========================================="
-echo "CLEANING AND UPDATING ENV: pnw-3"
-echo "=========================================="
-
-if [ ! -d "$VENV_PATH" ]; then
-    python -m venv $VENV_PATH
-fi
+echo "-> Deleting old venv and creating new one (Python 3.11)..."
+rm -rf $VENV_PATH
+python -m venv $VENV_PATH
+source $VENV_PATH/bin/activate
 
 mkdir -p $MY_DISK/.tmp
 export TMPDIR=$MY_DISK/.tmp
-
-source $VENV_PATH/bin/activate
-
-pip uninstall openrlhf -y || true
-
-pip install --upgrade pip setuptools wheel packaging ninja
-
 export XDG_CACHE_HOME=$MY_DISK/.cache
 export HOME=$MY_DISK
 export HF_HOME=$MY_DISK/.cache/hf
-export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
 
-echo "-> Installing PyTorch 2.4.0 (Better for Python 3.12 and Hopper)"
-pip install torch==2.4.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip install --upgrade pip setuptools wheel packaging ninja
 
-echo "-> Installing core dependencies (fixed versions for stability)"
+echo "-> Installing PyTorch (cu121 has best wheels for 3.11)..."
+pip install torch==2.4.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+echo "-> Installing vLLM and Ray..."
 pip install vllm==0.6.3.post1
-pip install ray==2.31.0
+pip install ray[default]==2.35.0
+
+echo "-> Installing MARTI requirements..."
+pip install bitsandbytes isort optree torchdata transformers_stream_generator
+pip install "transformers>=4.45.2,<4.47.0"
 pip install "opentelemetry-sdk>=1.26.0,<1.27.0" "opentelemetry-api>=1.26.0,<1.27.0"
+DS_BUILD_OPS=0 pip install deepspeed==0.18.0
 
-echo "-> Installing other libraries"
-pip install \
-  accelerate datasets einops jsonlines loralib optimum \
-  peft pynvml tensorboard torchmetrics tqdm transformers==4.44.2 \
-  wandb pyyaml pydantic python-dotenv openai pandas flash-attn --no-build-isolation
+echo "-> Installing Flash-Attn (Direct Binary)..."
+pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
 
-echo "-> Managing MARTI repository"
+echo "-> Installing utilities..."
+pip install wandb pyyaml pydantic python-dotenv openai pandas accelerate datasets einops peft
+
+echo "-> Installing MARTI as openrlhf package..."
 cd $MY_DISK
 if [ ! -d "MARTI" ]; then
     git clone https://github.com/TsinghuaC3I/MARTI.git
 fi
 
 cd $MARTI_DIR
-pip install --no-build-isolation --no-deps --force-reinstall -e .
+pip install --no-build-isolation --no-deps -e .
 
-echo "-> Final Verification"
-$VENV_PATH/bin/python -c "import sys; sys.path.insert(0, '$MARTI_DIR'); import torch; import openrlhf; import vllm; print('CUDA:', torch.cuda.is_available()); print('OpenRLHF/MARTI OK'); print('vLLM OK')"
+echo "-> Final Verification..."
+export PYTHONPATH="$MARTI_DIR:$PYTHONPATH"
+python -c "import sys; sys.path.insert(0, '$MARTI_DIR'); import torch; import openrlhf; import vllm; print('CUDA:', torch.cuda.is_available()); print('OpenRLHF/MARTI OK'); print('vLLM OK')"
 
-echo "SETUP COMPLETED SUCCESSFULLY"
+echo "=========================================="
+echo "SETUP COMPLETED SUCCESSFULLY ON PYTHON 3.11"
+echo "=========================================="
