@@ -59,10 +59,12 @@ if ! python -c "import openrlhf" &> /dev/null; then
 
     cd $MARTI_DIR
     pip uninstall openrlhf -y || true
-    pip install -e .
+    pip install -e . --no-deps
 
     cd $MY_DISK
 fi
+
+export PYTHONPATH="$MARTI_DIR:$PYTHONPATH"
 
 # =================================================
 # FINAL IMPORT TEST
