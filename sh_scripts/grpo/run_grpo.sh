@@ -9,7 +9,7 @@
 #SBATCH -p lem-gpu-short
 #SBATCH --gres=gpu:hopper:1
 
-set -e  #
+set -e 
 
 WANDB_API_KEY=$1
 
@@ -27,52 +27,61 @@ fi
 source /usr/local/sbin/modules.sh
 module load Python/3.12.3-GCCcore-13.3.0
 
-VENV_PATH="/home/tymrom7227/disk/venvs/pnw-3"
+MY_DISK="/home/tymrom7227/disk"
+VENV_PATH="$MY_DISK/venvs/pnw-3"
+AGENTS_DIR="$MY_DISK/Agents"
+MARTI_DIR="$MY_DISK/MARTI"
+
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-echo "Using Python: $VENV_PYTHON"
-
-# =================================================
-# AUTO-INSTALL OPENRLHF (if missing)
-# =================================================
-echo "Checking openrlhf installation..."
-
-if ! python -c "import openrlhf" &> /dev/null; then
-    echo "openrlhf not found. Installing..."
-
-    pip install openrlhf || true
-
-    LOCAL_OPENRLHF="/home/tymrom7227/disk/Agents/openrlhf"
-
-    if [ -d "$LOCAL_OPENRLHF" ]; then
-        echo "Installing openrlhf from local repo..."
-        pip install -e $LOCAL_OPENRLHF
-    fi
-fi
-
-# =================================================
-# FINAL CHECK
-# =================================================
-echo "Verifying openrlhf import..."
-
-python - <<EOF
-import openrlhf
-print("openrlhf successfully imported")
-EOF
-
-# =================================================
-# PATH CONFIG
-# =================================================
-MY_DISK="/home/tymrom7227/disk"
-AGENTS_DIR="$MY_DISK/Agents"
-
-export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
+export PYTHONPATH="$AGENTS_DIR:$MARTI_DIR:$PYTHONPATH"
 
 export XDG_CACHE_HOME=$MY_DISK/.cache
 export HF_HOME=$MY_DISK/.cache/hf
 export TORCHINDUCTOR_CACHE_DIR=$MY_DISK/.cache/torch_inductor
 export TRANSFORMERS_OFFLINE=0
+
+echo "Using Python: $VENV_PYTHON"
+
+# =================================================
+# CHECK AND INSTALL DEPENDENCIES
+# =================================================
+echo "Checking OpenRLHF (via MARTI)..."
+
+if ! python -c "import openrlhf" &> /dev/null; then
+    echo "openrlhf not found → installing from MARTI..."
+
+    if [ ! -d "$MARTI_DIR" ]; then
+        echo "ERROR: MARTI repo not found at $MARTI_DIR"
+        exit 1
+    fi
+
+    cd $MARTI_DIR
+    pip uninstall openrlhf -y || true
+    pip install -e .
+
+    cd $MY_DISK
+fi
+
+# =================================================
+# FINAL IMPORT TEST
+# =================================================
+echo "Verifying installation..."
+
+python - <<EOF
+import torch
+print("Torch CUDA:", torch.cuda.is_available())
+
+import openrlhf
+print("OpenRLHF OK")
+
+import vllm
+print("vLLM OK")
+
+import transformers
+print("Transformers OK")
+EOF
 
 # =================================================
 # PATHS
