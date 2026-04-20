@@ -32,6 +32,7 @@ export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 export XDG_CACHE_HOME=$MY_DISK/.cache
 export HF_HOME=$MY_DISK/.cache/hf
 export TRANSFORMERS_OFFLINE=0
+export NCCL_DEBUG=WARN
 
 # =================================================
 # FINAL CHECKS
@@ -68,12 +69,15 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --colocate_all_models \
     --vllm_num_engines 1 \
     --vllm_tensor_parallel_size 1 \
+    --vllm_gpu_memory_utilization 0.5 \
+    --vllm_enable_sleep \
+    --deepspeed_enable_sleep \
+    --enforce_eager \
     --ref_num_nodes 1 \
     --ref_num_gpus_per_node 1 \
     --actor_num_nodes 1 \
     --actor_num_gpus_per_node 1 \
     --actor_learning_rate 5e-7 \
-    --critic_learning_rate 5e-6 \
     --train_batch_size 16 \
     --micro_train_batch_size 1 \
     --rollout_batch_size 16 \
@@ -81,7 +85,7 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --max_epochs 1 \
     --prompt_max_len 2048 \
     --generate_max_len 256 \
-    --zero_stage 3 \
+    --zero_stage 2 \
     --bf16 \
     --gradient_checkpointing \
     --save_hf_ckpt \

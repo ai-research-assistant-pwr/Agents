@@ -1,7 +1,5 @@
 import os
 import torch
-import json
-import re
 import yaml
 from openrlhf.utils.agent import AgentInstanceBase
 from .rewards import calculate_step_reward
@@ -14,10 +12,9 @@ class MockHypothesisEnv(AgentInstanceBase):
             self.config = yaml.safe_load(f)
         self.max_turns = self.config["environment"]["max_turns"]
         self.reward_cfg = self.config["rewards"]
-        self.current_turn = 0
 
     async def reset(self, states: dict, **kwargs):
-        self.current_turn = 0
+        states["current_turn"] = 0
         obs = states.get("observation", states.get("visible_chunks", ""))
 
         if isinstance(obs, list):
@@ -34,7 +31,8 @@ class MockHypothesisEnv(AgentInstanceBase):
     async def step(self, states: dict, **kwargs) -> dict:
         action_text = states["action_text"]
 
-        expected_action = states.get("label") or states.get("labels")
+        current_turn = states.get("current_turn", 0)
+        expected_action = states.get("expected_action")
 
         action = self._detect_action(action_text)
 
@@ -42,13 +40,13 @@ class MockHypothesisEnv(AgentInstanceBase):
             parsed_json=None,
             action=action,
             expected_action=expected_action,
-            current_turn=self.current_turn,
+            current_turn=current_turn,
             reward_cfg=self.reward_cfg
         )
 
         done = (
             action == "GENERATE"
-            or self.current_turn >= self.max_turns
+            or current_turn >= self.max_turns
         )
 
         env_feedback = ""
@@ -64,7 +62,7 @@ class MockHypothesisEnv(AgentInstanceBase):
             else:
                 half_idx = max(1, len(hidden_chunks) // 2)
 
-                if self.current_turn == 0:
+                if current_turn == 0:
                     current_context = hidden_chunks[:half_idx]
                 else:
                     current_context = hidden_chunks[half_idx:] or ["No additional data found."]
@@ -79,7 +77,7 @@ class MockHypothesisEnv(AgentInstanceBase):
                 "<|im_start|>assistant\n"
             )
 
-            self.current_turn += 1
+            states["current_turn"] = current_turn + 1
 
         return {
             "rewards": torch.tensor(reward, dtype=torch.float32),
@@ -88,6 +86,6 @@ class MockHypothesisEnv(AgentInstanceBase):
             "done": done,
             "extra_logs": {
                 "reward_reason": reason,
-                "turn": self.current_turn
+                "turn": current_turn
             }
         }
