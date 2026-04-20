@@ -1,8 +1,14 @@
 import os
+import sys
 import torch
 import yaml
 from openrlhf.utils.agent import AgentInstanceBase
-from .rewards import calculate_step_reward
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+from rewards import calculate_step_reward
 
 class MockHypothesisEnv(AgentInstanceBase):
     def __init__(self, *args, **kwargs):
