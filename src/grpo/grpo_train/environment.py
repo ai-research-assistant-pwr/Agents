@@ -10,7 +10,7 @@ if current_dir not in sys.path:
 
 from rewards import calculate_step_reward
 
-class MockHypothesisEnv(AgentInstanceBase):
+class AgentExecutor(AgentInstanceBase):
     def __init__(self, *args, **kwargs):
         config_path = os.getenv("MARTI_CONFIG_PATH", "config.yaml")
         
