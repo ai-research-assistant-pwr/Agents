@@ -42,7 +42,7 @@ DATA_PATH="$AGENTS_DIR/data/datasets/grpo_exp_dataset/mock_data.json"
 AGENT_ENV_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/environment.py"
 OUTPUT_DIR="$MY_DISK/models_output/grpo_results"
 
-export MARTI_CONFIG_PATH="$AGENTS_DIR/config.yaml"
+export MARTI_CONFIG_PATH="$AGENTS_DIR/config/grpo/config.yaml"
 
 echo "================================================="
 echo "TESTING CONFIGURATION BEFORE GRPO TRAINING"
