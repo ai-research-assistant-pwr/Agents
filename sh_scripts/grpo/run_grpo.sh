@@ -38,8 +38,8 @@ export NCCL_DEBUG=WARN
 # FINAL CHECKS
 # =================================================
 if ! $VENV_PYTHON -c "import openrlhf" &> /dev/null; then
-    echo "MARTI not recognized, reinstalling linked mode..."
-    cd $MARTI_DIR && $VENV_PYTHON -m pip install -e . --no-deps
+    echo "MARTI not recognized, injecting .pth file directly into venv..."
+    echo "$MARTI_DIR" > "$VENV_PATH/lib/python3.11/site-packages/marti.pth"
 fi
 
 # =================================================

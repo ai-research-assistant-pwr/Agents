@@ -30,7 +30,6 @@ class MockHypothesisEnv(AgentInstanceBase):
 
     async def step(self, states: dict, **kwargs) -> dict:
         action_text = states["action_text"]
-
         current_turn = states.get("current_turn", 0)
         expected_action = states.get("expected_action")
 

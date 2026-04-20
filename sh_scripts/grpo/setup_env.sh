@@ -58,10 +58,10 @@ fi
 # =================================================
 # DEPENDENCIES
 # =================================================
-echo "-> Installing Ray 2.48.0 (wersja z requirements.txt MARTI)..."
+echo "-> Installing Ray 2.48.0..."
 pip install "ray[default]==2.48.0"
 
-echo "-> Installing Transformers 4.57.0 (wersja z requirements.txt MARTI)..."
+echo "-> Installing Transformers 4.57.0..."
 pip install "transformers==4.57.0"
 
 echo "-> Installing DeepSpeed 0.18.0..."
@@ -96,17 +96,20 @@ echo "-> Installing vLLM 0.8.5.post1..."
 pip install "vllm==0.8.5.post1"
 
 # =================================================
-# FLASH-ATTN — prebuilt binary cp311 + cu12 + torch2.4
+# FLASH-ATTN
 # =================================================
 echo "-> Installing Flash-Attn (prebuilt binary)..."
 pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
 
 # =================================================
-# MARTI — editable install (linked mode)
+# MARTI
 # =================================================
 echo "-> Installing MARTI package (editable, no-deps)..."
 cd "$MARTI_DIR"
-pip install --no-build-isolation --no-deps -e .
+pip install -e . --no-deps
+
+echo "-> Injecting .pth file for bulletproof linking..."
+echo "$MARTI_DIR" > "$VENV_PATH/lib/python3.11/site-packages/marti.pth"
 
 # =================================================
 # verification
@@ -116,11 +119,6 @@ export PYTHONPATH="$MARTI_DIR:${PYTHONPATH:-}"
 
 "$VENV_PATH/bin/python" << 'PYEOF'
 import sys, os
-
-# MARTI_DIR przekazany przez export z basha
-marti_dir = os.environ.get('MARTI_DIR', '')
-if marti_dir:
-    sys.path.insert(0, marti_dir)
 
 errors = []
 
@@ -151,12 +149,6 @@ if errors:
     print('\nIMPORT ERRORS:')
     for err in errors:
         print(f'  [FAIL] {err}')
-    if marti_dir and os.path.isdir(marti_dir):
-        print(f'\nContent of {marti_dir}:')
-        for f in sorted(os.listdir(marti_dir)):
-            full = os.path.join(marti_dir, f)
-            is_mod = os.path.isdir(full) and os.path.exists(os.path.join(full, '__init__.py'))
-            print(f'  {"[module]" if is_mod else "       "} {f}')
     sys.exit(1)
 
 print('\nSUCCESS: All imports successful. MARTI environment is set up correctly.')
@@ -164,7 +156,4 @@ PYEOF
 
 echo "=========================================="
 echo "SETUP COMPLETED SUCCESSFULLY"
-echo "Venv:   $VENV_PATH"
-echo "MARTI:  $MARTI_DIR"
-echo "Python: $(python --version)"
 echo "=========================================="
