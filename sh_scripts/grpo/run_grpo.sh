@@ -97,7 +97,7 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --actor.model_name_or_path $MERGED_MODEL \
     --ckpt.output_dir $OUTPUT_DIR \
     --train.agent_func_path $AGENT_ENV_SCRIPT \
-    --data.prompt_dataset "json@$DATA_PATH" \
+    --data.prompt_dataset "$DATA_PATH" \
     --data.input_key "query" \
     --data.label_key "expected_action" \
     --algo.advantage.estimator "group_norm" \
