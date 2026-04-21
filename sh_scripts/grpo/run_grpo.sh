@@ -38,9 +38,9 @@ AGENT_ENV_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/environment.py"
 OUTPUT_DIR="$MY_DISK/models_output/grpo_results"
 export MARTI_CONFIG_PATH="$AGENTS_DIR/config/grpo/config.yaml"
 
-if [ ! -z "$WANDB_API_KEY" ]; then
-    WANDB_FLAG="--use_wandb $WANDB_API_KEY --wandb_project MARTI_GRPO --wandb_run_name grpo_exp_1"
-fi
+# if [ ! -z "$WANDB_API_KEY" ]; then
+#     WANDB_FLAG="--use_wandb $WANDB_API_KEY --wandb_project MARTI_GRPO --wandb_run_name grpo_exp_1"
+# fi
 
 echo "=> Running MARTI GRPO training..."
 $VENV_PYTHON -m marti.cli.train_ppo_ray \
