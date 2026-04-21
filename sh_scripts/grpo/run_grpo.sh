@@ -7,7 +7,7 @@
 #SBATCH --job-name=grpo_qwen
 #SBATCH --output=/home/tymrom7227/disk/Agents/out/grpo_qwen.out
 #SBATCH -p lem-gpu-short
-#SBATCH --gres=gpu:hopper:1
+#SBATCH --gres=gpu:hopper:2
 
 set -e 
 
@@ -97,16 +97,16 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --data.input_key "query" \
     --data.label_key "expected_action" \
     --algo.advantage.estimator "group_norm" \
-    --colocate_actor_ref \
+    --train.colocate_actor_ref \
     --vllm.num_engines 1 \
     --vllm.tensor_parallel_size 1 \
     --vllm.gpu_memory_utilization 0.4 \
     --vllm.enable_sleep \
     --vllm.enforce_eager \
     --actor.num_nodes 1 \
-    --actor.num_gpus_per_node 0.4 \
+    --actor.num_gpus_per_node 1 \
     --ref.num_nodes 1 \
-    --ref.num_gpus_per_node 0.4 \
+    --ref.num_gpus_per_node 1 \
     --actor.adam.lr 5e-7 \
     --train.batch_size 16 \
     --train.micro_batch_size 1 \
