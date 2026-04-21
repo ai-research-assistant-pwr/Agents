@@ -5,18 +5,68 @@ import yaml
 import re
 import json
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
+
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
+    PreTrainedTokenizerBase.all_special_tokens_extended = property(lambda self: self.all_special_tokens)
+
+# Używamy zintegrowanej klasy z biblioteki MARTI
+from marti.utils.agent import MultiTurnAgentExecutor, AgentInstanceBase
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from rewards import calculate_step_reward
+def calculate_step_reward(
+    parsed_json,
+    action: str | None,
+    expected_action: str,
+    current_turn: int,
+    reward_cfg: Dict[str, float]
+) -> Tuple[float, str]:
+    reward = 0.0
+    reason = ""
 
+    if action is None:
+        return reward_cfg.get("unknown_action_penalty", -1.0), "No action detected"
 
-class AgentExecutor:
-    def __init__(self, *args, **kwargs):
-        # Wczytaj konfigurację
+    reward += reward_cfg.get("turn_penalty", -0.1)
+
+    if action == "ASK":
+        if current_turn == 0 and expected_action == "ASK":
+            reward += reward_cfg.get("correct_ask", 1.0)
+            reason = "Correct ASK on first turn"
+        else:
+            reason = "ASK used (continuation/suboptimal)"
+
+    elif action == "GENERATE":
+        if current_turn == 0 and expected_action == "GENERATE":
+            reward += reward_cfg.get("correct_generate_immediate", 1.0)
+            reason = "Correct immediate GENERATE"
+
+        elif current_turn > 0 and expected_action == "ASK":
+            reward += reward_cfg.get("correct_generate_after_ask", 0.5)
+            reason = "Correct GENERATE after ASK"
+
+        elif current_turn == 0 and expected_action == "ASK":
+            reward += reward_cfg.get("hallucination_penalty", -1.0)
+            reason = "Hallucination (should ASK first)"
+            
+        elif current_turn > 0 and expected_action == "GENERATE":
+            reward += reward_cfg.get("turn_penalty", -0.1)
+            reason = "GENERATE after unnecessary turns"
+    else:
+        reward += reward_cfg.get("unknown_action_penalty", -1.0)
+        reason = f"Unknown action: {action}"
+
+    return reward, reason
+
+class AgentInstance(AgentInstanceBase):
+    """
+    GRPO Environment - handles individual episode execution and reward calculation
+    """
+    def __init__(self):
         config_path = os.getenv("MARTI_CONFIG_PATH", "config.yaml")
         with open(config_path, "r", encoding="utf-8") as f:
             self.config = yaml.safe_load(f)
@@ -40,30 +90,31 @@ class AgentExecutor:
             print("LOGGING ERROR:", e)
 
     async def reset(self, states: dict, **kwargs):
+        """Reset environment with initial prompt and label"""
         states["current_turn"] = 0
         states["episode_id"] = str(time.time())
+        full_prompt = states.get("observation") or states.get("prompt") or states.get("query") or ""
 
-        raw_obs = states.get("prompt") or states.get("observation") or states.get("query") or ""
-        states["full_prompt"] = raw_obs
-
-        hidden_match = re.search(r"<HIDDEN_CHUNKS>(.*?)</HIDDEN_CHUNKS>", raw_obs, re.DOTALL)
+        hidden_match = re.search(r"<HIDDEN_CHUNKS>(.*?)</HIDDEN_CHUNKS>", full_prompt, re.DOTALL)
         if hidden_match:
             try:
-                hidden_chunks = json.loads(hidden_match.group(1))
+                states["hidden_chunks"] = json.loads(hidden_match.group(1))
             except:
-                hidden_chunks = []
-            obs = re.sub(r"<HIDDEN_CHUNKS>.*?</HIDDEN_CHUNKS>", "", raw_obs, flags=re.DOTALL).strip()
+                states["hidden_chunks"] = []
+            obs = re.sub(r"<HIDDEN_CHUNKS>.*?</HIDDEN_CHUNKS>", "", full_prompt, flags=re.DOTALL).strip()
         else:
-            hidden_chunks = []
-            obs = raw_obs
+            states["hidden_chunks"] = []
+            obs = full_prompt
 
         return {
             "observation": obs,
             "initial_observation": obs,
-            "hidden_chunks": hidden_chunks
+            "hidden_chunks": states["hidden_chunks"],
+            "label": states.get("label", "GENERATE")
         }
 
     def _detect_action(self, text: str) -> str:
+        """Detect agent action from generated text (ASK or GENERATE)"""
         request_match = re.search(r"<REQUEST>(.*?)</REQUEST>", text, re.DOTALL | re.IGNORECASE)
         if request_match:
             content = request_match.group(1).strip().lower()
@@ -72,9 +123,10 @@ class AgentExecutor:
         return "GENERATE"
 
     async def step(self, states: dict, **kwargs) -> Dict[str, Any]:
+        """Execute one step of GRPO interaction"""
         action_text = states["action_text"]
+        expected_action = states.get("label", "GENERATE")
         current_turn = states.get("current_turn", 0)
-        expected_action = states.get("expected_action") or states.get("label", "GENERATE")
 
         action = self._detect_action(action_text)
 
@@ -87,20 +139,10 @@ class AgentExecutor:
         )
 
         done = (action == "GENERATE" or current_turn >= self.max_turns)
-
         env_feedback = ""
         hidden_chunks = states.get("hidden_chunks", [])
 
         if action == "ASK" and not done:
-            if not hidden_chunks:
-                raw_prompt = states.get("full_prompt", "")
-                hm = re.search(r"<HIDDEN_CHUNKS>(.*?)</HIDDEN_CHUNKS>", raw_prompt, re.DOTALL)
-                if hm:
-                    try:
-                        hidden_chunks = json.loads(hm.group(1))
-                    except:
-                        pass
-
             if not hidden_chunks:
                 context_str = "No additional data found."
             else:
@@ -118,22 +160,19 @@ class AgentExecutor:
             states["current_turn"] = current_turn + 1
 
         sampling_params = states.get("sampling_params")
-        if sampling_params is None:
-            sampling_params = {"stop": ["<|im_end|>"], "stop_token_ids": [151645]}
-        elif isinstance(sampling_params, dict):
-            sampling_params["stop"] = ["<|im_end|>"]
-            sampling_params["stop_token_ids"] = [151645]
-        else:
-            sampling_params.stop = ["<|im_end|>"]
-            sampling_params.stop_token_ids = [151645]
+        if sampling_params is not None:
+            if hasattr(sampling_params, '__dict__'):
+                sampling_params.stop = ["<|im_end|>"]
+                sampling_params.stop_token_ids = [151645]
+            else:
+                sampling_params["stop"] = ["<|im_end|>"]
+                sampling_params["stop_token_ids"] = [151645]
 
-        episode_id = states.get("episode_id") or str(time.time())
         log_entry = {
             "timestamp": time.time(),
-            "episode_id": episode_id,
+            "episode_id": states.get("episode_id", "unknown"),
             "turn": current_turn,
-            "observation": states.get("initial_observation"),
-            "query": states.get("query") or states.get("prompt"),
+            "observation": states.get("initial_observation", ""),
             "action_text": action_text,
             "action_detected": action,
             "expected_action": expected_action,
@@ -157,3 +196,10 @@ class AgentExecutor:
                 "reward": float(reward)
             }
         }
+
+class AgentExecutor(MultiTurnAgentExecutor):
+    """
+    GRPO Executor - orchestrates multi-turn agent episodes using MARTI framework
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(AgentInstance)

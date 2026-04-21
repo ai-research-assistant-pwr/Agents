@@ -31,6 +31,24 @@ export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 export XDG_CACHE_HOME=$MY_DISK/.cache
 
 # =================================================
+# VALIDATION
+# =================================================
+if [ ! -f "$MERGED_MODEL/config.json" ]; then
+    echo "ERROR: Model not found at $MERGED_MODEL"
+    exit 1
+fi
+
+if [ ! -f "$AGENTS_DIR/config/grpo/config.yaml" ]; then
+    echo "ERROR: Config not found at $AGENTS_DIR/config/grpo/config.yaml"
+    exit 1
+fi
+
+if [ ! -f "$AGENTS_DIR/src/grpo/grpo_train/environment.py" ]; then
+    echo "ERROR: Environment script not found at $AGENTS_DIR/src/grpo/grpo_train/environment.py"
+    exit 1
+fi
+
+# =================================================
 # START TRAINING
 # =================================================
 DATA_PATH="$AGENTS_DIR/data/datasets/grpo_exp_dataset/mock_data.json"
@@ -38,20 +56,30 @@ AGENT_ENV_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/environment.py"
 OUTPUT_DIR="$MY_DISK/models_output/grpo_results"
 export MARTI_CONFIG_PATH="$AGENTS_DIR/config/grpo/config.yaml"
 
+mkdir -p "$OUTPUT_DIR"
+
 if [ ! -z "$WANDB_API_KEY" ]; then
     WANDB_FLAG="--use_wandb $WANDB_API_KEY --wandb_project MARTI_GRPO --wandb_run_name grpo_exp_1"
 fi
 
+echo "=> Configuration:"
+echo "   Model: $MERGED_MODEL"
+echo "   Data: $DATA_PATH"
+echo "   Agent: $AGENT_ENV_SCRIPT"
+echo "   Output: $OUTPUT_DIR"
+echo "   Config: $MARTI_CONFIG_PATH"
+echo ""
 echo "=> Running MARTI GRPO training..."
 $VENV_PYTHON -m marti.cli.train_ppo_ray \
-    --pretrain $MERGED_MODEL \
-    --save_path $OUTPUT_DIR \
-    --agent_func_path $AGENT_ENV_SCRIPT \
+    --pretrain "$MERGED_MODEL" \
+    --save_path "$OUTPUT_DIR" \
+    --agent_func_path "$AGENT_ENV_SCRIPT" \
     --prompt_data "$DATA_PATH" \
     --input_key "query" \
     --label_key "expected_action" \
     --advantage_estimator "group_norm" \
     --colocate_actor_ref \
+    --colocate_critic_reward \
     --vllm_num_engines 1 \
     --vllm_tensor_parallel_size 1 \
     --vllm_gpu_memory_utilization 0.2 \
@@ -61,16 +89,27 @@ $VENV_PYTHON -m marti.cli.train_ppo_ray \
     --actor_num_gpus_per_node 1 \
     --ref_num_nodes 1 \
     --ref_num_gpus_per_node 1 \
+    --critic_num_nodes 1 \
+    --critic_num_gpus_per_node 1 \
+    --reward_num_nodes 1 \
+    --reward_num_gpus_per_node 1 \
     --actor_learning_rate 5e-7 \
+    --critic_learning_rate 5e-6 \
     --train_batch_size 16 \
     --micro_train_batch_size 1 \
     --rollout_batch_size 16 \
     --n_samples_per_prompt 4 \
     --max_epochs 1 \
-    --max_len 2048 \
+    --prompt_max_len 1024 \
     --generate_max_len 256 \
+    --max_len 2048 \
     --zero_stage 3 \
+    --adam_offload \
     --bf16 \
     --gradient_checkpointing \
     --save_hf_ckpt \
+    --seed 42 \
+    --logging_steps 1 \
     $WANDB_FLAG
+
+echo "=> Training completed successfully!"
