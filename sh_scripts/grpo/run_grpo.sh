@@ -100,7 +100,7 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --train.colocate_actor_ref \
     --vllm.num_engines 1 \
     --vllm.tensor_parallel_size 1 \
-    --vllm.gpu_memory_utilization 0.4 \
+    --vllm.gpu_memory_utilization 0.2 \
     --vllm.enable_sleep \
     --vllm.enforce_eager \
     --actor.num_nodes 1 \
@@ -115,7 +115,8 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --train.max_epochs 1 \
     --data.max_len 2048 \
     --rollout.max_new_tokens 256 \
-    --ds.zero_stage 2 \
+    --ds.zero_stage 3 \
+    --ds.adam_offload \
     --ds.param_dtype bf16 \
     --actor.gradient_checkpointing_enable \
     --ckpt.save_hf \
