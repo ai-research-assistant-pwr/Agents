@@ -191,8 +191,8 @@ class AgentInstance(AgentInstanceBase):
             "done": done,
             "sampling_params": sampling_params,
             "extra_logs": {
-                "turn": current_turn,
-                "reward": float(reward)
+                "turn": torch.tensor(current_turn, dtype=torch.float32),
+                "reward": torch.tensor(reward, dtype=torch.float32)
             }
         }
 
