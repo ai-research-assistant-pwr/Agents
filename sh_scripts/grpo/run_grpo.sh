@@ -116,7 +116,6 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --data.max_len 2048 \
     --rollout.max_new_tokens 256 \
     --ds.zero_stage 3 \
-    --ds.adam_offload \
     --ds.param_dtype bf16 \
     --actor.gradient_checkpointing_enable \
     --ckpt.save_hf \
