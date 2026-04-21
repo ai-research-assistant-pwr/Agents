@@ -35,7 +35,8 @@ def main():
     test_ids = set()
     with open(SFT_TEST_FILE, "r", encoding="utf-8") as f:
         for line in f:
-            if not line.strip(): continue
+            if not line.strip():
+                continue
             record = json.loads(line)
             test_ids.add(record.get("prompt_id"))
             
@@ -58,7 +59,8 @@ Do NOT introduce new variables outside of what the Retriever provided."""
 
     with open(SOURCE_DATASET_FILE, "r", encoding="utf-8") as f:
         for line in f:
-            if not line.strip(): continue
+            if not line.strip():
+                continue
             data = json.loads(line)
             prompt_id = data.get("prompt_id")
             
@@ -93,7 +95,8 @@ Do NOT introduce new variables outside of what the Retriever provided."""
                 grpo_record = {
                     "id": prompt_id,
                     "query": full_prompt,
-                    "expected_action": "GENERATE" if is_success else "ASK"
+                    "expected_action": "GENERATE" if is_success else "ASK",
+                    "label": "GENERATE" if is_success else "ASK"
                 }
                 
                 if is_success:

@@ -48,6 +48,7 @@ $VENV_PYTHON -m marti.cli.train_ppo_ray \
     --save_path $OUTPUT_DIR \
     --agent_func_path $AGENT_ENV_SCRIPT \
     --prompt_data "$DATA_PATH" \
+    --metadata_key "id" \
     --input_key "query" \
     --label_key "expected_action" \
     --advantage_estimator "group_norm" \
