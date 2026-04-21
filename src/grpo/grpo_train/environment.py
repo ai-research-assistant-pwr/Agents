@@ -11,61 +11,14 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
     PreTrainedTokenizerBase.all_special_tokens_extended = property(lambda self: self.all_special_tokens)
 
-from openrlhf.utils.agent import MultiTurnAgentExecutor, AgentInstanceBase
+from marti.utils.agent import MultiTurnAgentExecutor, AgentInstanceBase
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# =========================
-# REWARD FUNCTION
-# =========================
-def calculate_step_reward(
-    parsed_json,
-    action: str | None,
-    expected_action: str,
-    current_turn: int,
-    reward_cfg: Dict[str, float]
-) -> Tuple[float, str]:
+from rewards import calculate_step_reward
 
-    reward = 0.0
-    reason = ""
-
-    if action is None:
-        return reward_cfg["unknown_action_penalty"], "No action detected"
-
-    reward += reward_cfg["turn_penalty"]
-
-    if action == "ASK":
-        if current_turn == 0 and expected_action == "ASK":
-            reward += reward_cfg["correct_ask"]
-            reason = "Correct ASK on first turn"
-        else:
-            reason = "ASK used (continuation)"
-
-    elif action == "GENERATE":
-        if current_turn == 0 and expected_action == "GENERATE":
-            reward += reward_cfg["correct_generate_immediate"]
-            reason = "Correct immediate GENERATE"
-
-        elif current_turn > 0 and expected_action == "ASK":
-            reward += reward_cfg["correct_generate_after_ask"]
-            reason = "Correct GENERATE after ASK"
-
-        elif current_turn == 0 and expected_action == "ASK":
-            reward += reward_cfg["hallucination_penalty"]
-            reason = "Hallucination (should ASK first)"
-
-    else:
-        reward += reward_cfg["unknown_action_penalty"]
-        reason = f"Unknown action: {action}"
-
-    return reward, reason
-
-
-# =========================
-# ENV
-# =========================
 class MockHypothesisEnvInstance(AgentInstanceBase):
     def __init__(self, *args, **kwargs):
         config_path = os.getenv("MARTI_CONFIG_PATH", "config.yaml")
@@ -82,7 +35,6 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         log_dir = os.path.join(base_dir, "..", "..", "data", "eval_results")
         log_dir = os.path.abspath(log_dir)
-
         os.makedirs(log_dir, exist_ok=True)
 
         run_id = os.getenv("SLURM_JOB_ID", str(int(time.time())))
@@ -120,12 +72,14 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
             "hidden_chunks": hidden_chunks
         }
 
-    # =========================
-    # ACTION DETECTION
-    # =========================
     def _detect_action(self, text: str):
-        if "<REQUEST>" in text or "ASK" in text.upper():
-            return "ASK"
+        request_match = re.search(r"<REQUEST>(.*?)</REQUEST>", text, re.DOTALL | re.IGNORECASE)
+        
+        if request_match:
+            content = request_match.group(1).strip().lower()
+            if content and "none" not in content and "no additional" not in content:
+                return "ASK"
+        
         return "GENERATE"
 
     # =========================
@@ -135,7 +89,6 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
 
         action_text = states["action_text"]
         current_turn = states.get("current_turn", 0)
-
         expected_action = states.get("expected_action") or states.get("label")
 
         action = self._detect_action(action_text)
@@ -149,7 +102,6 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
         )
 
         done = (action == "GENERATE" or current_turn >= self.max_turns)
-
         env_feedback = ""
         hidden_chunks = states.get("hidden_chunks", [])
 
@@ -162,7 +114,6 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
                         hidden_chunks = json.loads(hm.group(1))
                     except:
                         pass
-            
             if not hidden_chunks:
                 context_str = "No additional data found."
             else:
@@ -180,7 +131,6 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
             states["current_turn"] = current_turn + 1
 
         sampling_params = states.get("sampling_params")
-
         if sampling_params is None:
             sampling_params = {"stop": ["<|im_end|>"], "stop_token_ids": [151645]}
         elif isinstance(sampling_params, dict):
@@ -193,30 +143,23 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
         episode_id = states.get("episode_id") or str(time.time())
         
         # =========================
-        # LOGGING
+        # LOGGING 
         # =========================
         log_entry = {
             "timestamp": time.time(),
             "episode_id": episode_id,
             "turn": current_turn,
-
-            "observation": states.get("initial_observation"),
-            "query": states.get("query"),
-
+            "observation": states.get("initial_observation"), 
+            "query": states.get("query") or states.get("prompt"), 
             "action_text": action_text,
             "action_detected": action,
-
             "expected_action": expected_action,
-
             "reward": float(reward),
             "reward_reason": reason,
-
             "done": done,
             "max_turns": self.max_turns,
-
             "env_feedback": env_feedback,
-
-            "hidden_chunks": hidden_chunks,
+            "hidden_chunks": hidden_chunks, 
         }
 
         self._log_to_file(log_entry)

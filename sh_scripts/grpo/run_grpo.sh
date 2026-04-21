@@ -1,5 +1,4 @@
 #!/bin/bash
-
 #SBATCH -N 1
 #SBATCH -c 8
 #SBATCH --mem=64gb
@@ -23,58 +22,16 @@ MY_DISK="/home/tymrom7227/disk"
 VENV_PATH="$MY_DISK/venvs/pnw-3"
 AGENTS_DIR="$MY_DISK/Agents"
 MARTI_DIR="$MY_DISK/MARTI"
+MERGED_MODEL="$MY_DISK/models_output/run4/Qwen3-4B-SFT-Merged"
 
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
+echo "=> Odinstalowanie bazowego OpenRLHF aby wymusic uzycie biblioteki MARTI..."
+$VENV_PYTHON -m pip uninstall -y openrlhf
+
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
-
 export XDG_CACHE_HOME=$MY_DISK/.cache
-export HF_HOME=$MY_DISK/.cache/hf
-export TRANSFORMERS_OFFLINE=0
-export NCCL_DEBUG=WARN
-export TRITON_CACHE_DIR="$MY_DISK/.cache/triton" 
-
-# =================================================
-# FINAL CHECKS
-# =================================================
-if ! $VENV_PYTHON -c "import openrlhf" &> /dev/null; then
-    echo "MARTI not recognized, injecting .pth file directly into venv..."
-    echo "$MARTI_DIR" > "$VENV_PATH/lib/python3.11/site-packages/marti.pth"
-fi
-
-# =================================================
-# AUTOMATYCZNE MERGOWANIE MODELU (LORA + BASE)
-# =================================================
-BASE_MODEL="$MY_DISK/models/Qwen/Qwen3-4B-Instruct-2507"
-SFT_ADAPTER="$MY_DISK/models_output/run4/lora_generator_Qwen3-4B-Instruct-2507"
-MERGED_MODEL="$MY_DISK/models_output/run4/Qwen3-4B-SFT-Merged"
-
-if [ ! -d "$MERGED_MODEL" ]; then
-    echo "=> No merged model found. Starting LoRA weight merging on CPU..."
-    $VENV_PYTHON << EOF
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from peft import PeftModel
-
-print("1/4 Loading base model...")
-base_model = AutoModelForCausalLM.from_pretrained("$BASE_MODEL", torch_dtype=torch.bfloat16, device_map="cpu")
-tokenizer = AutoTokenizer.from_pretrained("$BASE_MODEL")
-
-print("2/4 Applying SFT (LoRA) weights...")
-model = PeftModel.from_pretrained(base_model, "$SFT_ADAPTER")
-
-print("3/4 Merging weights into base model...")
-model = model.merge_and_unload()
-
-print("4/4 Saving to disk...")
-model.save_pretrained("$MERGED_MODEL")
-tokenizer.save_pretrained("$MERGED_MODEL")
-print("Success! Weights merged.")
-EOF
-else
-    echo "=> Merged model found: $MERGED_MODEL. Skipping merging."
-fi
 
 # =================================================
 # START TRAINING
@@ -88,8 +45,8 @@ if [ ! -z "$WANDB_API_KEY" ]; then
     WANDB_FLAG="--logger.wandb.key $WANDB_API_KEY --logger.wandb.project MARTI_GRPO --logger.wandb.run_name grpo_exp_1"
 fi
 
-echo "=> Running GRPO training..."
-$VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
+echo "=> Running MARTI GRPO training..."
+$VENV_PYTHON -m marti.cli.train_ppo_ray \
     --actor.model_name_or_path $MERGED_MODEL \
     --ckpt.output_dir $OUTPUT_DIR \
     --train.agent_func_path $AGENT_ENV_SCRIPT \
