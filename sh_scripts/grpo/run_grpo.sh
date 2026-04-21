@@ -27,9 +27,6 @@ MERGED_MODEL="$MY_DISK/models_output/run4/Qwen3-4B-SFT-Merged"
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-echo "=> Odinstalowanie bazowego OpenRLHF aby wymusic uzycie biblioteki MARTI..."
-$VENV_PYTHON -m pip uninstall -y openrlhf
-
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 export XDG_CACHE_HOME=$MY_DISK/.cache
 
@@ -47,33 +44,33 @@ fi
 
 echo "=> Running MARTI GRPO training..."
 $VENV_PYTHON -m marti.cli.train_ppo_ray \
-    --actor.model_name_or_path $MERGED_MODEL \
-    --ckpt.output_dir $OUTPUT_DIR \
-    --train.agent_func_path $AGENT_ENV_SCRIPT \
-    --data.prompt_dataset "$DATA_PATH" \
-    --data.input_key "query" \
-    --data.label_key "expected_action" \
-    --algo.advantage.estimator "group_norm" \
-    --train.colocate_actor_ref \
-    --vllm.num_engines 1 \
-    --vllm.tensor_parallel_size 1 \
-    --vllm.gpu_memory_utilization 0.2 \
-    --vllm.enable_sleep \
-    --vllm.enforce_eager \
-    --actor.num_nodes 1 \
-    --actor.num_gpus_per_node 1 \
-    --ref.num_nodes 1 \
-    --ref.num_gpus_per_node 1 \
-    --actor.adam.lr 5e-7 \
-    --train.batch_size 16 \
-    --train.micro_batch_size 1 \
-    --rollout.batch_size 16 \
-    --rollout.n_samples_per_prompt 4 \
-    --train.max_epochs 1 \
-    --data.max_len 2048 \
-    --rollout.max_new_tokens 256 \
-    --ds.zero_stage 3 \
-    --ds.param_dtype bf16 \
-    --actor.gradient_checkpointing_enable \
-    --ckpt.save_hf \
+    --pretrain $MERGED_MODEL \
+    --save_path $OUTPUT_DIR \
+    --agent_func_path $AGENT_ENV_SCRIPT \
+    --prompt_data "$DATA_PATH" \
+    --input_key "query" \
+    --label_key "expected_action" \
+    --advantage_estimator "group_norm" \
+    --colocate_actor_ref \
+    --vllm_num_engines 1 \
+    --vllm_tensor_parallel_size 1 \
+    --vllm_gpu_memory_utilization 0.2 \
+    --vllm_enable_sleep \
+    --enforce_eager \
+    --actor_num_nodes 1 \
+    --actor_num_gpus_per_node 1 \
+    --ref_num_nodes 1 \
+    --ref_num_gpus_per_node 1 \
+    --actor_learning_rate 5e-7 \
+    --train_batch_size 16 \
+    --micro_train_batch_size 1 \
+    --rollout_batch_size 16 \
+    --n_samples_per_prompt 4 \
+    --max_epochs 1 \
+    --max_len 2048 \
+    --generate_max_len 256 \
+    --zero_stage 3 \
+    --bf16 \
+    --gradient_checkpointing \
+    --save_hf_ckpt \
     $WANDB_FLAG
