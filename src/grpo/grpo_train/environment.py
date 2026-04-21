@@ -7,8 +7,6 @@ import json
 import time
 from typing import Dict, Any
 
-from marti.agent.base import AgentBase
-
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
@@ -16,13 +14,8 @@ if current_dir not in sys.path:
 from rewards import calculate_step_reward
 
 
-class AgentExecutor(AgentBase):
-    """
-    Klasa środowiska dla GRPO – musi nazywać się AgentExecutor.
-    """
+class AgentExecutor:
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        
         # Wczytaj konfigurację
         config_path = os.getenv("MARTI_CONFIG_PATH", "config.yaml")
         with open(config_path, "r", encoding="utf-8") as f:
