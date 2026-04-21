@@ -39,7 +39,7 @@ OUTPUT_DIR="$MY_DISK/models_output/grpo_results"
 export MARTI_CONFIG_PATH="$AGENTS_DIR/config/grpo/config.yaml"
 
 if [ ! -z "$WANDB_API_KEY" ]; then
-    WANDB_FLAG="--logger.wandb.key $WANDB_API_KEY --logger.wandb.project MARTI_GRPO --logger.wandb.run_name grpo_exp_1"
+    WANDB_FLAG="--use_wandb $WANDB_API_KEY --wandb_project MARTI_GRPO --wandb_run_name grpo_exp_1"
 fi
 
 echo "=> Running MARTI GRPO training..."
