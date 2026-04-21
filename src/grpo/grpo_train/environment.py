@@ -104,7 +104,6 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
             "done": done,
             "sampling_params": sampling_params,
             "extra_logs": {
-                "reward_reason": reason,
                 "turn": current_turn
             }
         }
