@@ -10,7 +10,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
     PreTrainedTokenizerBase.all_special_tokens_extended = property(lambda self: self.all_special_tokens)
 
-from openrlhf.utils.agent import AgentExecutorBase, AgentInstanceBase
+from openrlhf.utils.agent import MultiTurnAgentExecutor, AgentInstanceBase
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
@@ -103,10 +103,6 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
             }
         }
 
-class AgentExecutor(AgentExecutorBase):
+class AgentExecutor(MultiTurnAgentExecutor):
     def __init__(self, *args, **kwargs):
-        super().__init__()        
-        self.env = MockHypothesisEnvInstance()
-
-    async def execute(self, *args, **kwargs):
-        return await super().execute(*args, **kwargs)
+        super().__init__(MockHypothesisEnvInstance)
