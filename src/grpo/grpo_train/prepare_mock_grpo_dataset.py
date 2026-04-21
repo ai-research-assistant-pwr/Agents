@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import random
+import textwrap
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 GRPO_DIR = os.path.dirname(SCRIPT_DIR)
@@ -74,7 +75,8 @@ Do NOT introduce new variables outside of what the Retriever provided."""
                 
                 hidden_data_str = json.dumps(hidden_chunks)
                 
-                full_prompt = f"""<HIDDEN_CHUNKS>{hidden_data_str}</HIDDEN_CHUNKS>
+                full_prompt = textwrap.dedent(f"""\
+                <HIDDEN_CHUNKS>{hidden_data_str}</HIDDEN_CHUNKS>
                 <|im_start|>system
                 {GENERATOR_SYSTEM_PROMPT}
 
@@ -86,7 +88,7 @@ Do NOT introduce new variables outside of what the Retriever provided."""
                 {retriever_message}
                 <|im_end|>
                 <|im_start|>assistant
-                """
+                """)
                 
                 grpo_record = {
                     "id": prompt_id,

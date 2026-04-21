@@ -17,7 +17,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-
 # =========================
 # REWARD FUNCTION
 # =========================
@@ -67,9 +66,6 @@ def calculate_step_reward(
 # =========================
 # ENV
 # =========================
-from rewards import calculate_step_reward
-
-
 class MockHypothesisEnvInstance(AgentInstanceBase):
     def __init__(self, *args, **kwargs):
         config_path = os.getenv("MARTI_CONFIG_PATH", "config.yaml")
@@ -105,27 +101,24 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
         states["current_turn"] = 0
         states["episode_id"] = str(time.time())
 
-        raw_obs = (
-            states.get("observation")
-            or states.get("prompt")
-            or states.get("query")
-            or ""
-        )
+        raw_obs = states.get("prompt") or states.get("observation") or states.get("query") or ""
 
         hidden_match = re.search(r"<HIDDEN_CHUNKS>(.*?)</HIDDEN_CHUNKS>", raw_obs, re.DOTALL)
         if hidden_match:
             try:
-                states["hidden_chunks"] = json.loads(hidden_match.group(1))
+                hidden_chunks = json.loads(hidden_match.group(1))
             except:
-                states["hidden_chunks"] = []
+                hidden_chunks = []
             obs = re.sub(r"<HIDDEN_CHUNKS>.*?</HIDDEN_CHUNKS>", "", raw_obs, flags=re.DOTALL).strip()
         else:
-            states["hidden_chunks"] = []
+            hidden_chunks = []
             obs = raw_obs
 
-        states["initial_observation"] = obs
-
-        return {"observation": obs}
+        return {
+            "observation": obs,
+            "initial_observation": obs,
+            "hidden_chunks": hidden_chunks
+        }
 
     # =========================
     # ACTION DETECTION
@@ -158,10 +151,18 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
         done = (action == "GENERATE" or current_turn >= self.max_turns)
 
         env_feedback = ""
+        hidden_chunks = states.get("hidden_chunks", [])
 
         if action == "ASK" and not done:
-            hidden_chunks = states.get("hidden_chunks", [])
-
+            if not hidden_chunks:
+                raw_prompt = states.get("prompt", "")
+                hm = re.search(r"<HIDDEN_CHUNKS>(.*?)</HIDDEN_CHUNKS>", raw_prompt, re.DOTALL)
+                if hm:
+                    try:
+                        hidden_chunks = json.loads(hm.group(1))
+                    except:
+                        pass
+            
             if not hidden_chunks:
                 context_str = "No additional data found."
             else:
@@ -176,7 +177,6 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
                 "<|im_end|>\n"
                 "<|im_start|>assistant\n"
             )
-
             states["current_turn"] = current_turn + 1
 
         sampling_params = states.get("sampling_params")
@@ -191,6 +191,7 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
             sampling_params.stop_token_ids = [151645]
 
         episode_id = states.get("episode_id") or str(time.time())
+        
         # =========================
         # LOGGING
         # =========================
@@ -215,7 +216,7 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
 
             "env_feedback": env_feedback,
 
-            "hidden_chunks": states.get("hidden_chunks", []),
+            "hidden_chunks": hidden_chunks,
         }
 
         self._log_to_file(log_entry)
