@@ -73,10 +73,15 @@ class AgentInstance(AgentInstanceBase):
         self.max_turns = self.config["environment"]["max_turns"]
         self.reward_cfg = self.config["rewards"]
 
+        self.current_turn = 0
+        self.episode_id = "unknown"
+        self.initial_observation = ""
+        self.hidden_chunks = []
+        self.expected_action = "GENERATE"
+
     def _log_to_file(self, data: dict):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         log_dir = os.path.join(base_dir, "..", "..", "data", "eval_results")
-        log_dir = os.path.abspath(log_dir)
         os.makedirs(log_dir, exist_ok=True)
 
         run_id = os.getenv("SLURM_JOB_ID", str(int(time.time())))
@@ -90,30 +95,31 @@ class AgentInstance(AgentInstanceBase):
 
     async def reset(self, states: dict, **kwargs):
         """Reset environment with initial prompt and label"""
-        states["current_turn"] = 0
-        states["episode_id"] = str(time.time())
-        full_prompt = states.get("observation") or states.get("prompt") or states.get("query") or ""
+        self.current_turn = 0
+        self.episode_id = str(time.time())
+        self.expected_action = states.get("label", "GENERATE")
 
-        hidden_match = re.search(r"<HIDDEN_CHUNKS>(.*?)</HIDDEN_CHUNKS>", full_prompt, re.DOTALL)
+        raw_obs = states.get("prompt") or states.get("observation") or states.get("query") or ""
+
+        hidden_match = re.search(r"<HIDDEN_CHUNKS>(.*?)</HIDDEN_CHUNKS>", raw_obs, re.DOTALL)
         if hidden_match:
             try:
-                states["hidden_chunks"] = json.loads(hidden_match.group(1))
+                self.hidden_chunks = json.loads(hidden_match.group(1))
             except:
-                states["hidden_chunks"] = []
-            obs = re.sub(r"<HIDDEN_CHUNKS>.*?</HIDDEN_CHUNKS>", "", full_prompt, flags=re.DOTALL).strip()
+                self.hidden_chunks = []
+            obs = re.sub(r"<HIDDEN_CHUNKS>.*?</HIDDEN_CHUNKS>", "", raw_obs, flags=re.DOTALL).strip()
         else:
-            states["hidden_chunks"] = []
-            obs = full_prompt
+            self.hidden_chunks = []
+            obs = raw_obs
+
+        self.initial_observation = obs
 
         return {
             "observation": obs,
-            "initial_observation": obs,
-            "hidden_chunks": states["hidden_chunks"],
-            "label": states.get("label", "GENERATE")
+            "label": self.expected_action
         }
 
     def _detect_action(self, text: str) -> str:
-        """Detect agent action from generated text (ASK or GENERATE)"""
         request_match = re.search(r"<REQUEST>(.*?)</REQUEST>", text, re.DOTALL | re.IGNORECASE)
         if request_match:
             content = request_match.group(1).strip().lower()
@@ -122,31 +128,28 @@ class AgentInstance(AgentInstanceBase):
         return "GENERATE"
 
     async def step(self, states: dict, **kwargs) -> Dict[str, Any]:
-        """Execute one step of GRPO interaction"""
-        action_text = states["action_text"]
-        expected_action = states.get("label", "GENERATE")
-        current_turn = states.get("current_turn", 0)
+        action_text = states.get("action_text", "")
+        expected_act = states.get("label") or self.expected_action
 
         action = self._detect_action(action_text)
 
         reward, reason = calculate_step_reward(
             parsed_json=None,
             action=action,
-            expected_action=expected_action,
-            current_turn=current_turn,
+            expected_action=expected_act,
+            current_turn=self.current_turn,
             reward_cfg=self.reward_cfg
         )
 
-        done = (action == "GENERATE" or current_turn >= self.max_turns)
+        done = (action == "GENERATE" or self.current_turn >= self.max_turns)
         env_feedback = ""
-        hidden_chunks = states.get("hidden_chunks", [])
 
         if action == "ASK" and not done:
-            if not hidden_chunks:
+            if not self.hidden_chunks:
                 context_str = "No additional data found."
             else:
-                half = max(1, len(hidden_chunks) // 2)
-                current_context = hidden_chunks[:half] if current_turn == 0 else hidden_chunks[half:]
+                half = max(1, len(self.hidden_chunks) // 2)
+                current_context = self.hidden_chunks[:half] if self.current_turn == 0 else self.hidden_chunks[half:]
                 context_str = "\n\n".join(current_context)
 
             env_feedback = (
@@ -156,7 +159,7 @@ class AgentInstance(AgentInstanceBase):
                 "<|im_end|>\n"
                 "<|im_start|>assistant\n"
             )
-            states["current_turn"] = current_turn + 1
+            self.current_turn += 1
 
         sampling_params = states.get("sampling_params")
         if sampling_params is not None:
@@ -169,18 +172,18 @@ class AgentInstance(AgentInstanceBase):
 
         log_entry = {
             "timestamp": time.time(),
-            "episode_id": states.get("episode_id", "unknown"),
-            "turn": current_turn,
-            "observation": states.get("initial_observation", ""),
+            "episode_id": self.episode_id,
+            "turn": self.current_turn if action == "GENERATE" else self.current_turn - 1,
+            "observation": self.initial_observation,
             "action_text": action_text,
             "action_detected": action,
-            "expected_action": expected_action,
+            "expected_action": expected_act,
             "reward": float(reward),
             "reward_reason": reason,
             "done": done,
             "max_turns": self.max_turns,
             "env_feedback": env_feedback,
-            "hidden_chunks": hidden_chunks,
+            "hidden_chunks": self.hidden_chunks,
         }
         self._log_to_file(log_entry)
 
@@ -191,7 +194,7 @@ class AgentInstance(AgentInstanceBase):
             "done": done,
             "sampling_params": sampling_params,
             "extra_logs": {
-                "turn": torch.tensor(current_turn, dtype=torch.float32),
+                "turn": torch.tensor(self.current_turn, dtype=torch.float32),
                 "reward": torch.tensor(reward, dtype=torch.float32)
             }
         }
