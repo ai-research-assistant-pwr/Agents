@@ -5,17 +5,25 @@ import yaml
 import re
 import json
 import time
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
+
+from marti.agent.base import AgentBase
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
 from rewards import calculate_step_reward
-from marti.utils.agent import MultiTurnAgentExecutor, AgentInstanceBase
 
-class MockHypothesisEnvInstance(AgentInstanceBase):
+
+class AgentExecutor(AgentBase):
+    """
+    Klasa środowiska dla GRPO – musi nazywać się AgentExecutor.
+    """
     def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Wczytaj konfigurację
         config_path = os.getenv("MARTI_CONFIG_PATH", "config.yaml")
         with open(config_path, "r", encoding="utf-8") as f:
             self.config = yaml.safe_load(f)
@@ -63,23 +71,12 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
         }
 
     def _detect_action(self, text: str) -> str:
-        """
-        Detects action
-        """
         request_match = re.search(r"<REQUEST>(.*?)</REQUEST>", text, re.DOTALL | re.IGNORECASE)
         if request_match:
             content = request_match.group(1).strip().lower()
             if content and "none" not in content and "no additional" not in content:
                 return "ASK"
-
-        hypothesis_match = re.search(r"<HYPOTHESIS>(.*?)</HYPOTHESIS>", text, re.DOTALL | re.IGNORECASE)
-        if hypothesis_match:
-            return "GENERATE"
-
-        if text.strip():
-            return "GENERATE"
-
-        return "UNKNOWN"
+        return "GENERATE"
 
     async def step(self, states: dict, **kwargs) -> Dict[str, Any]:
         action_text = states["action_text"]
@@ -138,7 +135,6 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
             sampling_params.stop_token_ids = [151645]
 
         episode_id = states.get("episode_id") or str(time.time())
-
         log_entry = {
             "timestamp": time.time(),
             "episode_id": episode_id,
@@ -168,8 +164,3 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
                 "reward": float(reward)
             }
         }
-
-
-class AgentExecutor(MultiTurnAgentExecutor):
-    def __init__(self, *args, **kwargs):
-        super().__init__(MockHypothesisEnvInstance)
