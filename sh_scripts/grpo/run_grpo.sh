@@ -27,10 +27,6 @@ MARTI_DIR="$MY_DISK/MARTI"
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-echo "=> Wymuszenie paczki FlashInfer skompilowanej pod PyTorch 2.4.0..."
-$VENV_PYTHON -m pip uninstall -y flashinfer flashinfer-python tvm-ffi torch-c-dlpack-ext
-$VENV_PYTHON -m pip install flashinfer -i https://flashinfer.ai/whl/cu121/torch2.4
-
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 
 export XDG_CACHE_HOME=$MY_DISK/.cache
@@ -101,20 +97,20 @@ $VENV_PYTHON -m openrlhf.cli.train_ppo_ray \
     --data.input_key "query" \
     --data.label_key "expected_action" \
     --algo.advantage.estimator "group_norm" \
+    --colocate_actor_ref \
     --vllm.num_engines 1 \
     --vllm.tensor_parallel_size 1 \
-    --vllm.gpu_memory_utilization 0.3 \
+    --vllm.gpu_memory_utilization 0.4 \
     --vllm.enable_sleep \
-    --ds.enable_sleep \
     --vllm.enforce_eager \
-    --ref.num_nodes 1 \
-    --ref.num_gpus_per_node 1 \
     --actor.num_nodes 1 \
-    --actor.num_gpus_per_node 1 \
+    --actor.num_gpus_per_node 0.4 \
+    --ref.num_nodes 1 \
+    --ref.num_gpus_per_node 0.4 \
     --actor.adam.lr 5e-7 \
-    --train.batch_size 4 \
+    --train.batch_size 16 \
     --train.micro_batch_size 1 \
-    --rollout.batch_size 4 \
+    --rollout.batch_size 16 \
     --rollout.n_samples_per_prompt 4 \
     --train.max_epochs 1 \
     --data.max_len 2048 \

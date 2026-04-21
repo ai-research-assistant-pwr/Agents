@@ -59,20 +59,28 @@ Do NOT introduce new variables outside of what the Retriever provided."""
         for line in f:
             if not line.strip(): continue
             data = json.loads(line)
-            
             prompt_id = data.get("prompt_id")
             
             if prompt_id in test_ids:
                 is_success = data.get("is_success", False)
                 retriever_message = data.get("retriever_message", "").strip()
                 
-                full_prompt = f"""<|im_start|>system
+                hidden_chunks = []
+                if not is_success:
+                    hidden_chunks = [
+                        "ADDITIONAL CONTEXT: Received new detailed information that may be relevant to the query.",
+                        "Variable X has a direct impact on Y through mechanism Z."
+                    ]
+                
+                hidden_data_str = json.dumps(hidden_chunks)
+                
+                full_prompt = f"""<HIDDEN_CHUNKS>{hidden_data_str}</HIDDEN_CHUNKS>
+                <|im_start|>system
                 {GENERATOR_SYSTEM_PROMPT}
 
                 IMPORTANT:
                 - Use <THOUGHT>...</THOUGHT> for reasoning
                 - Use <REQUEST>...</REQUEST> if more data is needed
-
                 <|im_end|>
                 <|im_start|>user
                 {retriever_message}
@@ -83,16 +91,8 @@ Do NOT introduce new variables outside of what the Retriever provided."""
                 grpo_record = {
                     "id": prompt_id,
                     "query": full_prompt,
-                    "visible_chunks": [retriever_message],
-                    "hidden_chunks": [],
                     "expected_action": "GENERATE" if is_success else "ASK"
                 }
-                
-                if not is_success:
-                    grpo_record["hidden_chunks"] = [
-                        "ADDITIONAL CONTEXT: Received new detailed information that may be relevant to the query.",
-                        "Variable X has a direct impact on Y through mechanism Z."
-                    ]
                 
                 if is_success:
                     success_records.append(grpo_record)
