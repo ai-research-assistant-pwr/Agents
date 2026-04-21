@@ -11,8 +11,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
     PreTrainedTokenizerBase.all_special_tokens_extended = property(lambda self: self.all_special_tokens)
 
-# Używamy zintegrowanej klasy z biblioteki MARTI
-from marti.utils.agent import MultiTurnAgentExecutor, AgentInstanceBase
+from marti.utils.agent import AgentExecutorBase, AgentInstanceBase
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
@@ -197,9 +196,6 @@ class AgentInstance(AgentInstanceBase):
             }
         }
 
-class AgentExecutor(MultiTurnAgentExecutor):
-    """
-    GRPO Executor - orchestrates multi-turn agent episodes using MARTI framework
-    """
+class AgentExecutor(AgentExecutorBase):
     def __init__(self, *args, **kwargs):
-        super().__init__(AgentInstance)
+        super().__init__(AgentInstance, *args, **kwargs)
