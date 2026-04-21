@@ -85,11 +85,17 @@ class MockHypothesisEnvInstance(AgentInstanceBase):
             )
             states["current_turn"] = current_turn + 1
 
-        sampling_params = states.get("sampling_params", {})
-        if sampling_params is None: sampling_params = {}
+        sampling_params = states.get("sampling_params")
         
-        sampling_params["stop"] = ["<|im_end|>"]
-        sampling_params["stop_token_ids"] = [151645] 
+        if sampling_params is None:
+            sampling_params = {"stop": ["<|im_end|>"], "stop_token_ids": [151645]}
+        elif isinstance(sampling_params, dict):
+            sampling_params["stop"] = ["<|im_end|>"]
+            sampling_params["stop_token_ids"] = [151645]
+        else:
+            # Jeśli to obiekt klasy vllm.SamplingParams:
+            sampling_params.stop = ["<|im_end|>"]
+            sampling_params.stop_token_ids = [151645]
 
         return {
             "rewards": torch.tensor(reward, dtype=torch.float32),
