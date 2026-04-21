@@ -104,7 +104,6 @@ $VENV_PYTHON -m marti.cli.train_ppo_ray \
     --generate_max_len 256 \
     --max_len 2048 \
     --zero_stage 3 \
-    --adam_offload \
     --bf16 \
     --gradient_checkpointing \
     --save_hf_ckpt \
