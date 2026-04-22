@@ -7,12 +7,13 @@ import json
 import time
 from typing import Dict, Any, Tuple
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
+agents_dir = os.environ.get("AGENTS_DIR", "/home/tymrom7227/disk/Agents")
 
-from agents import AgentPrompts
-from rewards import calculate_step_reward
+if agents_dir not in sys.path:
+    sys.path.insert(0, agents_dir)
+
+from src.grpo.grpo_train.agents import AgentPrompts
+from src.grpo.grpo_train.rewards import calculate_step_reward
 
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
@@ -24,26 +25,25 @@ class AgentInstance(AgentInstanceBase):
     """
     GRPO Environment - handles individual episode execution and reward calculation.
     """
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         config_path = os.getenv("MARTI_CONFIG_PATH")
 
         if not config_path or not os.path.exists(config_path):
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            config_path = os.path.abspath(
-                os.path.join(base_dir, "..", "..", "..", "config", "grpo", "config.yaml")
-            )
+            config_path = os.path.join(agents_dir, "config", "grpo", "config.yaml")
 
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 raw_config = yaml.safe_load(f)
         except Exception as e:
             print(f"CRITICAL AGENT INIT ERROR: Cannot load config from {config_path}. Error: {e}")
-            raise e
+            raw_config = {
+                "environment": {"max_turns": 3},
+                "rewards": {"correct_format": 1.0, "turn_penalty": -0.1, "correct_ask": 1.0, "correct_generate_immediate": 1.0, "correct_generate_after_ask": 0.5, "hallucination_penalty": -1.0, "unknown_action_penalty": -1.0}
+            }
 
-        self.max_turns = int(raw_config["environment"]["max_turns"])
-        self.reward_cfg = dict(raw_config["rewards"])
+        self.max_turns = int(raw_config.get("environment", {}).get("max_turns", 3))
+        self.reward_cfg = dict(raw_config.get("rewards", {}))
 
         self.current_turn = 0  # 0, 2… = Retriever | 1, 3… = Generator
         self.episode_id = "unknown"
@@ -53,8 +53,7 @@ class AgentInstance(AgentInstanceBase):
         self.history = []
 
     def _log_to_file(self, data: dict):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        log_dir = os.path.join(base_dir, "..", "..", "..", "data", "eval_results")
+        log_dir = os.path.join(agents_dir, "data", "eval_results")
         os.makedirs(log_dir, exist_ok=True)
         run_id = os.getenv("SLURM_JOB_ID", str(int(time.time())))
         log_path = os.path.join(log_dir, f"debug_rollouts_{run_id}.jsonl")

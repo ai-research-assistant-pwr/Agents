@@ -10,8 +10,6 @@
 
 set -e 
 
-WANDB_API_KEY=$1
-
 # =================================================
 # ENV SETUP
 # =================================================
@@ -20,7 +18,7 @@ module load Python/3.11.5-GCCcore-13.2.0
 
 MY_DISK="/home/tymrom7227/disk"
 VENV_PATH="$MY_DISK/venvs/pnw-3"
-AGENTS_DIR="$MY_DISK/Agents"
+export AGENTS_DIR="$MY_DISK/Agents"
 MARTI_DIR="$MY_DISK/MARTI"
 
 MERGED_MODEL="$MY_DISK/models_output/run4/Qwen3-4B-SFT-Merged"
@@ -30,6 +28,8 @@ VENV_PYTHON="$VENV_PATH/bin/python"
 
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 export XDG_CACHE_HOME=$MY_DISK/.cache
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+export WANDB_DISABLED="true"
 
 # =================================================
 # VALIDATION
@@ -58,12 +58,6 @@ OUTPUT_DIR="$MY_DISK/models_output/grpo_test_results"
 export MARTI_CONFIG_PATH="$AGENTS_DIR/config/grpo/config.yaml"
 
 mkdir -p "$OUTPUT_DIR"
-
-if [ ! -z "$WANDB_API_KEY" ]; then
-    WANDB_FLAG="--use_wandb $WANDB_API_KEY --wandb_project MARTI_GRPO --wandb_run_name grpo_crash_test_1"
-else
-    WANDB_FLAG=""
-fi
 
 echo "=> Configuration:"
 echo "   Model: $MERGED_MODEL"
@@ -112,7 +106,6 @@ $VENV_PYTHON -m marti.cli.train_ppo_ray \
     --gradient_checkpointing \
     --save_hf_ckpt \
     --seed 42 \
-    --logging_steps 1 \
-    $WANDB_FLAG
+    --logging_steps 1
 
 echo "=> Test completed successfully!"
