@@ -9,67 +9,59 @@ def calculate_step_reward(
 ) -> Tuple[float, str]:
     """
     Calculates reward for GRPO step based on action correctness and strategy.
-    
-    The reward system encourages:
-    - Correct actions (ASK when needed, GENERATE when ready)
-    - Multi-turn information gathering (when appropriate)
-    - Early completion (when sufficient information is available)
-    
-    Args:
-        parsed_json: Parsed JSON from action (not used in current version)
-        action: Detected action ("ASK", "GENERATE", or None)
-        expected_action: Ground truth action from dataset
-        current_turn: Current turn number (0-indexed)
-        reward_cfg: Dictionary with reward configuration values
-        
-    Returns:
-        Tuple of (reward: float, reason: str) explaining the reward
+    Aware of multi-agent turns (even turns = Retriever, odd turns = Generator).
     """
     reward = 0.0
     reason = ""
 
-    # Unknown action penalty - severe penalty for unparseable actions
-    if action is None:
-        return reward_cfg.get("unknown_action_penalty", -1.0), "No action detected"
+    # --------------------------------------------------------
+    # RETRIEVER TURN (ROUNDS: 0, 2, 4...)
+    # --------------------------------------------------------
+    if current_turn % 2 == 0:
+        # Retriever should produce a well-formatted <MESSAGE> with relevant info
+        if action == "ASK": 
+            reward += reward_cfg.get("correct_format", 1.0)
+            reason = "Retriever correctly formatted <MESSAGE>"
+        else:
+            reward += reward_cfg.get("unknown_action_penalty", -1.0)
+            reason = "Retriever failed to use <MESSAGE> tags"
+        
+        return reward, reason
 
-    # Apply turn penalty - encourage efficient solution finding
+
+    # --------------------------------------------------------
+    # GENERATOR TURN (ROUNDS: 1, 3, 5...)
+    # --------------------------------------------------------
+    
+    # Penalty for each turn to encourage efficiency
     reward += reward_cfg.get("turn_penalty", -0.1)
 
     if action == "ASK":
-        # Asking for information
-        if current_turn == 0 and expected_action == "ASK":
-            # Correct: should ask first according to ground truth
+        if current_turn == 1 and expected_action == "ASK":
             reward += reward_cfg.get("correct_ask", 1.0)
-            reason = "Correct ASK on first turn"
+            reason = "Generator correctly ASKed for more data on first try"
         else:
-            # Still valid to ask, but not the optimal first move
-            reason = "ASK used (continuation/suboptimal)"
+            reason = "Generator ASK used (continuation/suboptimal)"
 
     elif action == "GENERATE":
-        # Generating answer
-        if current_turn == 0 and expected_action == "GENERATE":
-            # Correct: can generate immediately and should according to ground truth
+        if current_turn == 1 and expected_action == "GENERATE":
             reward += reward_cfg.get("correct_generate_immediate", 1.0)
-            reason = "Correct immediate GENERATE"
+            reason = "Generator correctly GENERATEd immediately"
 
-        elif current_turn > 0 and expected_action == "ASK":
-            # Good: generated after gathering info (expected after ASK)
+        elif current_turn > 1 and expected_action == "ASK":
             reward += reward_cfg.get("correct_generate_after_ask", 0.5)
-            reason = "Correct GENERATE after ASK"
+            reason = "Generator correctly GENERATEd after gathering info"
 
-        elif current_turn == 0 and expected_action == "ASK":
-            # Bad: hallucinating - should have asked first but generated directly
+        elif current_turn == 1 and expected_action == "ASK":
             reward += reward_cfg.get("hallucination_penalty", -1.0)
-            reason = "Hallucination (should ASK first)"
+            reason = "Generator hallucination (should have ASKed first)"
             
-        elif current_turn > 0 and expected_action == "GENERATE":
-            # Minor penalty: took too many turns to generate
+        elif current_turn > 1 and expected_action == "GENERATE":
             reward += reward_cfg.get("turn_penalty", -0.1)
             reason = "GENERATE after unnecessary turns"
 
     else:
-        # Unknown action type
         reward += reward_cfg.get("unknown_action_penalty", -1.0)
-        reason = f"Unknown action: {action}"
+        reason = f"Unknown action from Generator: {action}"
 
     return reward, reason

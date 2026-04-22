@@ -2,7 +2,6 @@ import os
 import sys
 import json
 import random
-import textwrap
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 GRPO_DIR = os.path.dirname(SCRIPT_DIR)
@@ -12,6 +11,8 @@ AGENTS_DIR = os.path.dirname(SRC_DIR)
 if AGENTS_DIR not in sys.path:
     sys.path.insert(0, AGENTS_DIR)
 
+from src.grpo.grpo_train.agents import AgentPrompts
+
 DATASETS_DIR = os.path.join(AGENTS_DIR, "data", "datasets")
 SFT_TEST_FILE = os.path.join(DATASETS_DIR, "sft2", "generator_test.jsonl")
 SOURCE_DATASET_FILE = os.path.join(DATASETS_DIR, "multiagent_sft_dataset_v2.jsonl")
@@ -20,7 +21,7 @@ OUTPUT_DIR = os.path.join(DATASETS_DIR, "grpo_exp_dataset")
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "mock_data.json")
 
 def main():
-    print(f"=== Preparing GRPO Experiment Dataset ===")
+    print(f"=== Preparing Multi-Agent GRPO Experiment Dataset ===")
     
     if not os.path.exists(SFT_TEST_FILE):
         print(f"ERROR: File not found: {SFT_TEST_FILE}")
@@ -45,17 +46,7 @@ def main():
     success_records = []
     fail_records = []
     
-    GENERATOR_SYSTEM_PROMPT = """You are an AI Research Scientist agent.
-You will receive a summary message from the Retriever agent containing extracted scientific data.
-Your task is to formulate a strict, testable, causal hypothesis based ONLY on that data.
-
-Format your response into two parts:
-1. An internal reasoning block wrapped in <THOUGHT>...</THOUGHT> explaining if the data is sufficient and what the causal link is (or what is missing).
-2. The final output:
-   - If sufficient: Write the hypothesis directly as a continuous natural sentence.
-   - If INSUFFICIENT: Write a direct request for specific missing information from the articles, wrapped in <REQUEST>...</REQUEST>.
-   
-Do NOT introduce new variables outside of what the Retriever provided."""
+    retriever_system_prompt = AgentPrompts.get_retriever_system_prompt()
 
     with open(SOURCE_DATASET_FILE, "r", encoding="utf-8") as f:
         for line in f:
@@ -66,31 +57,29 @@ Do NOT introduce new variables outside of what the Retriever provided."""
             
             if prompt_id in test_ids:
                 is_success = data.get("is_success", False)
-                retriever_message = data.get("retriever_message", "").strip()
+                initial_chunks = [
+                    "Study shows correlation between A and B.",
+                    "Mechanisms remain unclear, but preliminary data suggests pathway C."
+                ]
+                initial_data_str = json.dumps(initial_chunks)
                 
                 hidden_chunks = []
                 if not is_success:
                     hidden_chunks = [
-                        "ADDITIONAL CONTEXT: Received new detailed information that may be relevant to the query.",
+                        "ADDITIONAL CONTEXT: Pathway C is activated by enzyme D.",
                         "Variable X has a direct impact on Y through mechanism Z."
                     ]
-                
                 hidden_data_str = json.dumps(hidden_chunks)
-                
-                full_prompt = textwrap.dedent(f"""\
-                <HIDDEN_CHUNKS>{hidden_data_str}</HIDDEN_CHUNKS>
-                <|im_start|>system
-                {GENERATOR_SYSTEM_PROMPT}
-
-                IMPORTANT:
-                - Use <THOUGHT>...</THOUGHT> for reasoning
-                - Use <REQUEST>...</REQUEST> if more data is needed
-                <|im_end|>
-                <|im_start|>user
-                {retriever_message}
-                <|im_end|>
-                <|im_start|>assistant
-                """)
+                full_prompt = (
+                    f"<HIDDEN_CHUNKS>{hidden_data_str}</HIDDEN_CHUNKS>\n"
+                    f"<|im_start|>system\n"
+                    f"{retriever_system_prompt}\n"
+                    f"<|im_end|>\n"
+                    f"<|im_start|>user\n"
+                    f"RAW CHUNKS:\n{initial_data_str}\n"
+                    f"<|im_end|>\n"
+                    f"<|im_start|>assistant\n"
+                )
                 
                 grpo_record = {
                     "id": prompt_id,

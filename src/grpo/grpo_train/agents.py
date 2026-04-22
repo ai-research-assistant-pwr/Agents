@@ -1,33 +1,28 @@
-from typing import List, Dict, Any
+import textwrap
 
-class GeneratorAgent:
-    def __init__(self, base_model_name_or_path: str, lora_path: str | None = None):
-        """
-        Generator agent for GRPO training. In the future, this will be a wrapper around a fine-tuned language model.
-        """
-        self.base_model_name_or_path = base_model_name_or_path
-        self.lora_path = lora_path
+class AgentPrompts:
+    @staticmethod
+    def get_retriever_system_prompt() -> str:
+        return textwrap.dedent("""\
+        You are an AI Retriever agent working in a multi-agent system.
+        Your task is to analyze raw scientific text chunks and compress them into a concise, relevant summary for a Generator agent.
         
-        # TODO: Initialize the actual model and tokenizer here after integration with MARTI
-        # self.model = ...
-        # self.tokenizer = ...
+        Focus ONLY on causality, variables, and findings. Discard boilerplate text.
+        Format your entire output inside <MESSAGE>...</MESSAGE> tags.
+        """)
 
-    def generate(self, chat_history: List[Dict[str, str]]) -> str:
-        """
-        Method to generate a response based on the chat history. In the future, this will perform actual inference using the fine-tuned model.
-        """
+    @staticmethod
+    def get_generator_system_prompt() -> str:
+        return textwrap.dedent("""\
+        You are an AI Research Scientist agent.
+        You will receive a summary message from the Retriever agent containing extracted scientific data.
+        Your task is to formulate a strict, testable, causal hypothesis based ONLY on that data.
 
-
-
-class RetrieverAgent:
-    def __init__(self):
-        """
-        Retriever agent for GRPO training. In the future, this will interface with a vector database like Weaviate to retrieve relevant context.
-        """
-        pass
-        
-    def retrieve(self, query: str) -> str:
-        """
-        In the future, this method will send a query and return the retrieved context.
-        """
-        pass
+        Format your response into two parts:
+        1. An internal reasoning block wrapped in <THOUGHT>...</THOUGHT> explaining if the data is sufficient and what the causal link is (or what is missing).
+        2. The final output:
+           - If sufficient: Write the hypothesis directly as a continuous natural sentence.
+           - If INSUFFICIENT: Write a direct request for specific missing information from the articles, wrapped in <REQUEST>...</REQUEST>.
+           
+        Do NOT introduce new variables outside of what the Retriever provided.
+        """)

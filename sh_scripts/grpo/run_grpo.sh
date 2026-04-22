@@ -3,8 +3,8 @@
 #SBATCH -c 8
 #SBATCH --mem=64gb
 #SBATCH --time=0-04:00:00
-#SBATCH --job-name=grpo_qwen
-#SBATCH --output=/home/tymrom7227/disk/Agents/out/grpo_qwen.out
+#SBATCH --job-name=grpo_test_qwen
+#SBATCH --output=/home/tymrom7227/disk/Agents/out/grpo_test_qwen.out
 #SBATCH -p lem-gpu-short
 #SBATCH --gres=gpu:hopper:2
 
@@ -22,6 +22,7 @@ MY_DISK="/home/tymrom7227/disk"
 VENV_PATH="$MY_DISK/venvs/pnw-3"
 AGENTS_DIR="$MY_DISK/Agents"
 MARTI_DIR="$MY_DISK/MARTI"
+
 MERGED_MODEL="$MY_DISK/models_output/run4/Qwen3-4B-SFT-Merged"
 
 source $VENV_PATH/bin/activate
@@ -53,13 +54,15 @@ fi
 # =================================================
 DATA_PATH="$AGENTS_DIR/data/datasets/grpo_exp_dataset/mock_data.json"
 AGENT_ENV_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/environment.py"
-OUTPUT_DIR="$MY_DISK/models_output/grpo_results"
+OUTPUT_DIR="$MY_DISK/models_output/grpo_test_results"
 export MARTI_CONFIG_PATH="$AGENTS_DIR/config/grpo/config.yaml"
 
 mkdir -p "$OUTPUT_DIR"
 
 if [ ! -z "$WANDB_API_KEY" ]; then
-    WANDB_FLAG="--use_wandb $WANDB_API_KEY --wandb_project MARTI_GRPO --wandb_run_name grpo_exp_1"
+    WANDB_FLAG="--use_wandb $WANDB_API_KEY --wandb_project MARTI_GRPO --wandb_run_name grpo_crash_test_1"
+else
+    WANDB_FLAG=""
 fi
 
 echo "=> Configuration:"
@@ -69,7 +72,8 @@ echo "   Agent: $AGENT_ENV_SCRIPT"
 echo "   Output: $OUTPUT_DIR"
 echo "   Config: $MARTI_CONFIG_PATH"
 echo ""
-echo "=> Running MARTI GRPO training..."
+echo "=> Running MARTI GRPO training (CRASH TEST MODE)..."
+
 $VENV_PYTHON -m marti.cli.train_ppo_ray \
     --pretrain "$MERGED_MODEL" \
     --save_path "$OUTPUT_DIR" \
@@ -99,7 +103,7 @@ $VENV_PYTHON -m marti.cli.train_ppo_ray \
     --micro_train_batch_size 1 \
     --rollout_batch_size 16 \
     --n_samples_per_prompt 4 \
-    --max_epochs 10 \
+    --max_epochs 1 \
     --prompt_max_len 1024 \
     --generate_max_len 256 \
     --max_len 2048 \
@@ -111,4 +115,4 @@ $VENV_PYTHON -m marti.cli.train_ppo_ray \
     --logging_steps 1 \
     $WANDB_FLAG
 
-echo "=> Training completed successfully!"
+echo "=> Test completed successfully!"

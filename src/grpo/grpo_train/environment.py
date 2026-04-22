@@ -13,58 +13,15 @@ if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
 
 from marti.utils.agent import AgentExecutorBase, AgentInstanceBase
 
+from agents import AgentPrompts
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-def calculate_step_reward(
-    parsed_json,
-    action: str | None,
-    expected_action: str,
-    current_turn: int,
-    reward_cfg: Dict[str, float]
-) -> Tuple[float, str]:
-    reward = 0.0
-    reason = ""
-
-    if action is None:
-        return reward_cfg.get("unknown_action_penalty", -1.0), "No action detected"
-
-    reward += reward_cfg.get("turn_penalty", -0.1)
-
-    if action == "ASK":
-        if current_turn == 0 and expected_action == "ASK":
-            reward += reward_cfg.get("correct_ask", 1.0)
-            reason = "Correct ASK on first turn"
-        else:
-            reason = "ASK used (continuation/suboptimal)"
-
-    elif action == "GENERATE":
-        if current_turn == 0 and expected_action == "GENERATE":
-            reward += reward_cfg.get("correct_generate_immediate", 1.0)
-            reason = "Correct immediate GENERATE"
-
-        elif current_turn > 0 and expected_action == "ASK":
-            reward += reward_cfg.get("correct_generate_after_ask", 0.5)
-            reason = "Correct GENERATE after ASK"
-
-        elif current_turn == 0 and expected_action == "ASK":
-            reward += reward_cfg.get("hallucination_penalty", -1.0)
-            reason = "Hallucination (should ASK first)"
-            
-        elif current_turn > 0 and expected_action == "GENERATE":
-            reward += reward_cfg.get("turn_penalty", -0.1)
-            reason = "GENERATE after unnecessary turns"
-    else:
-        reward += reward_cfg.get("unknown_action_penalty", -1.0)
-        reason = f"Unknown action: {action}"
-
-    return reward, reason
+from rewards import calculate_step_reward
 
 class AgentInstance(AgentInstanceBase):
-    """
-    GRPO Environment - handles individual episode execution and reward calculation
-    """
     def __init__(self):
         config_path = os.getenv("MARTI_CONFIG_PATH", "config.yaml")
         with open(config_path, "r", encoding="utf-8") as f:
@@ -73,20 +30,19 @@ class AgentInstance(AgentInstanceBase):
         self.max_turns = self.config["environment"]["max_turns"]
         self.reward_cfg = self.config["rewards"]
 
-        self.current_turn = 0
+        self.current_turn = 0 # 0, 2.. = Retriever | 1, 3.. = Generator
         self.episode_id = "unknown"
-        self.initial_observation = ""
+        self.initial_query = ""
         self.hidden_chunks = []
         self.expected_action = "GENERATE"
+        self.history = [] 
 
     def _log_to_file(self, data: dict):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         log_dir = os.path.join(base_dir, "..", "..", "data", "eval_results")
         os.makedirs(log_dir, exist_ok=True)
-
         run_id = os.getenv("SLURM_JOB_ID", str(int(time.time())))
         log_path = os.path.join(log_dir, f"debug_rollouts_{run_id}.jsonl")
-
         try:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(data, ensure_ascii=False) + "\n")
@@ -94,10 +50,11 @@ class AgentInstance(AgentInstanceBase):
             print("LOGGING ERROR:", e)
 
     async def reset(self, states: dict, **kwargs):
-        """Reset environment with initial prompt and label"""
+        """Initializes the environment for a new episode."""
         self.current_turn = 0
         self.episode_id = str(time.time())
         self.expected_action = states.get("label", "GENERATE")
+        self.history = []
 
         raw_obs = states.get("prompt") or states.get("observation") or states.get("query") or ""
 
@@ -112,78 +69,125 @@ class AgentInstance(AgentInstanceBase):
             self.hidden_chunks = []
             obs = raw_obs
 
-        self.initial_observation = obs
+        self.initial_query = obs
 
         return {
             "observation": obs,
             "label": self.expected_action
         }
 
-    def _detect_action(self, text: str) -> str:
-        request_match = re.search(r"<REQUEST>(.*?)</REQUEST>", text, re.DOTALL | re.IGNORECASE)
-        if request_match:
-            content = request_match.group(1).strip().lower()
-            if content and "none" not in content and "no additional" not in content:
+    def _detect_agent_action(self, text: str, turn: int) -> str:
+        """
+        Logika rozpoznawania akcji zależnie od tego, czyja jest tura.
+        Turn parzysty: Model = Retriever
+        Turn nieparzysty: Model = Generator
+        """
+        if turn % 2 == 0:
+            # Checking for Retriever's message format
+            if "<MESSAGE>" in text.upper() and "</MESSAGE>" in text.upper():
+                return "RETRIEVER_SUCCESS"
+            return "FORMAT_ERROR"
+        else:
+            # Checking for Generator's request format
+            request_match = re.search(r"<REQUEST>(.*?)</REQUEST>", text, re.DOTALL | re.IGNORECASE)
+            if request_match:
                 return "ASK"
-        return "GENERATE"
+            return "GENERATE"
 
     async def step(self, states: dict, **kwargs) -> Dict[str, Any]:
         action_text = states.get("action_text", "")
         expected_act = states.get("label") or self.expected_action
-
-        action = self._detect_action(action_text)
-
+        agent_action = self._detect_agent_action(action_text, self.current_turn)
+        
+        reward_action_map = {
+            "RETRIEVER_SUCCESS": "ASK",
+            "ASK": "ASK",
+            "GENERATE": "GENERATE",
+            "FORMAT_ERROR": None
+        }
+        
         reward, reason = calculate_step_reward(
             parsed_json=None,
-            action=action,
+            action=reward_action_map.get(agent_action),
             expected_action=expected_act,
             current_turn=self.current_turn,
             reward_cfg=self.reward_cfg
         )
 
-        done = (action == "GENERATE" or self.current_turn >= self.max_turns)
+        done = False
         env_feedback = ""
 
-        if action == "ASK" and not done:
-            if not self.hidden_chunks:
-                context_str = "No additional data found."
-            else:
-                half = max(1, len(self.hidden_chunks) // 2)
-                current_context = self.hidden_chunks[:half] if self.current_turn == 0 else self.hidden_chunks[half:]
-                context_str = "\n\n".join(current_context)
-
+        # Logic for environment response based on detected action
+        if agent_action == "RETRIEVER_SUCCESS":
+            # Wyciągamy wiadomość Retrievera
+            msg_match = re.search(r"<MESSAGE>(.*?)</MESSAGE>", action_text, re.DOTALL | re.IGNORECASE)
+            retriever_msg = msg_match.group(1).strip() if msg_match else "No content."
+            
+            # Generator prompt
             env_feedback = (
                 "<|im_end|>\n"
+                "<|im_start|>system\n"
+                f"{AgentPrompts.get_generator_system_prompt()}\n"
+                "<|im_end|>\n"
                 "<|im_start|>user\n"
-                f"{context_str}\n"
+                f"Retriever Message: {retriever_msg}\n"
                 "<|im_end|>\n"
                 "<|im_start|>assistant\n"
             )
             self.current_turn += 1
 
+        elif agent_action == "ASK":
+            # Generator asks for more info - simulating retrieval of hidden chunks based on the request
+            req_match = re.search(r"<REQUEST>(.*?)</REQUEST>", action_text, re.DOTALL | re.IGNORECASE)
+            gen_req = req_match.group(1).strip() if req_match else "More data needed."
+            
+            # Retrieving additional chunks (simulated) - in real system this would query Weaviate or similar
+            extra_data = ""
+            if self.hidden_chunks:
+                extra_data = "\n".join(self.hidden_chunks)
+                self.hidden_chunks = []
+            else:
+                extra_data = "No more detailed chunks found in Weaviate."
+
+            env_feedback = (
+                "<|im_end|>\n"
+                "<|im_start|>system\n"
+                f"{AgentPrompts.get_retriever_system_prompt()}\n"
+                "<|im_end|>\n"
+                "<|im_start|>user\n"
+                f"Generator is asking for: {gen_req}\n"
+                f"New Detailed Chunks: {extra_data}\n"
+                "<|im_end|>\n"
+                "<|im_start|>assistant\n"
+            )
+            self.current_turn += 1
+
+        elif agent_action == "GENERATE":
+            # Generator decided to generate a hypothesis - end of episode
+            done = True
+        
+        elif agent_action == "FORMAT_ERROR" or self.current_turn >= self.max_turns:
+            # Formattin error or max turns reached - end episode with penalty
+            done = True
+
         sampling_params = states.get("sampling_params")
         if sampling_params is not None:
+            stop_tokens = ["<|im_end|>", "<|endoftext|>"]
             if hasattr(sampling_params, '__dict__'):
-                sampling_params.stop = ["<|im_end|>"]
-                sampling_params.stop_token_ids = [151645]
+                sampling_params.stop = stop_tokens
             else:
-                sampling_params["stop"] = ["<|im_end|>"]
-                sampling_params["stop_token_ids"] = [151645]
+                sampling_params["stop"] = stop_tokens
 
         log_entry = {
             "timestamp": time.time(),
             "episode_id": self.episode_id,
-            "turn": self.current_turn if action == "GENERATE" else self.current_turn - 1,
-            "observation": self.initial_observation,
-            "action_text": action_text,
-            "action_detected": action,
-            "expected_action": expected_act,
+            "turn": self.current_turn,
+            "agent_role": "Retriever" if self.current_turn % 2 == 0 else "Generator",
+            "action_detected": agent_action,
             "reward": float(reward),
             "reward_reason": reason,
             "done": done,
-            "max_turns": self.max_turns,
-            "env_feedback": env_feedback,
-            "hidden_chunks": self.hidden_chunks,
+            "env_feedback_preview": env_feedback[:100] + "..." if env_feedback else ""
         }
         self._log_to_file(log_entry)
 
