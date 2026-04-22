@@ -16,37 +16,46 @@ from rewards import calculate_step_reward
 
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
+    import warnings
+    warnings.warn(
+        "Monkey-patching PreTrainedTokenizerBase.all_special_tokens_extended. "
+        "Check if this is still needed after a transformers upgrade.",
+        UserWarning
+    )
     PreTrainedTokenizerBase.all_special_tokens_extended = property(lambda self: self.all_special_tokens)
 
 from marti.utils.agent import AgentExecutorBase, AgentInstanceBase
 
 class AgentInstance(AgentInstanceBase):
     """
-    GRPO Environment - handles individual episode execution and reward calculation
+    GRPO Environment - handles individual episode execution and reward calculation.
     """
-    def __init__(self):
+
+    async def __init__(self):
         config_path = os.getenv("MARTI_CONFIG_PATH")
-        
+
         if not config_path or not os.path.exists(config_path):
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            config_path = os.path.abspath(os.path.join(base_dir, "..", "..", "..", "config", "grpo", "config.yaml"))
+            config_path = os.path.abspath(
+                os.path.join(base_dir, "..", "..", "..", "config", "grpo", "config.yaml")
+            )
 
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 self.config = yaml.safe_load(f)
         except Exception as e:
-            print(f"CRITICAL AGENT INIT ERROR: Nie można załadować configu z {config_path}. Błąd: {e}")
+            print(f"CRITICAL AGENT INIT ERROR: Cannot load config from {config_path}. Error: {e}")
             raise e
 
         self.max_turns = self.config["environment"]["max_turns"]
         self.reward_cfg = self.config["rewards"]
 
-        self.current_turn = 0 # 0, 2.. = Retriever | 1, 3.. = Generator
+        self.current_turn = 0  # 0, 2… = Retriever | 1, 3… = Generator
         self.episode_id = "unknown"
         self.initial_query = ""
         self.hidden_chunks = []
         self.expected_action = "GENERATE"
-        self.history = [] 
+        self.history = []
 
     def _log_to_file(self, data: dict):
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -64,8 +73,13 @@ class AgentInstance(AgentInstanceBase):
         """Initializes the environment for a new episode."""
         self.current_turn = 0
         self.episode_id = str(time.time())
-        self.expected_action = states.get("label", "GENERATE")
         self.history = []
+
+        self.expected_action = (
+            states.get("expected_action")
+            or states.get("label")
+            or "GENERATE"
+        )
 
         raw_obs = states.get("prompt") or states.get("observation") or states.get("query") or ""
 
@@ -73,7 +87,7 @@ class AgentInstance(AgentInstanceBase):
         if hidden_match:
             try:
                 self.hidden_chunks = json.loads(hidden_match.group(1))
-            except:
+            except Exception:
                 self.hidden_chunks = []
             obs = re.sub(r"<HIDDEN_CHUNKS>.*?</HIDDEN_CHUNKS>", "", raw_obs, flags=re.DOTALL).strip()
         else:
@@ -89,15 +103,17 @@ class AgentInstance(AgentInstanceBase):
 
     def _detect_agent_action(self, text: str, turn: int) -> str:
         """
-        Logika rozpoznawania akcji zależnie od tego, czyja jest tura.
-        Turn parzysty: Model = Retriever
-        Turn nieparzysty: Model = Generator
+        Detects the action taken by the model depending on whose turn it is.
+        Even turns: Model = Retriever
+        Odd turns:  Model = Generator
         """
         if turn % 2 == 0:
+            # Retriever must wrap its summary in <MESSAGE>…</MESSAGE>
             if "<MESSAGE>" in text.upper() and "</MESSAGE>" in text.upper():
                 return "RETRIEVER_SUCCESS"
             return "FORMAT_ERROR"
         else:
+            # Generator either asks for more data or produces the hypothesis
             request_match = re.search(r"<REQUEST>(.*?)</REQUEST>", text, re.DOTALL | re.IGNORECASE)
             if request_match:
                 return "ASK"
@@ -105,21 +121,60 @@ class AgentInstance(AgentInstanceBase):
 
     async def step(self, states: dict, **kwargs) -> Dict[str, Any]:
         action_text = states.get("action_text", "")
-        expected_act = states.get("label") or self.expected_action
-        agent_action = self._detect_agent_action(action_text, self.current_turn)
-        
+
+        expected_act = (
+            states.get("expected_action")
+            or states.get("label")
+            or self.expected_action
+        )
+
+        turn_at_action = self.current_turn
+
+        agent_action = self._detect_agent_action(action_text, turn_at_action)
+
+        if turn_at_action >= self.max_turns or agent_action == "FORMAT_ERROR":
+            reward, reason = calculate_step_reward(
+                parsed_json=None,
+                action=None,
+                expected_action=expected_act,
+                current_turn=turn_at_action,
+                reward_cfg=self.reward_cfg
+            )
+            self._log_to_file({
+                "timestamp": time.time(),
+                "episode_id": self.episode_id,
+                "turn": turn_at_action,
+                "agent_role": "Retriever" if turn_at_action % 2 == 0 else "Generator",
+                "action_detected": agent_action,
+                "reward": float(reward),
+                "reward_reason": reason,
+                "done": True,
+                "env_feedback_preview": ""
+            })
+            return {
+                "rewards": torch.tensor(reward, dtype=torch.float32),
+                "scores": torch.tensor(reward, dtype=torch.float32),
+                "environment_feedback": "",
+                "done": True,
+                "sampling_params": states.get("sampling_params"),
+                "extra_logs": {
+                    "turn": torch.tensor(turn_at_action, dtype=torch.float32),
+                    "reward": torch.tensor(reward, dtype=torch.float32)
+                }
+            }
+
         reward_action_map = {
             "RETRIEVER_SUCCESS": "ASK",
             "ASK": "ASK",
             "GENERATE": "GENERATE",
             "FORMAT_ERROR": None
         }
-        
+
         reward, reason = calculate_step_reward(
             parsed_json=None,
             action=reward_action_map.get(agent_action),
             expected_action=expected_act,
-            current_turn=self.current_turn,
+            current_turn=turn_at_action,
             reward_cfg=self.reward_cfg
         )
 
@@ -129,7 +184,7 @@ class AgentInstance(AgentInstanceBase):
         if agent_action == "RETRIEVER_SUCCESS":
             msg_match = re.search(r"<MESSAGE>(.*?)</MESSAGE>", action_text, re.DOTALL | re.IGNORECASE)
             retriever_msg = msg_match.group(1).strip() if msg_match else "No content."
-            
+
             env_feedback = (
                 "<|im_end|>\n"
                 "<|im_start|>system\n"
@@ -145,7 +200,7 @@ class AgentInstance(AgentInstanceBase):
         elif agent_action == "ASK":
             req_match = re.search(r"<REQUEST>(.*?)</REQUEST>", action_text, re.DOTALL | re.IGNORECASE)
             gen_req = req_match.group(1).strip() if req_match else "More data needed."
-            
+
             extra_data = ""
             if self.hidden_chunks:
                 extra_data = "\n".join(self.hidden_chunks)
@@ -168,30 +223,26 @@ class AgentInstance(AgentInstanceBase):
 
         elif agent_action == "GENERATE":
             done = True
-        
-        elif agent_action == "FORMAT_ERROR" or self.current_turn >= self.max_turns:
-            done = True
 
         sampling_params = states.get("sampling_params")
         if sampling_params is not None:
             stop_tokens = ["<|im_end|>", "<|endoftext|>"]
-            if hasattr(sampling_params, '__dict__'):
+            if hasattr(sampling_params, "__dict__"):
                 sampling_params.stop = stop_tokens
             else:
                 sampling_params["stop"] = stop_tokens
 
-        log_entry = {
+        self._log_to_file({
             "timestamp": time.time(),
             "episode_id": self.episode_id,
-            "turn": self.current_turn,
-            "agent_role": "Retriever" if self.current_turn % 2 == 0 else "Generator",
+            "turn": turn_at_action,
+            "agent_role": "Retriever" if turn_at_action % 2 == 0 else "Generator",
             "action_detected": agent_action,
             "reward": float(reward),
             "reward_reason": reason,
             "done": done,
             "env_feedback_preview": env_feedback[:100] + "..." if env_feedback else ""
-        }
-        self._log_to_file(log_entry)
+        })
 
         return {
             "rewards": torch.tensor(reward, dtype=torch.float32),
@@ -200,10 +251,11 @@ class AgentInstance(AgentInstanceBase):
             "done": done,
             "sampling_params": sampling_params,
             "extra_logs": {
-                "turn": torch.tensor(self.current_turn, dtype=torch.float32),
+                "turn": torch.tensor(turn_at_action, dtype=torch.float32),
                 "reward": torch.tensor(reward, dtype=torch.float32)
             }
         }
+
 
 class AgentExecutor(AgentExecutorBase):
     def __init__(self, *args, **kwargs):
