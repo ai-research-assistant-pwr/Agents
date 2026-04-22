@@ -16,12 +16,6 @@ from rewards import calculate_step_reward
 
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
-    import warnings
-    warnings.warn(
-        "Monkey-patching PreTrainedTokenizerBase.all_special_tokens_extended. "
-        "Check if this is still needed after a transformers upgrade.",
-        UserWarning
-    )
     PreTrainedTokenizerBase.all_special_tokens_extended = property(lambda self: self.all_special_tokens)
 
 from marti.utils.agent import AgentExecutorBase, AgentInstanceBase
@@ -31,7 +25,8 @@ class AgentInstance(AgentInstanceBase):
     GRPO Environment - handles individual episode execution and reward calculation.
     """
 
-    async def __init__(self):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         config_path = os.getenv("MARTI_CONFIG_PATH")
 
         if not config_path or not os.path.exists(config_path):
@@ -42,13 +37,13 @@ class AgentInstance(AgentInstanceBase):
 
         try:
             with open(config_path, "r", encoding="utf-8") as f:
-                self.config = yaml.safe_load(f)
+                raw_config = yaml.safe_load(f)
         except Exception as e:
             print(f"CRITICAL AGENT INIT ERROR: Cannot load config from {config_path}. Error: {e}")
             raise e
 
-        self.max_turns = self.config["environment"]["max_turns"]
-        self.reward_cfg = self.config["rewards"]
+        self.max_turns = int(raw_config["environment"]["max_turns"])
+        self.reward_cfg = dict(raw_config["rewards"])
 
         self.current_turn = 0  # 0, 2… = Retriever | 1, 3… = Generator
         self.episode_id = "unknown"
@@ -69,7 +64,7 @@ class AgentInstance(AgentInstanceBase):
         except Exception as e:
             print("LOGGING ERROR:", e)
 
-    async def reset(self, states: dict, **kwargs):
+    def reset(self, states: dict, **kwargs):
         """Initializes the environment for a new episode."""
         self.current_turn = 0
         self.episode_id = str(time.time())
@@ -102,24 +97,17 @@ class AgentInstance(AgentInstanceBase):
         }
 
     def _detect_agent_action(self, text: str, turn: int) -> str:
-        """
-        Detects the action taken by the model depending on whose turn it is.
-        Even turns: Model = Retriever
-        Odd turns:  Model = Generator
-        """
         if turn % 2 == 0:
-            # Retriever must wrap its summary in <MESSAGE>…</MESSAGE>
             if "<MESSAGE>" in text.upper() and "</MESSAGE>" in text.upper():
                 return "RETRIEVER_SUCCESS"
             return "FORMAT_ERROR"
         else:
-            # Generator either asks for more data or produces the hypothesis
             request_match = re.search(r"<REQUEST>(.*?)</REQUEST>", text, re.DOTALL | re.IGNORECASE)
             if request_match:
                 return "ASK"
             return "GENERATE"
 
-    async def step(self, states: dict, **kwargs) -> Dict[str, Any]:
+    def step(self, states: dict, **kwargs) -> Dict[str, Any]:
         action_text = states.get("action_text", "")
 
         expected_act = (
@@ -129,7 +117,6 @@ class AgentInstance(AgentInstanceBase):
         )
 
         turn_at_action = self.current_turn
-
         agent_action = self._detect_agent_action(action_text, turn_at_action)
 
         if turn_at_action >= self.max_turns or agent_action == "FORMAT_ERROR":
