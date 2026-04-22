@@ -7,19 +7,18 @@ import json
 import time
 from typing import Dict, Any, Tuple
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+from agents import AgentPrompts
+from rewards import calculate_step_reward
+
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
     PreTrainedTokenizerBase.all_special_tokens_extended = property(lambda self: self.all_special_tokens)
 
 from marti.utils.agent import AgentExecutorBase, AgentInstanceBase
-
-from agents import AgentPrompts
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
-
-from rewards import calculate_step_reward
 
 class AgentInstance(AgentInstanceBase):
     def __init__(self):
@@ -39,7 +38,7 @@ class AgentInstance(AgentInstanceBase):
 
     def _log_to_file(self, data: dict):
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        log_dir = os.path.join(base_dir, "..", "..", "data", "eval_results")
+        log_dir = os.path.join(base_dir, "..", "..", "..", "data", "eval_results")
         os.makedirs(log_dir, exist_ok=True)
         run_id = os.getenv("SLURM_JOB_ID", str(int(time.time())))
         log_path = os.path.join(log_dir, f"debug_rollouts_{run_id}.jsonl")
