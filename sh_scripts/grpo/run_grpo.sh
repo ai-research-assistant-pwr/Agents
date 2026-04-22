@@ -112,7 +112,7 @@ $VENV_PYTHON -m marti.cli.train_ppo_ray \
     --micro_train_batch_size 1 \
     --rollout_batch_size 16 \
     --n_samples_per_prompt 4 \
-    --max_epochs 10 \
+    --max_epochs 1 \
     --prompt_max_len 1024 \
     --generate_max_len 256 \
     --max_len 2048 \
