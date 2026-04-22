@@ -24,9 +24,7 @@ class AgentInstance(AgentInstanceBase):
     """
     GRPO Environment - handles individual episode execution and reward calculation
     """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
+    def __init__(self):
         config_path = os.getenv("MARTI_CONFIG_PATH")
         
         if not config_path or not os.path.exists(config_path):
