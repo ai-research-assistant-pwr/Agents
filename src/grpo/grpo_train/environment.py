@@ -21,10 +21,24 @@ if not hasattr(PreTrainedTokenizerBase, "all_special_tokens_extended"):
 from marti.utils.agent import AgentExecutorBase, AgentInstanceBase
 
 class AgentInstance(AgentInstanceBase):
-    def __init__(self):
-        config_path = os.getenv("MARTI_CONFIG_PATH", "config.yaml")
-        with open(config_path, "r", encoding="utf-8") as f:
-            self.config = yaml.safe_load(f)
+    """
+    GRPO Environment - handles individual episode execution and reward calculation
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        config_path = os.getenv("MARTI_CONFIG_PATH")
+        
+        if not config_path or not os.path.exists(config_path):
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            config_path = os.path.abspath(os.path.join(base_dir, "..", "..", "..", "config", "grpo", "config.yaml"))
+
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                self.config = yaml.safe_load(f)
+        except Exception as e:
+            print(f"CRITICAL AGENT INIT ERROR: Nie można załadować configu z {config_path}. Błąd: {e}")
+            raise e
 
         self.max_turns = self.config["environment"]["max_turns"]
         self.reward_cfg = self.config["rewards"]
@@ -82,12 +96,10 @@ class AgentInstance(AgentInstanceBase):
         Turn nieparzysty: Model = Generator
         """
         if turn % 2 == 0:
-            # Checking for Retriever's message format
             if "<MESSAGE>" in text.upper() and "</MESSAGE>" in text.upper():
                 return "RETRIEVER_SUCCESS"
             return "FORMAT_ERROR"
         else:
-            # Checking for Generator's request format
             request_match = re.search(r"<REQUEST>(.*?)</REQUEST>", text, re.DOTALL | re.IGNORECASE)
             if request_match:
                 return "ASK"
@@ -116,13 +128,10 @@ class AgentInstance(AgentInstanceBase):
         done = False
         env_feedback = ""
 
-        # Logic for environment response based on detected action
         if agent_action == "RETRIEVER_SUCCESS":
-            # Wyciągamy wiadomość Retrievera
             msg_match = re.search(r"<MESSAGE>(.*?)</MESSAGE>", action_text, re.DOTALL | re.IGNORECASE)
             retriever_msg = msg_match.group(1).strip() if msg_match else "No content."
             
-            # Generator prompt
             env_feedback = (
                 "<|im_end|>\n"
                 "<|im_start|>system\n"
@@ -136,11 +145,9 @@ class AgentInstance(AgentInstanceBase):
             self.current_turn += 1
 
         elif agent_action == "ASK":
-            # Generator asks for more info - simulating retrieval of hidden chunks based on the request
             req_match = re.search(r"<REQUEST>(.*?)</REQUEST>", action_text, re.DOTALL | re.IGNORECASE)
             gen_req = req_match.group(1).strip() if req_match else "More data needed."
             
-            # Retrieving additional chunks (simulated) - in real system this would query Weaviate or similar
             extra_data = ""
             if self.hidden_chunks:
                 extra_data = "\n".join(self.hidden_chunks)
@@ -162,11 +169,9 @@ class AgentInstance(AgentInstanceBase):
             self.current_turn += 1
 
         elif agent_action == "GENERATE":
-            # Generator decided to generate a hypothesis - end of episode
             done = True
         
         elif agent_action == "FORMAT_ERROR" or self.current_turn >= self.max_turns:
-            # Formattin error or max turns reached - end episode with penalty
             done = True
 
         sampling_params = states.get("sampling_params")
