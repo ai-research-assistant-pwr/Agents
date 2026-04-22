@@ -6,7 +6,7 @@
 #SBATCH --job-name=grpo_test_qwen
 #SBATCH --output=/home/tymrom7227/disk/Agents/out/grpo_test_qwen.out
 #SBATCH -p lem-gpu-short
-#SBATCH --gres=gpu:hopper:2
+#SBATCH --gres=gpu:hopper:3
 
 set -e 
 
@@ -29,6 +29,7 @@ VENV_PYTHON="$VENV_PATH/bin/python"
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 export XDG_CACHE_HOME=$MY_DISK/.cache
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+export VLLM_USE_V1="0"
 export WANDB_DISABLED="true"
 
 # =================================================
