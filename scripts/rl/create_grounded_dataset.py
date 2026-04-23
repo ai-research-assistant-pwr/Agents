@@ -28,7 +28,7 @@ csv.field_size_limit(10_000_000)
 PAPERS_CSV = ROOT / "data/graph/11_neo4j_papers.csv"
 REFS_CSV = ROOT / "data/graph/11_neo4j_references.csv"
 
-MAX_CONTEXT_PAPERS = 10
+MAX_CONTEXT_PAPERS = 15
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -52,14 +52,15 @@ Instructions:
   After creating hypothesis, step in to the role of a domain expert and ask yourself: "If I only had this hypothesis statement, would I be able to \
   design an experiment to test it?" If the answer is no, revise the hypothesis to include necessary explanations or clarifications.
 - Avoid generating simple hypothesis that are too general or obvious. Focus on extracting the specific, testable claims that the paper is centered around.
-- Hypothesis can contain even few sentences (up to 3) if necessary to fully capture the claim and its context.
 - Do not include general background statements, conclusions without a claim, or \
   methodology descriptions.
 - If the paper introduces some new methodology, that accomplishes improved results on some \
   task, thet the hypothesis should focus mostly on descrbing the methodology, not the results. \
   The hypothesis should be about the method itself, not just the fact that it achieved better performance. \
-  For example, a good hypothesis would be: "We propose a novel method X that integrates techniques A and B in a unique way, allowing it to effectively leverage both structured and unstructured data for improved performance on task Y." \
-- Write only hypothesis text, don't include any preamble, commentary, or explanation. The output should be a clean, concise hypothesis statement that stands on its own.
+  For example, a good hypothesis would be: "We propose a novel method X that integrates techniques A and B in a unique way, allowing it to effectively leverage both structured and unstructured data for improved performance on task Y."
+- Split hypothesis into multiple sentences. Most papers will have complex hypotheses and writing few sentences will make them easier to understand.
+- Write only hypothesis text, don't include any preamble, commentary, or explanation. The output should be a clean, concise hypothesis statement that stands on its own. \
+  For example, don't write "The hypothesis of this paper is: ..." or "The main claim of this article is that ...". Just write the hypothesis itself, without any leading phrases or framing.
 """
 
 HYPOTHESIS_USER_TEMPLATE = (
@@ -69,25 +70,19 @@ HYPOTHESIS_USER_TEMPLATE = (
     "Extract the main scientific hypothesis from this paper."
 )
 
-GROUNDED_QUERY_SYSTEM_PROMPT = (
-    "You are a scientist actively working in your research field. "
-    "You have just finished reading a set of related papers (their summaries are "
-    "provided below) and you want to push the research frontier further. "
-    "You decide to consult an AI hypothesis-generation system to suggest a novel "
-    "scientific hypothesis that naturally follows from what you have read.\n\n"
-    "Your task: write the query you would send to that system.\n\n"
-    "Rules:\n"
-    "- You do NOT know the target hypothesis — you are trying to discover it.\n"
-    "- Ground your query in the provided literature: you may reference specific "
-    "findings, methods, open problems, or gaps you noticed across the papers.\n"
-    "- The query should be open-ended enough that the system has creative latitude, "
-    "yet focused enough that a hypothesis connecting the key concepts of the "
-    "provided papers would be a very good answer.\n"
-    "- Do NOT reveal or hint at the specific answer; phrase it as a genuine "
-    "research question or direction you are curious about.\n"
-    "- Keep it to 2-4 sentences.\n\n"
-    "Output ONLY the query. Do not add any preamble, label, or commentary."
-)
+GROUNDED_QUERY_SYSTEM_PROMPT = """
+Role: You are generating training queries for a scientific hypothesis generation system.
+Input: A target hypothesis and summaries of its referenced papers.
+Task: Write a single-sentence query a scientist would naturally ask, for which the target hypothesis is the ideal answer.
+
+Guidelines:
+
+-Hide the Novelty: Identify the hypothesis's core contribution (e.g., a new method or novel connection). Do not reveal this in the query. The query must be broad enough to not spoil the answer, yet specific enough to naturally elicit it.
+-Seek Directions, Not Direct Fixes: Frame the query around exploring problems or addressing limitations (e.g., "What are promising directions for addressing X?" or "What hypotheses could advance our understanding of Y?"). Do not ask for a direct solution.
+-Don't look for answers: The query should be open-ended and exploratory, not asking for a specific answer or solution. Avoid phrasing that implies there is a known answer to the question (e.g. "What hypothesis could explain X?").
+-Keep it Natural: Write exactly one sentence. You may reference the context papers, but never use meta-phrases like "based on the summaries provided."
+-Strict Output: Output ONLY the query itself. No preambles, labels, or commentary.
+"""
 
 GROUNDED_QUERY_USER_TEMPLATE = (
     "## Summaries of Related Papers\n\n"
@@ -197,10 +192,16 @@ def main() -> None:
         help="Output CSV path.",
     )
     parser.add_argument(
-        "--model",
+        "--hypothesis-model",
         type=str,
         default="gpt-5.4",
-        help="OpenAI model to use (default: gpt-5.4-mini).",
+        help="OpenAI model to use for hypothesis extraction (default: gpt-5.4).",
+    )
+    parser.add_argument(
+        "--query-model",
+        type=str,
+        default="gpt-5.4-mini",
+        help="OpenAI model to use for query generation (default: gpt-5.4-mini).",
     )
     parser.add_argument("--seed", type=int, default=None, help="Random seed.")
     parser.add_argument(
@@ -277,12 +278,12 @@ def main() -> None:
 
             try:
                 hypothesis = extract_hypothesis(
-                    client, args.model, paper["abstract"], paper["summary"]
+                    client, args.hypothesis_model, paper["abstract"], paper["summary"]
                 )
                 print(f"  Hypothesis: {hypothesis[:120]} …")
 
                 user_query = generate_grounded_query(
-                    client, args.model, hypothesis, ref_papers_data
+                    client, args.query_model, hypothesis, ref_papers_data
                 )
                 print(f"  Query     : {user_query[:120]} …")
             except Exception as exc:
