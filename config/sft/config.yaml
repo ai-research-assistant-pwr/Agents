@@ -12,7 +12,7 @@ paths:
   models_output_dir: "models_output/run4"
 
   datasets: "data/datasets"
-  dataset_prepped: "data/datasets/sft2"
+  dataset_prepped: "data/datasets/sft3"
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
