@@ -38,14 +38,14 @@ export HF_HOME=$MY_DISK/.cache/hf
 export TORCHINDUCTOR_CACHE_DIR=$MY_DISK/.cache/torch_inductor
 
 export WANDB_API_KEY=$WANDB_API_KEY
-export WANDB_MODE="online" # Zmieniam na online, żebyś widział postęp w czasie rzeczywistym
+export WANDB_MODE="online"
 export TRANSFORMERS_OFFLINE=0
 
 echo "================================================="
 echo "VERIFYING PATHS FOR SHARED AGENT TRAINING"
 echo "================================================="
 
-SHARED_DATASET="$AGENTS_DIR/data/datasets/sft2/shared_agent_train.jsonl"
+SHARED_DATASET="$AGENTS_DIR/data/datasets/sft3/shared_agent_train.jsonl"
 
 if [ ! -f "$SHARED_DATASET" ]; then
     echo "CRITICAL ERROR: Shared dataset not found at $SHARED_DATASET"
