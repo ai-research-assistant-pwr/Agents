@@ -22,6 +22,16 @@ module load Python/3.12.3-GCCcore-13.3.0
 source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
 VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
 
+echo "================================================="
+echo "APPLYING TEMPORARY ENVIRONMENT FIXES (pnw-2)"
+echo "================================================="
+# 1. Wymuszenie instalacji nowszego PyTorcha (kompatybilnego z cu124 i torchao)
+$VENV_PYTHON -m pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# 2. Naprawa uszkodzonych zależności (transformers) i aktualizacja peft/trl
+$VENV_PYTHON -m pip install --upgrade transformers peft trl accelerate torchao
+echo "================================================="
+
 MY_DISK="/home/tymrom7227/disk"
 AGENTS_DIR="$MY_DISK/Agents"
 
