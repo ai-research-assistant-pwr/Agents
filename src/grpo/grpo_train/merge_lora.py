@@ -7,9 +7,9 @@ from peft import PeftModel
 MY_DISK = "/home/tymrom7227/disk"
 BASE_MODEL_PATH = os.path.join(MY_DISK, "models/Qwen/Qwen3-4B-Instruct-2507")
 
-ADAPTER_PATH = os.path.join(MY_DISK, "models_output/run4/lora_shared_agent_Qwen3-4B-Instruct-2507")
+ADAPTER_PATH = os.path.join(MY_DISK, "models_output/run5/lora_shared_agent_Qwen3-4B-Instruct-2507")
 
-MERGED_SAVE_PATH = os.path.join(MY_DISK, "models_output/run4/Qwen3-4B-SFT-Shared-Merged")
+MERGED_SAVE_PATH = os.path.join(MY_DISK, "models_output/run5/Qwen3-4B-SFT-Shared-Merged")
 
 def main():
     print(f"=== Merging LoRA weights for Shared Agent ===")
