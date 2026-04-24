@@ -25,11 +25,14 @@ VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
 echo "================================================="
 echo "APPLYING TEMPORARY ENVIRONMENT FIXES (pnw-2)"
 echo "================================================="
-# 1. Wymuszenie instalacji nowszego PyTorcha (kompatybilnego z cu124 i torchao)
-$VENV_PYTHON -m pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+# 1. Usuwamy zepsute torchao, żeby transformers o nie nie "haczyło"
+$VENV_PYTHON -m pip uninstall -y torchao
 
-# 2. Naprawa uszkodzonych zależności (transformers) i aktualizacja peft/trl
-$VENV_PYTHON -m pip install --upgrade transformers peft trl accelerate torchao
+# 2. Wymuszamy stabilną wersję PyTorch 2.5.1 zamiast wadliwego 2.6.0
+$VENV_PYTHON -m pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+
+# 3. Aktualizujemy główne pakiety do modelowania
+$VENV_PYTHON -m pip install --upgrade transformers peft trl accelerate
 echo "================================================="
 
 MY_DISK="/home/tymrom7227/disk"
