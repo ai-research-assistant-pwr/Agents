@@ -23,7 +23,7 @@ VENV_PATH="$MY_DISK/venvs/pnw-3"
 export AGENTS_DIR="$MY_DISK/Agents"
 MARTI_DIR="$MY_DISK/MARTI"
 
-MERGED_MODEL="$MY_DISK/models_output/run4/Qwen3-4B-SFT-Merged"
+MERGED_MODEL="$MY_DISK/models_output/run4/Qwen3-4B-SFT-Shared-Merged"
 
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
