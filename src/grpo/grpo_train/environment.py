@@ -39,7 +39,14 @@ class AgentInstance(AgentInstanceBase):
             print(f"CRITICAL AGENT INIT ERROR: Cannot load config from {config_path}. Error: {e}")
             raw_config = {
                 "environment": {"max_turns": 3},
-                "rewards": {"correct_format": 1.0, "turn_penalty": -0.1, "correct_ask": 1.0, "correct_generate_immediate": 1.0, "correct_generate_after_ask": 0.5, "hallucination_penalty": -1.0, "unknown_action_penalty": -1.0}
+                "rewards": {
+                    "format_correct": 1.0, 
+                    "format_error": -1.0,
+                    "turn_penalty": -0.1, 
+                    "task_success": 1.0,
+                    "task_suboptimal": 0.5,
+                    "hallucination_penalty": -1.0
+                }
             }
 
         self.max_turns = int(raw_config.get("environment", {}).get("max_turns", 3))
@@ -64,17 +71,11 @@ class AgentInstance(AgentInstanceBase):
             print("LOGGING ERROR:", e)
 
     def reset(self, states: dict, **kwargs):
-        """Initializes the environment for a new episode."""
         self.current_turn = 0
         self.episode_id = str(time.time())
         self.history = []
 
-        self.expected_action = (
-            states.get("expected_action")
-            or states.get("label")
-            or "GENERATE"
-        )
-
+        self.expected_action = states.get("expected_action") or states.get("label") or "GENERATE"
         raw_obs = states.get("prompt") or states.get("observation") or states.get("query") or ""
 
         hidden_match = re.search(r"<HIDDEN_CHUNKS>(.*?)</HIDDEN_CHUNKS>", raw_obs, re.DOTALL)
@@ -89,76 +90,46 @@ class AgentInstance(AgentInstanceBase):
             obs = raw_obs
 
         self.initial_query = obs
-
-        return {
-            "observation": obs,
-            "label": self.expected_action
-        }
+        return {"observation": obs, "label": self.expected_action}
 
     def _detect_agent_action(self, text: str, turn: int) -> str:
-        if turn % 2 == 0:
-            if "<MESSAGE>" in text.upper() and "</MESSAGE>" in text.upper():
+        """Parses output based on the active role's expected format."""
+        if turn % 2 == 0:  # Retriever
+            if re.search(r"<MESSAGE>.*?</MESSAGE>", text, re.DOTALL | re.IGNORECASE):
                 return "RETRIEVER_SUCCESS"
             return "FORMAT_ERROR"
-        else:
-            request_match = re.search(r"<REQUEST>(.*?)</REQUEST>", text, re.DOTALL | re.IGNORECASE)
-            if request_match:
+        else:              # Generator
+            if re.search(r"<REQUEST>.*?</REQUEST>", text, re.DOTALL | re.IGNORECASE):
                 return "ASK"
-            return "GENERATE"
+            if re.search(r"<THOUGHT>.*?</THOUGHT>", text, re.DOTALL | re.IGNORECASE):
+                return "GENERATE"
+            return "FORMAT_ERROR"
 
     def step(self, states: dict, **kwargs) -> Dict[str, Any]:
         action_text = states.get("action_text", "")
-
-        expected_act = (
-            states.get("expected_action")
-            or states.get("label")
-            or self.expected_action
-        )
-
+        expected_act = states.get("expected_action") or states.get("label") or self.expected_action
         turn_at_action = self.current_turn
+        
         agent_action = self._detect_agent_action(action_text, turn_at_action)
 
+        # Force episode end on max turns or format error
         if turn_at_action >= self.max_turns or agent_action == "FORMAT_ERROR":
-            reward, reason = calculate_step_reward(
-                parsed_json=None,
-                action=None,
+            reward, reason, metrics = calculate_step_reward(
+                action_text=action_text,
+                action_type=agent_action,
                 expected_action=expected_act,
                 current_turn=turn_at_action,
                 reward_cfg=self.reward_cfg
             )
-            self._log_to_file({
-                "timestamp": time.time(),
-                "episode_id": self.episode_id,
-                "turn": turn_at_action,
-                "agent_role": "Retriever" if turn_at_action % 2 == 0 else "Generator",
-                "action_detected": agent_action,
-                "reward": float(reward),
-                "reward_reason": reason,
-                "done": True,
-                "env_feedback_preview": ""
-            })
-            return {
-                "rewards": torch.tensor(reward, dtype=torch.float32),
-                "scores": torch.tensor(reward, dtype=torch.float32),
-                "environment_feedback": "",
-                "done": True,
-                "sampling_params": states.get("sampling_params"),
-                "extra_logs": {
-                    "turn": torch.tensor(turn_at_action, dtype=torch.float32),
-                    "reward": torch.tensor(reward, dtype=torch.float32)
-                }
-            }
+            self._log_to_file({"turn": turn_at_action, "action": agent_action, "reward": reward, "done": True})
+            return self._build_return(reward, "", True, states, metrics)
 
-        reward_action_map = {
-            "RETRIEVER_SUCCESS": "ASK",
-            "ASK": "ASK",
-            "GENERATE": "GENERATE",
-            "FORMAT_ERROR": None
-        }
-
-        reward, reason = calculate_step_reward(
-            parsed_json=None,
-            action=reward_action_map.get(agent_action),
+        # Map successful parses to logic actions
+        reward_action_map = {"RETRIEVER_SUCCESS": "RETRIEVE", "ASK": "ASK", "GENERATE": "GENERATE"}
+        
+        reward, reason, metrics = calculate_step_reward(
+            action_text=action_text,
+            action_type=reward_action_map.get(agent_action),
             expected_action=expected_act,
             current_turn=turn_at_action,
             reward_cfg=self.reward_cfg
@@ -167,17 +138,18 @@ class AgentInstance(AgentInstanceBase):
         done = False
         env_feedback = ""
 
+        # ==========================================
+        # CHATML SAFE ROLE SWITCHING
+        # ==========================================
         if agent_action == "RETRIEVER_SUCCESS":
             msg_match = re.search(r"<MESSAGE>(.*?)</MESSAGE>", action_text, re.DOTALL | re.IGNORECASE)
             retriever_msg = msg_match.group(1).strip() if msg_match else "No content."
 
             env_feedback = (
-                "<|im_end|>\n"
-                "<|im_start|>system\n"
-                f"{AgentPrompts.get_generator_system_prompt()}\n"
-                "<|im_end|>\n"
-                "<|im_start|>user\n"
-                f"Retriever Message: {retriever_msg}\n"
+                "\n<|im_start|>user\n"
+                "[SYSTEM OVERRIDE: YOU ARE NOW THE GENERATOR AGENT]\n"
+                f"{AgentPrompts.get_generator_system_prompt()}\n\n"
+                f"Retriever Message:\n{retriever_msg}\n"
                 "<|im_end|>\n"
                 "<|im_start|>assistant\n"
             )
@@ -187,21 +159,15 @@ class AgentInstance(AgentInstanceBase):
             req_match = re.search(r"<REQUEST>(.*?)</REQUEST>", action_text, re.DOTALL | re.IGNORECASE)
             gen_req = req_match.group(1).strip() if req_match else "More data needed."
 
-            extra_data = ""
-            if self.hidden_chunks:
-                extra_data = "\n".join(self.hidden_chunks)
-                self.hidden_chunks = []
-            else:
-                extra_data = "No more detailed chunks found in Weaviate."
+            extra_data = "\n".join(self.hidden_chunks) if self.hidden_chunks else "No additional detailed chunks found."
+            self.hidden_chunks = [] # Clear chunks after sending
 
             env_feedback = (
-                "<|im_end|>\n"
-                "<|im_start|>system\n"
-                f"{AgentPrompts.get_retriever_system_prompt()}\n"
-                "<|im_end|>\n"
-                "<|im_start|>user\n"
-                f"Generator is asking for: {gen_req}\n"
-                f"New Detailed Chunks: {extra_data}\n"
+                "\n<|im_start|>user\n"
+                "[SYSTEM OVERRIDE: YOU ARE NOW THE RETRIEVER AGENT]\n"
+                f"{AgentPrompts.get_retriever_system_prompt()}\n\n"
+                f"Generator Request:\n{gen_req}\n\n"
+                f"New Detailed Chunks:\n{extra_data}\n"
                 "<|im_end|>\n"
                 "<|im_start|>assistant\n"
             )
@@ -210,38 +176,28 @@ class AgentInstance(AgentInstanceBase):
         elif agent_action == "GENERATE":
             done = True
 
-        sampling_params = states.get("sampling_params")
-        if sampling_params is not None:
-            stop_tokens = ["<|im_end|>", "<|endoftext|>"]
-            if hasattr(sampling_params, "__dict__"):
-                sampling_params.stop = stop_tokens
-            else:
-                sampling_params["stop"] = stop_tokens
+        self._log_to_file({"turn": turn_at_action, "action": agent_action, "reward": reward, "done": done})
+        return self._build_return(reward, env_feedback, done, states, metrics)
 
-        self._log_to_file({
-            "timestamp": time.time(),
-            "episode_id": self.episode_id,
-            "turn": turn_at_action,
-            "agent_role": "Retriever" if turn_at_action % 2 == 0 else "Generator",
-            "action_detected": agent_action,
-            "reward": float(reward),
-            "reward_reason": reason,
-            "done": done,
-            "env_feedback_preview": env_feedback[:100] + "..." if env_feedback else ""
-        })
+    def _build_return(self, reward: float, feedback: str, done: bool, states: dict, metrics: dict):
+        sampling_params = states.get("sampling_params", {})
+        if isinstance(sampling_params, dict):
+            sampling_params["stop"] = ["<|im_end|>", "<|endoftext|>"]
+        elif hasattr(sampling_params, "stop"):
+            sampling_params.stop = ["<|im_end|>", "<|endoftext|>"]
 
         return {
             "rewards": torch.tensor(reward, dtype=torch.float32),
             "scores": torch.tensor(reward, dtype=torch.float32),
-            "environment_feedback": env_feedback,
+            "environment_feedback": feedback,
             "done": done,
             "sampling_params": sampling_params,
             "extra_logs": {
-                "turn": torch.tensor(turn_at_action, dtype=torch.float32),
-                "reward": torch.tensor(reward, dtype=torch.float32)
+                "turn": torch.tensor(self.current_turn, dtype=torch.float32),
+                "reward": torch.tensor(reward, dtype=torch.float32),
+                **{k: torch.tensor(v, dtype=torch.float32) for k, v in metrics.items()}
             }
         }
-
 
 class AgentExecutor(AgentExecutorBase):
     def __init__(self, *args, **kwargs):
