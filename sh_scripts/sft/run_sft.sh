@@ -18,9 +18,9 @@ if [ -z "$WANDB_API_KEY" ]; then
 fi
 
 source /usr/local/sbin/modules.sh
-module load Python/3.11.5-GCCcore-13.2.0
-source /home/tymrom7227/disk/venvs/pnw-3/bin/activate
-VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-3/bin/python"
+module load Python/3.12.3-GCCcore-13.3.0
+source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
+VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
 
 MY_DISK="/home/tymrom7227/disk"
 AGENTS_DIR="$MY_DISK/Agents"
