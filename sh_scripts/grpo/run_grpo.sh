@@ -25,7 +25,7 @@ MARTI_DIR="$MY_DISK/MARTI"
 
 MERGED_MODEL="$MY_DISK/models_output/run5/Qwen3-4B-SFT-Shared-Merged"
 
-MERGE_SCRIPT="$AGENTS_DIR/src/sft/sft_train/merge_lora.py"
+MERGE_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/merge_lora.py"
 
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
