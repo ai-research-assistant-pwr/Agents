@@ -25,6 +25,8 @@ MARTI_DIR="$MY_DISK/MARTI"
 
 MERGED_MODEL="$MY_DISK/models_output/run5/Qwen3-4B-SFT-Shared-Merged"
 
+MERGE_SCRIPT="$AGENTS_DIR/src/sft/sft_train/merge_lora.py"
+
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
@@ -49,9 +51,26 @@ fi
 # =================================================
 # VALIDATION
 # =================================================
+echo "=> Checking for merged base model..."
+
 if [ ! -f "$MERGED_MODEL/config.json" ]; then
-    echo "ERROR: Model not found at $MERGED_MODEL"
-    exit 1
+    echo "=> Merged model NOT FOUND at $MERGED_MODEL"
+    echo "=> Attempting to auto-merge base model with LoRA adapter..."
+    
+    if [ ! -f "$MERGE_SCRIPT" ]; then
+        echo "CRITICAL ERROR: merge_lora.py script not found at $MERGE_SCRIPT"
+        exit 1
+    fi
+
+    $VENV_PYTHON $MERGE_SCRIPT
+
+    if [ ! -f "$MERGED_MODEL/config.json" ]; then
+        echo "CRITICAL ERROR: Merge script finished, but model is still missing at $MERGED_MODEL"
+        exit 1
+    fi
+    echo "=> Auto-merge successful!"
+else
+    echo "=> Merged model found. Skipping auto-merge."
 fi
 
 if [ ! -f "$AGENTS_DIR/config/grpo/config.yaml" ]; then
