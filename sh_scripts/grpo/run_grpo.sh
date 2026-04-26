@@ -29,7 +29,7 @@ MERGE_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/merge_lora.py"
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-$VENV_PYTHON -m pip install json5
+$VENV_PYTHON -m pip install json5 srsly
 
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 export XDG_CACHE_HOME=$MY_DISK/.cache
