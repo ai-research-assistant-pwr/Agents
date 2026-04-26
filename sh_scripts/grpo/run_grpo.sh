@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -N 1
 #SBATCH -c 8
-#SBATCH --mem=64gb
+#SBATCH --mem=128gb
 #SBATCH --time=0-04:00:00
 #SBATCH --job-name=grpo_qwen
 #SBATCH --output=/home/tymrom7227/disk/Agents/out/grpo_qwen.out
@@ -140,9 +140,9 @@ $VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --rollout_batch_size 16 \
     --n_samples_per_prompt 4 \
     --max_epochs 1 \
-    --prompt_max_len 1024 \
-    --generate_max_len 256 \
-    --max_len 2048 \
+    --prompt_max_len 2048 \
+    --generate_max_len 1024 \
+    --max_len 4096 \
     --zero_stage 3 \
     --bf16 \
     --gradient_checkpointing \
