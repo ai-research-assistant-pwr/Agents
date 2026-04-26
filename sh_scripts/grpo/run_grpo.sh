@@ -92,12 +92,18 @@ export MARTI_CONFIG_PATH="$AGENTS_DIR/config/grpo/config.yaml"
 
 mkdir -p "$OUTPUT_DIR"
 
+DEFAULT_AGENT="{
+    \"is_reasoning_model\": true
+}"
+
 AGENT0="{
     \"0\": {
         \"agent_id\": \"shared_agent\",
+        \"role\": \"generator\",
         \"agent_role\": \"generator\",
         \"pretrain\": \"${MERGED_MODEL}\",
-        \"is_tuning\": true
+        \"is_tuning\": true,
+        \"is_reasoning_model\": true
     }
 }"
 
