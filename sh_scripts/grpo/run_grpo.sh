@@ -29,8 +29,6 @@ MERGE_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/merge_lora.py"
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-$VENV_PYTHON -m pip install json5 srsly
-
 export PYTHONPATH="$MARTI_DIR:$AGENTS_DIR:$PYTHONPATH"
 export XDG_CACHE_HOME=$MY_DISK/.cache
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
@@ -148,6 +146,7 @@ $VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --zero_stage 3 \
     --bf16 \
     --gradient_checkpointing \
+    --packing_samples \
     --save_hf_ckpt \
     --seed 42 \
     --logging_steps 1 \
