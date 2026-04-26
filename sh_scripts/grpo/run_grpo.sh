@@ -24,7 +24,6 @@ export AGENTS_DIR="$MY_DISK/Agents"
 MARTI_DIR="$MY_DISK/MARTI"
 
 MERGED_MODEL="$MY_DISK/models_output/run5/Qwen3-4B-SFT-Shared-Merged"
-
 MERGE_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/merge_lora.py"
 
 source $VENV_PATH/bin/activate
@@ -78,8 +77,8 @@ if [ ! -f "$AGENTS_DIR/config/grpo/config.yaml" ]; then
     exit 1
 fi
 
-if [ ! -f "$AGENTS_DIR/src/grpo/grpo_train/environment.py" ]; then
-    echo "ERROR: Environment script not found at $AGENTS_DIR/src/grpo/grpo_train/environment.py"
+if [ ! -f "$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py" ]; then
+    echo "ERROR: Workflow script not found at $AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
     exit 1
 fi
 
@@ -87,25 +86,35 @@ fi
 # START TRAINING
 # =================================================
 DATA_PATH="$AGENTS_DIR/data/datasets/grpo_exp_dataset/mock_data.json"
-AGENT_ENV_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/environment.py"
+WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
 OUTPUT_DIR="$MY_DISK/models_output/grpo_results"
 export MARTI_CONFIG_PATH="$AGENTS_DIR/config/grpo/config.yaml"
 
 mkdir -p "$OUTPUT_DIR"
 
+AGENT0="{
+    \"0\": {
+        \"agent_id\": \"shared_agent\",
+        \"agent_role\": \"generator\",
+        \"pretrain\": \"${MERGED_MODEL}\",
+        \"is_tuning\": true
+    }
+}"
+
 echo "=> Configuration:"
 echo "   Model: $MERGED_MODEL"
 echo "   Data: $DATA_PATH"
-echo "   Agent: $AGENT_ENV_SCRIPT"
+echo "   Workflow: $WORKFLOW_SCRIPT"
 echo "   Output: $OUTPUT_DIR"
 echo "   Config: $MARTI_CONFIG_PATH"
 echo ""
-echo "=> Running MARTI GRPO training..."
+echo "=> Running MARTI GRPO training (Workflow Mode)..."
 
-$VENV_PYTHON -m marti.cli.train_ppo_ray \
+$VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --pretrain "$MERGED_MODEL" \
     --save_path "$OUTPUT_DIR" \
-    --agent_func_path "$AGENT_ENV_SCRIPT" \
+    --agents "$AGENT0" \
+    --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$DATA_PATH" \
     --input_key "query" \
     --label_key "expected_action" \
