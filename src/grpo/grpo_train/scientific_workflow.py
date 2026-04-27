@@ -1,58 +1,93 @@
-import os
-import re
-import json
+"""
+Scientific Hypothesis Generation Workflow
+==========================================
+Fixed 4-turn pipeline (no dynamic branching, no XML tags):
+
+  Turn 0  [RETRIEVER]  query + up-to-8 paper summaries  →  ~100-word synthesis
+  Turn 1  [GENERATOR]  query + retriever synthesis       →  question asking for more context
+  Turn 2  [RETRIEVER]  generator question + same papers  →  focused follow-up (~100 words)
+  Turn 3  [GENERATOR]  query + both retriever outputs    →  numbered hypothesis list
+
+Rewards
+-------
+  Retriever (turns 0 & 2) : gaussian centred at 100 words on raw output
+  Generator turn 1        : 1.0 if output contains '?', else 0.0
+  Generator turn 3        : format score (numbered items) + count score (peak at 3)
+
+Data contract
+-------------
+  prompt   – raw user query string
+  label    – ground-truth hypothesis (for logging; not used in reward)
+  metadata – dict with key "papers": list of {"id", "title", "summary"} dicts
+"""
+
 import time
-import asyncio
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from marti.utils.logging_utils import init_logger
 from src.grpo.grpo_train.agents import AgentPrompts
-from src.grpo.grpo_train.rewards import calculate_step_reward
+from src.grpo.grpo_train.rewards import (
+    retriever_word_count_reward,
+    generator_request_format_reward,
+    generator_hypothesis_reward,
+)
+
 
 logger = init_logger(__name__)
-logger.setLevel(os.getenv("MARTI_LOGGING_LEVEL", "INFO"))
+logger.setLevel("WARN")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Token helpers
+# ──────────────────────────────────────────────────────────────────────────────
 
 
-def _build_initial_input(role_name: str, system_prompt: str, user_content: str) -> str:
-    """Builds the initial prompt to start the conversation."""
+def _fmt(role: str, content: str) -> str:
+    """Format a single ChatML turn."""
+    return f"<|im_start|>{role}\n{content}\n<|im_end|>\n"
+
+
+def _build_prompt(system: str, user: str) -> str:
+    """Full ChatML prompt ready for generation (ends at <|im_start|>assistant)."""
+    return _fmt("system", system) + _fmt("user", user) + "<|im_start|>assistant\n"
+
+
+def _extend_prompt(base: str, assistant_reply: str, system: str, user: str) -> str:
+    """Close the previous assistant turn and open a new system/user/assistant block."""
     return (
-        f"<|im_start|>system\n"
-        f"[ROLE: {role_name}]\n"
-        f"{system_prompt}\n"
-        f"<|im_end|>\n"
-        f"<|im_start|>user\n"
-        f"{user_content}\n"
-        f"<|im_end|>\n"
-        f"<|im_start|>assistant\n"
+        base
+        + assistant_reply
+        + "<|im_end|>\n"
+        + _fmt("system", system)
+        + _fmt("user", user)
+        + "<|im_start|>assistant\n"
     )
 
 
-def _build_role_transition(role_name: str, system_prompt: str, user_content: str) -> str:
-    """Builds the role transition prompt inside an ongoing conversation."""
-    return (
-        f"\n<|im_start|>system\n"
-        f"[ROLE: {role_name}]\n"
-        f"{system_prompt}\n"
-        f"<|im_end|>\n"
-        f"<|im_start|>user\n"
-        f"{user_content}\n"
-        f"<|im_end|>\n"
-        f"<|im_start|>assistant\n"
-    )
+def _tokenize(tokenizer, text: str) -> List[int]:
+    return tokenizer(text, add_special_tokens=False, return_tensors="pt")["input_ids"][
+        0
+    ].tolist()
 
 
-def _detect_agent_action(text: str, turn: int) -> str:
-    """Detects the model's action based on the current turn."""
-    if turn % 2 == 0:  # Retriever
-        if re.search(r"<MESSAGE>.*?</MESSAGE>", text, re.DOTALL | re.IGNORECASE):
-            return "RETRIEVER_SUCCESS"
-        return "FORMAT_ERROR"
-    else:  # Generator
-        if re.search(r"<REQUEST>.*?</REQUEST>", text, re.DOTALL | re.IGNORECASE):
-            return "ASK"
-        if re.search(r"<THOUGHT>.*?</THOUGHT>", text, re.DOTALL | re.IGNORECASE):
-            return "GENERATE"
-        return "FORMAT_ERROR"
+# ──────────────────────────────────────────────────────────────────────────────
+# Paper context helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _format_papers(papers: List[Dict[str, str]], max_papers: int = 8) -> str:
+    """Render a list of paper dicts into a readable block."""
+    selected = papers[:max_papers]
+    lines = []
+    for i, p in enumerate(selected, 1):
+        title = p.get("title", "Unknown title")
+        summary = p.get("summary", p.get("abstract", "No summary available."))
+        lines.append(f"[Paper {i}] {title}\n{summary.strip()}")
+    return "\n\n".join(lines)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Main workflow
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 async def workflow(
@@ -60,191 +95,222 @@ async def workflow(
     label: str,
     agents: List[Dict[str, Any]],
     tool_manager=None,
-    task: str = "scientific_discovery",
+    task: str = "scientific_hypothesis",
     metadata: Optional[Dict] = None,
     **kwargs,
 ) -> Dict[str, Any]:
     """
-    Scientific Multi-Agent Workflow for GRPO.
-    Shared model plays both Retriever and Generator roles, alternating every turn.
+    Fixed 4-turn scientific hypothesis generation pipeline.
+
+    Parameters
+    ----------
+    prompt   : The user research query.
+    label    : Ground-truth hypothesis (for logging; not used in reward).
+    agents   : List with at least one agent dict containing 'llm', 'tokenizer',
+               'sampling_params'.  A single model plays both roles.
+    metadata : Must include key 'papers': list of dicts with 'id', 'title',
+               'summary' fields, pre-loaded from 11_neo4j_papers.csv.
     """
-    start_time = time.time()
-    
-    # agent and environment setup
+    t_start = time.time()
+
+    # ── agent setup ──────────────────────────────────────────────────────────
     agent = agents[0]
-    llm = agent.get("llm")
-    tokenizer = agent.get("tokenizer")
-    sampling_params = agent.get("sampling_params")
-    
-    if hasattr(sampling_params, "stop"):
-        sampling_params.stop = ["<|im_end|>", "<|endoftext|>"]
-    elif isinstance(sampling_params, dict):
-        sampling_params["stop"] = ["<|im_end|>", "<|endoftext|>"]
+    llm = agent["llm"]
+    tokenizer = agent["tokenizer"]
+    sp = agent["sampling_params"]
 
-    workflow_args = kwargs.get("workflow_args", {})
-    max_turns = workflow_args.get("max_turns", 4)
-    
-    # Default reward configuration, can be overridden by workflow_args
-    reward_cfg = workflow_args.get("reward_cfg", {
-        "format_correct": 0.1,
-        "format_error": -1.0,
-        "turn_penalty": -0.1,
-        "task_success": 1.0,
-        "task_suboptimal": 0.5,
-        "hallucination_penalty": -1.0,
-    })
+    # Ensure model stops cleanly at the end of each assistant turn
+    stop_tokens = ["<|im_end|>", "<|endoftext|>"]
+    if hasattr(sp, "stop"):
+        sp.stop = stop_tokens
+    elif isinstance(sp, dict):
+        sp["stop"] = stop_tokens
 
-    # Parsing hidden chunks from prompt (if any) and cleaning prompt for initial input
-    hidden_chunks = []
-    hidden_match = re.search(r"<HIDDEN_CHUNKS>(.*?)</HIDDEN_CHUNKS>", prompt, re.DOTALL)
-    if hidden_match:
-        try:
-            hidden_chunks = json.loads(hidden_match.group(1))
-        except Exception:
-            hidden_chunks = []
-        clean_prompt = re.sub(r"<HIDDEN_CHUNKS>.*?</HIDDEN_CHUNKS>", "", prompt, flags=re.DOTALL).strip()
-    else:
-        clean_prompt = prompt.strip()
+    max_length: int = kwargs.get("max_length", 2048)
+    papers: List[Dict[str, str]] = (metadata or {}).get("papers", [])
+    paper_block = _format_papers(papers, max_papers=8)
 
-    # Prompt initialization with system instructions and user query
-    current_context = _build_initial_input(
-        role_name="RETRIEVER",
-        system_prompt=AgentPrompts.get_retriever_system_prompt(),
-        user_content=clean_prompt
+    # ── trajectory bookkeeping ────────────────────────────────────────────────
+    all_output_ids: List[int] = []
+    action_mask: List[int] = []
+
+    # Seed sequence with the first prompt (no loss on the initial prompt tokens)
+    turn0_prompt = _build_prompt(
+        system=AgentPrompts.retriever_system(),
+        user=f"Research query:\n{prompt}\n\nAvailable papers:\n{paper_block}",
+    )
+    sequence_ids = _tokenize(tokenizer, turn0_prompt)
+    action_mask.extend([0] * len(sequence_ids))
+    all_output_ids.extend(
+        [0] * len(sequence_ids)
+    )  # placeholder, will not be used for loss
+
+    trajectory: List[Dict[str, Any]] = []
+    total_reward = 0.0
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Turn 0 – RETRIEVER: synthesise paper summaries into a concise message
+    # ──────────────────────────────────────────────────────────────────────────
+    resp0 = await llm.generate_async.remote(prompt_ids=sequence_ids, sampling_params=sp)
+    out0: str = resp0.outputs[0].text
+    ids0: List[int] = list(resp0.outputs[0].token_ids)
+
+    r0 = retriever_word_count_reward(out0)
+    total_reward += r0
+    trajectory.append(
+        {
+            "turn_id": 0,
+            "role": "retriever",
+            "prompt": turn0_prompt,
+            "output": out0,
+            "reward": r0,
+        }
     )
 
-    # Initialization of arrays for Sample Packing
-    input_token_ids = tokenizer(current_context, add_special_tokens=False, return_tensors="pt")["input_ids"][0].tolist()
-    
-    sequence_ids = list(input_token_ids)
-    all_output_ids = []
-    action_mask = []
-    all_generated_texts = []
-    
-    rollout_log_probs = None
-    if getattr(sampling_params, "logprobs", None) is not None:
-        rollout_log_probs = [0.0] * len(input_token_ids)
+    sequence_ids.extend(ids0)
+    all_output_ids.extend(ids0)
+    action_mask.extend([1] * len(ids0))
 
-    current_turn = 0
-    done = False
-    total_episode_reward = 0.0
-    expected_action = label if label else "GENERATE"
-    final_reason = ""
+    retriever_msg_1 = out0.strip()
 
-    # Main loop workflow alternating between Retriever and Generator roles
-    while not done and current_turn < max_turns:
-        
-        # Async call to the model to generate response based on the ENTIRE accumulated sequence
-        response = await llm.generate_async.remote(
-            prompt_ids=sequence_ids,
-            sampling_params=sampling_params
+    # ──────────────────────────────────────────────────────────────────────────
+    # Turn 1 – GENERATOR: ask for additional context
+    # ──────────────────────────────────────────────────────────────────────────
+    turn1_env = (
+        "<|im_end|>\n"
+        + _fmt("system", AgentPrompts.generator_ask_system())
+        + _fmt(
+            "user",
+            f"Research query:\n{prompt}\n\nRetriever synthesis:\n{retriever_msg_1}",
         )
-        
-        action_text = response.outputs[0].text
-        output_token_ids = list(response.outputs[0].token_ids)
-        all_generated_texts.append(action_text)
-        
-        # Record tokens generated by the model (action_mask = 1) -> we compute loss for these
-        sequence_ids.extend(output_token_ids)
-        all_output_ids.extend(output_token_ids)
-        action_mask.extend([1] * len(output_token_ids))
-        
-        # Extracting logprobs for the generated tokens
-        if rollout_log_probs is not None:
-            for i, logprob_dict in enumerate(response.outputs[0].logprobs):
-                if i < len(output_token_ids) and output_token_ids[i] in logprob_dict:
-                    rollout_log_probs.append(logprob_dict[output_token_ids[i]].logprob)
-                else:
-                    rollout_log_probs.append(0.0)
+        + "<|im_start|>assistant\n"
+    )
+    turn1_env_ids = _tokenize(tokenizer, turn1_env)
+    sequence_ids.extend(turn1_env_ids)
+    all_output_ids.extend(turn1_env_ids)
+    action_mask.extend([0] * len(turn1_env_ids))
 
-        # Action analysis and reward calculation
-        agent_action = _detect_agent_action(action_text, current_turn)
-        reward_action_map = {
-            "RETRIEVER_SUCCESS": "RETRIEVE",
-            "ASK": "ASK",
-            "GENERATE": "GENERATE",
+    resp1 = await llm.generate_async.remote(prompt_ids=sequence_ids, sampling_params=sp)
+    out1: str = resp1.outputs[0].text
+    ids1: List[int] = list(resp1.outputs[0].token_ids)
+
+    r1 = generator_request_format_reward(out1)
+    total_reward += r1
+    trajectory.append(
+        {
+            "turn_id": 1,
+            "role": "generator",
+            "output": out1,
+            "reward": r1,
         }
-        logical_action = reward_action_map.get(agent_action, "FORMAT_ERROR")
+    )
 
-        step_reward, reason, metrics = calculate_step_reward(
-            action_text=action_text,
-            action_type=logical_action,
-            expected_action=expected_action,
-            current_turn=current_turn,
-            reward_cfg=reward_cfg,
+    sequence_ids.extend(ids1)
+    all_output_ids.extend(ids1)
+    action_mask.extend([1] * len(ids1))
+
+    gen_request = out1.strip()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Turn 2 – RETRIEVER: respond to generator's request with focused context
+    # ──────────────────────────────────────────────────────────────────────────
+    turn2_env = (
+        "<|im_end|>\n"
+        + _fmt("system", AgentPrompts.retriever_system())
+        + _fmt(
+            "user",
+            f"The generator is asking:\n{gen_request}\n\n"
+            f"Available papers (same pool):\n{paper_block}",
         )
-        total_episode_reward += step_reward
-        final_reason = reason
+        + "<|im_start|>assistant\n"
+    )
+    turn2_env_ids = _tokenize(tokenizer, turn2_env)
+    sequence_ids.extend(turn2_env_ids)
+    all_output_ids.extend(turn2_env_ids)
+    action_mask.extend([0] * len(turn2_env_ids))
 
-        # Format error handling - if model's output format is incorrect, end episode immediately
-        if agent_action == "FORMAT_ERROR":
-            logger.info(f"Episode terminated early due to FORMAT_ERROR at turn {current_turn}.")
-            done = True
-            break
-            
-        # Task success check
-        if agent_action == "GENERATE":
-            done = True
-            break
+    resp2 = await llm.generate_async.remote(prompt_ids=sequence_ids, sampling_params=sp)
+    out2: str = resp2.outputs[0].text
+    ids2: List[int] = list(resp2.outputs[0].token_ids)
 
-        # Preparing context for next turn based on current action and role transition logic
-        next_turn_addition = ""
-        if agent_action == "RETRIEVER_SUCCESS":
-            msg_match = re.search(r"<MESSAGE>(.*?)</MESSAGE>", action_text, re.DOTALL | re.IGNORECASE)
-            retriever_msg = msg_match.group(1).strip() if msg_match else "No content."
+    r2 = retriever_word_count_reward(out2)
+    total_reward += r2
+    trajectory.append(
+        {
+            "turn_id": 2,
+            "role": "retriever",
+            "output": out2,
+            "reward": r2,
+        }
+    )
 
-            next_turn_addition = _build_role_transition(
-                role_name="GENERATOR",
-                system_prompt=AgentPrompts.get_generator_system_prompt(),
-                user_content=f"Retriever Message:\n{retriever_msg}"
-            )
-            current_turn += 1
+    sequence_ids.extend(ids2)
+    all_output_ids.extend(ids2)
+    action_mask.extend([1] * len(ids2))
 
-        elif agent_action == "ASK":
-            req_match = re.search(r"<REQUEST>(.*?)</REQUEST>", action_text, re.DOTALL | re.IGNORECASE)
-            gen_req = req_match.group(1).strip() if req_match else "More data needed."
+    retriever_msg_2 = out2.strip()
 
-            extra_data = "\n".join(hidden_chunks) if hidden_chunks else "No additional detailed chunks found."
-            hidden_chunks = []
+    # ──────────────────────────────────────────────────────────────────────────
+    # Turn 3 – GENERATOR: produce the final hypothesis list
+    # ──────────────────────────────────────────────────────────────────────────
+    turn3_env = (
+        "<|im_end|>\n"
+        + _fmt("system", AgentPrompts.generator_hypothesize_system())
+        + _fmt(
+            "user",
+            f"Research query:\n{prompt}\n\n"
+            f"Retriever synthesis:\n{retriever_msg_1}\n\n"
+            f"Additional retriever context:\n{retriever_msg_2}",
+        )
+        + "<|im_start|>assistant\n"
+    )
+    turn3_env_ids = _tokenize(tokenizer, turn3_env)
+    sequence_ids.extend(turn3_env_ids)
+    all_output_ids.extend(turn3_env_ids)
+    action_mask.extend([0] * len(turn3_env_ids))
 
-            next_turn_addition = _build_role_transition(
-                role_name="RETRIEVER",
-                system_prompt=AgentPrompts.get_retriever_system_prompt(),
-                user_content=f"Generator Request:\n{gen_req}\n\nNew Detailed Chunks:\n{extra_data}"
-            )
-            current_turn += 1
+    resp3 = await llm.generate_async.remote(prompt_ids=sequence_ids, sampling_params=sp)
+    out3: str = resp3.outputs[0].text
+    ids3: List[int] = list(resp3.outputs[0].token_ids)
 
-        # Appending the environment prompt for the next role
-        env_text = "<|im_end|>" + next_turn_addition
-        all_generated_texts.append(env_text)
-        
-        env_token_ids = tokenizer(env_text, add_special_tokens=False, return_tensors="pt")["input_ids"][0].tolist()
-        
-        # Record tokens injected by the environment (action_mask = 0) -> we DO NOT compute loss for these
-        sequence_ids.extend(env_token_ids)
-        all_output_ids.extend(env_token_ids)
-        action_mask.extend([0] * len(env_token_ids))
-        
-        if rollout_log_probs is not None:
-            rollout_log_probs.extend([0.0] * len(env_token_ids))
+    r3 = generator_hypothesis_reward(out3)
+    total_reward += r3
+    trajectory.append(
+        {
+            "turn_id": 3,
+            "role": "generator",
+            "output": out3,
+            "reward": r3,
+        }
+    )
 
-    end_time = time.time()
-    logger.info(f"Workflow completed. Turns: {current_turn}, Reward: {total_episode_reward:.2f}, Time: {end_time - start_time:.2f}s")
+    sequence_ids.extend(ids3)
+    all_output_ids.extend(ids3)
+    action_mask.extend([1] * len(ids3))
 
-    # Packing the entire multi-turn history into one trajectory record
+    logger.warning(
+        f"workflow done | turns=4 | reward={total_reward:.3f} | "
+        f"time={time.time() - t_start:.1f}s"
+    )
+
+    # ── pack into the single trajectory record expected by GRPO trainer ──────
+    # action_mask aligns with sequence_ids token-by-token.
+    # The initial prompt tokens have mask=0 (no loss), model-generated tokens
+    # have mask=1.  Environment injection tokens also have mask=0.
     trajectory_record = {
         "node_id": 0,
         "agent_id": agent.get("agent_id", "shared_agent"),
-        "agent_role": agent.get("agent_role", "generator"),
-        "agent_input": current_context,
-        "agent_output": "".join(all_generated_texts),
+        "agent_role": "generator",  # final role for bookkeeping
+        "agent_input": turn0_prompt,
+        "agent_output": out3,  # final generation
         "output_ids": all_output_ids,
         "sequence_ids": sequence_ids,
         "action_mask": action_mask,
-        "reward": total_episode_reward,
-        "rollout_log_prob": rollout_log_probs,
+        "reward": total_reward,
+        "rollout_log_prob": None,
         "metadata": {
-            "final_reason": final_reason
+            "turn_rewards": [t["reward"] for t in trajectory],
+            "label": label,
         },
     }
 
@@ -252,5 +318,5 @@ async def workflow(
         "prompt": prompt,
         "label": label,
         "trajectory": [trajectory_record],
-        "final_reward": total_episode_reward,
+        "final_reward": total_reward,
     }

@@ -1,8 +1,25 @@
+"""
+Prepare GRPO training dataset from:
+  - rl_grounded_dataset.csv  (queries, paper references, ground-truth hypotheses)
+  - 11_neo4j_papers.csv      (paper summaries indexed by paperId)
+
+Output: data/datasets/grpo_exp_dataset/grpo_data.json
+Each record:
+  {
+    "id":       <paper_id from rl_grounded_dataset>,
+    "query":    <user_query>,
+    "label":    <ground-truth hypothesis>,
+    "metadata": {"papers": [{"id", "title", "summary"}, ...]}
+  }
+"""
+
 import os
 import sys
+import csv
 import json
 import random
 
+# ── path setup ────────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 GRPO_DIR = os.path.dirname(SCRIPT_DIR)
 SRC_DIR = os.path.dirname(GRPO_DIR)
@@ -11,105 +28,115 @@ AGENTS_DIR = os.path.dirname(SRC_DIR)
 if AGENTS_DIR not in sys.path:
     sys.path.insert(0, AGENTS_DIR)
 
-from src.grpo.grpo_train.agents import AgentPrompts
+# ── paths ─────────────────────────────────────────────────────────────────────
+DATA_DIR = os.path.join(AGENTS_DIR, "data")
+QUERIES_CSV = os.path.join(DATA_DIR, "rl_grounded_dataset.csv")
+PAPERS_CSV = os.path.join(DATA_DIR, "11_neo4j_papers.csv")
 
-DATASETS_DIR = os.path.join(AGENTS_DIR, "data", "datasets")
-SFT_TEST_FILE = os.path.join(DATASETS_DIR, "sft2", "generator_test.jsonl")
-SOURCE_DATASET_FILE = os.path.join(DATASETS_DIR, "multiagent_sft_dataset_v2.jsonl")
+OUTPUT_DIR = os.path.join(AGENTS_DIR, "data", "datasets", "grpo_exp_dataset")
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "grpo_data.json")
 
-OUTPUT_DIR = os.path.join(DATASETS_DIR, "grpo_exp_dataset")
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "mock_data.json")
+MAX_PAPERS_PER_QUERY = 8
+MAX_RECORDS = None  # set to an int to cap dataset size (None = all)
+RANDOM_SEED = 42
+
+csv.field_size_limit(10**7)
+
+
+def load_papers(path: str) -> dict:
+    """Return {paperId: {"id", "title", "summary"}} from 11_neo4j_papers.csv."""
+    papers = {}
+    with open(path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            pid = row.get("paperId:ID(Paper)", "").strip()
+            if not pid:
+                continue
+            summary = row.get("summary", "").strip()
+            if not summary:
+                summary = row.get("abstract", "").strip()
+            papers[pid] = {
+                "id": pid,
+                "title": row.get("title", "").strip(),
+                "summary": summary,
+            }
+    return papers
+
+
+def load_queries(path: str) -> list:
+    """Return list of dicts from rl_grounded_dataset.csv."""
+    records = []
+    with open(path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            records.append(dict(row))
+    return records
+
 
 def main():
-    print(f"=== Preparing Multi-Agent GRPO Experiment Dataset ===")
-    
-    if not os.path.exists(SFT_TEST_FILE):
-        print(f"ERROR: File not found: {SFT_TEST_FILE}")
-        sys.exit(1)
-        
-    if not os.path.exists(SOURCE_DATASET_FILE):
-        print(f"ERROR: File not found: {SOURCE_DATASET_FILE}")
-        sys.exit(1)
+    print("=== Preparing GRPO dataset from rl_grounded_dataset + neo4j_papers ===")
+
+    for p in [QUERIES_CSV, PAPERS_CSV]:
+        if not os.path.exists(p):
+            print(f"ERROR: file not found: {p}")
+            sys.exit(1)
+
+    print(f"Loading papers from {PAPERS_CSV} …")
+    papers_db = load_papers(PAPERS_CSV)
+    print(f"  Loaded {len(papers_db)} papers.")
+
+    print(f"Loading queries from {QUERIES_CSV} …")
+    queries = load_queries(QUERIES_CSV)
+    print(f"  Loaded {len(queries)} query records.")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    test_ids = set()
-    with open(SFT_TEST_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            record = json.loads(line)
-            test_ids.add(record.get("prompt_id"))
-            
-    print(f"Found {len(test_ids)} unique prompt_id in the SFT test set.")
+    records = []
+    missing_paper_counts = []
 
-    success_records = []
-    fail_records = []
-    
-    retriever_system_prompt = AgentPrompts.get_retriever_system_prompt()
+    for row in queries:
+        paper_id = row.get("paper_id", "").strip()
+        user_query = row.get("user_query", "").strip()
+        hypothesis = row.get("hypothesis", "").strip()
+        ref_ids_raw = row.get("referenced_paper_ids", "")
 
-    with open(SOURCE_DATASET_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            data = json.loads(line)
-            prompt_id = data.get("prompt_id")
-            
-            if prompt_id in test_ids:
-                is_success = data.get("is_success", False)
-                initial_chunks = [
-                    "Study shows correlation between A and B.",
-                    "Mechanisms remain unclear, but preliminary data suggests pathway C."
-                ]
-                initial_data_str = json.dumps(initial_chunks)
-                
-                hidden_chunks = []
-                if not is_success:
-                    hidden_chunks = [
-                        "ADDITIONAL CONTEXT: Pathway C is activated by enzyme D.",
-                        "Variable X has a direct impact on Y through mechanism Z."
-                    ]
-                hidden_data_str = json.dumps(hidden_chunks)
-                full_prompt = (
-                    f"<HIDDEN_CHUNKS>{hidden_data_str}</HIDDEN_CHUNKS>\n"
-                    f"<|im_start|>system\n"
-                    f"{retriever_system_prompt}\n"
-                    f"<|im_end|>\n"
-                    f"<|im_start|>user\n"
-                    f"RAW CHUNKS:\n{initial_data_str}\n"
-                    f"<|im_end|>\n"
-                    f"<|im_start|>assistant\n"
-                )
-                
-                grpo_record = {
-                    "id": prompt_id,
-                    "query": full_prompt,
-                    "expected_action": "GENERATE" if is_success else "ASK",
-                    "label": "GENERATE" if is_success else "ASK"
-                }
-                
-                if is_success:
-                    success_records.append(grpo_record)
-                else:
-                    fail_records.append(grpo_record)
+        if not user_query or not hypothesis:
+            continue
 
-    random.seed(42)
-    random.shuffle(success_records)
-    random.shuffle(fail_records)
+        ref_ids = [pid.strip() for pid in ref_ids_raw.split("|") if pid.strip()]
+        context_papers = []
+        missing = 0
+        for pid in ref_ids[:MAX_PAPERS_PER_QUERY]:
+            if pid in papers_db:
+                context_papers.append(papers_db[pid])
+            else:
+                missing += 1
 
-    sampled_success = success_records[:25]
-    sampled_fail = fail_records[:25]
+        missing_paper_counts.append(missing)
 
-    print(f"Selected {len(sampled_success)} 'GENERATE' records and {len(sampled_fail)} 'ASK' records.")
+        records.append(
+            {
+                "id": paper_id,
+                "query": user_query,
+                "label": hypothesis,
+                "metadata": {"papers": context_papers},
+            }
+        )
 
-    final_records = sampled_success + sampled_fail
-    random.shuffle(final_records)
+    random.seed(RANDOM_SEED)
+    random.shuffle(records)
+
+    if MAX_RECORDS is not None:
+        records = records[:MAX_RECORDS]
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(final_records, f, ensure_ascii=False, indent=2)
-        
-    print(f"Saved {len(final_records)} mixed records to file: {OUTPUT_FILE}")
-    print("=== Completed successfully ===")
+        json.dump(records, f, ensure_ascii=False, indent=2)
+
+    avg_missing = sum(missing_paper_counts) / max(len(missing_paper_counts), 1)
+    print(f"  Avg missing papers per query: {avg_missing:.1f}")
+    print(f"Saved {len(records)} records → {OUTPUT_FILE}")
+    print("=== Done ===")
+
 
 if __name__ == "__main__":
     main()
