@@ -240,11 +240,12 @@ async def workflow(
         sp["stop"] = stop_tokens
 
     max_length: int = kwargs.get("max_length", 2048)
-    metadata = eval(metadata) if isinstance(metadata, str) else (metadata or {})
-    logger.warning(f"metadata: {metadata}")
+    logger.warning(f"type metadata: {type(metadata)}")
+    metadata = json.loads(json.loads(metadata))
+    logger.warning(f"type metadata after eval: {type(metadata)}")
     papers: List[Dict[str, str]] = (metadata or {}).get("papers", [])
-    logger.warning(f"papers: {papers}")
-    paper_block = _format_papers(papers, max_papers=8)
+    # logger.warning(f"papers: {papers}")
+    paper_block = _format_papers(papers, max_papers=5)
 
     # ── debug config ─────────────────────────────────────────────────────────
     debug_dir: str = kwargs.get("debug_dir", "./workflow_debug_logs")
