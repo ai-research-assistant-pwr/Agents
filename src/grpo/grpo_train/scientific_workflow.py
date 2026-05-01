@@ -71,7 +71,7 @@ logger.setLevel("WARN")
 # Debug flag — flip to True to enable per-trajectory JSON logging
 # ──────────────────────────────────────────────────────────────────────────────
 
-DEBUG: bool = False
+DEBUG: bool = True
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Token helpers
@@ -240,7 +240,10 @@ async def workflow(
         sp["stop"] = stop_tokens
 
     max_length: int = kwargs.get("max_length", 2048)
+    metadata = eval(metadata) if isinstance(metadata, str) else (metadata or {})
+    logger.warning(f"metadata: {metadata}")
     papers: List[Dict[str, str]] = (metadata or {}).get("papers", [])
+    logger.warning(f"papers: {papers}")
     paper_block = _format_papers(papers, max_papers=8)
 
     # ── debug config ─────────────────────────────────────────────────────────
