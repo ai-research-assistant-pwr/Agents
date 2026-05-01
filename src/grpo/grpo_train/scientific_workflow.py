@@ -106,6 +106,26 @@ def _tokenize(tokenizer, text: str) -> List[int]:
     ].tolist()
 
 
+def _strip_thinking(text: str) -> str:
+    """Remove <think>...</think> blocks from model output.
+
+    Qwen3 reasoning models wrap their internal chain-of-thought in
+    ``<think>\\n...\\n</think>`` tags.  When the raw output of one agent is
+    injected into the next agent's prompt we want to pass only the final
+    answer, not the reasoning trace, so the context stays concise and the
+    receiving agent is not confused by spurious thinking tokens.
+
+    If no closing ``</think>`` tag is found the full text is returned
+    unchanged (graceful degradation for non-reasoning models or empty
+    thinking blocks).
+    """
+    import re
+
+    # Remove all <think>...</think> blocks (non-greedy, DOTALL)
+    stripped = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    return stripped.strip()
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Debug helper
 # ──────────────────────────────────────────────────────────────────────────────
@@ -279,7 +299,8 @@ async def workflow(
     out0: str = resp0.outputs[0].text
     ids0: List[int] = list(resp0.outputs[0].token_ids)
 
-    r0 = retriever_word_count_reward(out0)
+    out0_content = _strip_thinking(out0)
+    r0 = retriever_word_count_reward(out0_content)
     total_reward += r0
     trajectory.append(
         {
@@ -300,7 +321,8 @@ async def workflow(
             debug_turns, 0, "retriever", sequence_ids[: -len(ids0)], ids0, r0, tokenizer
         )
 
-    retriever_msg_1 = out0.strip()
+    # Pass only the final answer (no thinking trace) to the next agent
+    retriever_msg_1 = out0_content
 
     # ──────────────────────────────────────────────────────────────────────────
     # Turn 1 – GENERATOR: ask for additional context
@@ -323,7 +345,8 @@ async def workflow(
     out1: str = resp1.outputs[0].text
     ids1: List[int] = list(resp1.outputs[0].token_ids)
 
-    r1 = generator_request_format_reward(out1)
+    out1_content = _strip_thinking(out1)
+    r1 = generator_request_format_reward(out1_content)
     total_reward += r1
     trajectory.append(
         {
@@ -343,7 +366,8 @@ async def workflow(
             debug_turns, 1, "generator", sequence_ids[: -len(ids1)], ids1, r1, tokenizer
         )
 
-    gen_request = out1.strip()
+    # Pass only the final question (no thinking trace) to the retriever
+    gen_request = out1_content
 
     # ──────────────────────────────────────────────────────────────────────────
     # Turn 2 – RETRIEVER: respond to generator's request with focused context
@@ -367,7 +391,8 @@ async def workflow(
     out2: str = resp2.outputs[0].text
     ids2: List[int] = list(resp2.outputs[0].token_ids)
 
-    r2 = retriever_word_count_reward(out2)
+    out2_content = _strip_thinking(out2)
+    r2 = retriever_word_count_reward(out2_content)
     total_reward += r2
     trajectory.append(
         {
@@ -387,7 +412,8 @@ async def workflow(
             debug_turns, 2, "retriever", sequence_ids[: -len(ids2)], ids2, r2, tokenizer
         )
 
-    retriever_msg_2 = out2.strip()
+    # Pass only the final answer (no thinking trace) to the generator
+    retriever_msg_2 = out2_content
 
     # ──────────────────────────────────────────────────────────────────────────
     # Turn 3 – GENERATOR: produce the final hypothesis list
@@ -412,7 +438,8 @@ async def workflow(
     out3: str = resp3.outputs[0].text
     ids3: List[int] = list(resp3.outputs[0].token_ids)
 
-    r3 = generator_hypothesis_reward(out3)
+    out3_content = _strip_thinking(out3)
+    r3 = generator_hypothesis_reward(out3_content)
     total_reward += r3
     trajectory.append(
         {
@@ -457,7 +484,7 @@ async def workflow(
         "agent_id": agent.get("agent_id", "shared_agent"),
         "agent_role": "generator",  # final role for bookkeeping
         "agent_input": turn0_prompt,
-        "agent_output": out3,  # final generation
+        "agent_output": out3_content,  # final generation (thinking stripped)
         "output_ids": all_output_ids,
         "sequence_ids": sequence_ids,
         "action_mask": action_mask,
