@@ -215,11 +215,10 @@ async def workflow(
     elif isinstance(sp, dict):
         sp["stop"] = stop_tokens
 
-    logger.warning(f"type metadata: {type(metadata)}")
     metadata = json.loads(json.loads(metadata))
-    logger.warning(f"type metadata after eval: {type(metadata)}")
     papers: List[Dict[str, str]] = (metadata or {}).get("papers", [])
     paper_block = _format_papers(papers, max_papers=5)
+    logger.warning(f"len of paper block: {len(paper_block)} chars")
 
     # ── debug config ─────────────────────────────────────────────────────────
     debug_dir: str = kwargs.get("debug_dir", "./workflow_debug_logs")
