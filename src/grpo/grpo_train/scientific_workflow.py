@@ -478,7 +478,8 @@ async def workflow(
             }
         )
 
-    total_reward = sum(reward_matrix)
+    # total_reward = sum(reward_matrix)
+    total_reward = r3  # ablation: reward only on final output
     elapsed = time.time() - t_start
     logger.warning(
         f"workflow done | turns=4 | reward={total_reward:.3f} | time={elapsed:.1f}s"
