@@ -7,16 +7,42 @@ api_client:
   type: "google"
   model: "gemini-3-flash-preview"
 
-explorer:
-  type: "weaviate"
+search:
+  type: "weaviate"     # weaviate: vector search for paper IDs
   weaviate:
-    url: "http://localhost:8080"       # Weaviate endpoint (tunnelled from local machine)
-    collection: "ResearchPapers"       # Weaviate collection name
-    top_k: 10                           # number of nearest-neighbour results to return
-    embedding_model: "Qwen/Qwen3-Embedding-8B"  # HuggingFace model for query embedding
+    top_k: 20                          # number of initial results before reranking
+    rerank_top_k: 10                   # number of results after reranking
+
+explorer:
+  type: "neo4j_bfs"    # neo4j_bfs, neo4j_random_walk, neo4j_pagerank, agentic, weaviate (existing)
+  neo4j:
+    max_level: 2       # for BFS: maximum depth of traversal
+    direction: "both"  # outgoing, incoming, or both
+    # for Random Walk:
+    steps: 10          # number of steps for random walk
+    # for PageRank:
+    top_n: 15          # number of top results from PageRank
+    max_iterations: 20
+    damping_factor: 0.85
+  agentic:
+    iterations: 5
+    tools: ["bfs_from_papers", "random_walk", "ppr"]
+    tool_selection_prompt: "tool_selection_prompt.yaml"
+    node_filtering_prompt: "node_filtering_prompt.yaml"
+    model_name: "Qwen/Qwen3-4B"
+    temperature: 0.7
+    max_results_per_tool: 10
+    include_abstracts: true
+    include_summary: false
+    selected_nodes_count_low: 2
+    selected_nodes_count_high: 3
+  weaviate:
+    url: "http://localhost:8080"
+    collection: "ResearchPapers"
+    top_k: 10
+    embedding_model: "Qwen/Qwen3-Embedding-4B"
     max_tokens: 8192
-    grpc_port: 50051                    # Weaviate gRPC port (used by weaviate-client v4)                    # max token length for embedding input
-  # fallback for when type == "const"
+    grpc_port: 50051
   const_text: "No knowledge graph connected. Using placeholder context."
 
 retriever:

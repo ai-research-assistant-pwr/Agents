@@ -1,0 +1,35 @@
+name: "node_filter"
+description: "Filters tool results and selects next nodes to explore"
+json_schema:
+  type: object
+  properties:
+    selected_nodes:
+      type: array
+      items:
+        type: string
+      description: List of paper IDs to add to visited (2-3 papers)
+    current_node:
+      type: string
+      description: Paper to explore next (must be in selected_nodes)
+    reason:
+      type: string
+      description: Explanation of why these papers are selected
+  required:
+    - selected_nodes
+    - current_node
+    - reason
+
+system: |
+  You are a research paper relevance analyzer. Your task is to analyze papers
+  returned by exploration tools and select multiple papers to add to visited,
+  then choose one as the current node for next iteration.
+
+task: |
+  Find papers related to: {user_query}
+
+loop: |
+  1. Review the tool results (IDs, titles, abstracts)
+  2. Filter out ALL papers that appear in the visited list - these are already explored
+  3. From remaining unvisited papers, select {range} most relevant papers matching the user's query
+  4. Pick one from selected_nodes as current_node for next iteration
+  6. Output selected node IDs, current_node and reason

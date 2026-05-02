@@ -1,0 +1,34 @@
+name: "tool_selector"
+description: "Selects which exploration tool to use based on current context"
+json_schema:
+  type: object
+  properties:
+    selected_tool:
+      type: string
+      enum:
+        - bfs_from_papers
+        - random_walk
+        - ppr
+      description: Tool to execute for graph exploration
+    reason:
+      type: string
+      description: Brief explanation of why this tool is selected
+  required:
+    - selected_tool
+    - reason
+
+system: |
+  You are a research paper graph exploration strategist. Your role is to decide which
+  graph traversal tool will best help discover relevant papers for the user's query.
+
+task: |
+  Find papers related to: {user_query}
+
+loop: |
+  1. Review the current exploring node and its context
+  2. Review the visited papers to avoid revisiting
+  3. Choose the most appropriate tool:
+     - bfs_from_papers: Use for systematic, breadth-first exploration (good for comprehensive coverage)
+     - random_walk: Use for exploratory discovery (good for finding diverse connections)
+     - ppr: Use for finding influential papers (good for importance-based ranking)
+  4. Output the selected tool with reasoning
