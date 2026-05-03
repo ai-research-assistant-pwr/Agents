@@ -24,7 +24,7 @@ dependencies = [
     "cerebras-cloud-sdk",
     "neo4j",
     "transformers",
-    "weaviate"
+    "weaviate-client"
 ]
 
 [tool.setuptools.packages.find]

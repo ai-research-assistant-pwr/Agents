@@ -72,7 +72,7 @@ PROVIDERS: dict[str, type[BaseAPIClient]] = {
 MODELS: list[dict] = [
     {"name": "gemini-3-flash-preview", "provider": "google", "weight": 1},
     {"name": "gemini-3.1-flash-lite-preview", "provider": "google", "weight": 1},
-    {"name": "gpt-5.4-mini", "provider": "openai", "weight": 1},
+    # {"name": "gpt-5.4-mini", "provider": "openai", "weight": 1},
 ]
 
 

@@ -1,6 +1,6 @@
 pipeline:
   refinement_turns: 0  # number of retriever<->generator refinement rounds (0 = single pass)
-  save_steps: false     # save intermediate results to disk
+  save_steps: true     # save intermediate results to disk
   save_dir: "outputs"   # directory for saved step outputs (relative to project root)
 
 api_client:
@@ -10,16 +10,16 @@ api_client:
 search:
   type: "weaviate"     # weaviate: vector search for paper IDs
   weaviate:
-    top_k: 20                          # number of initial results before reranking
-    rerank_top_k: 10                   # number of results after reranking
+    top_k: 10                          # number of initial results before reranking
+    rerank_top_k: 3                   # number of results after reranking
 
 explorer:
-  type: "neo4j_bfs"    # neo4j_bfs, neo4j_random_walk, neo4j_pagerank, agentic, weaviate (existing)
+  type: "neo4j_pagerank"    # neo4j_bfs, neo4j_random_walk, neo4j_pagerank, agentic
   neo4j:
-    max_level: 2       # for BFS: maximum depth of traversal
+    max_level: 1       # for BFS: maximum depth of traversal
     direction: "both"  # outgoing, incoming, or both
     # for Random Walk:
-    steps: 10          # number of steps for random walk
+    steps: 5          # number of steps for random walk
     # for PageRank:
     top_n: 15          # number of top results from PageRank
     max_iterations: 20
@@ -36,6 +36,7 @@ explorer:
     include_summary: false
     selected_nodes_count_low: 2
     selected_nodes_count_high: 3
+  ## legacy
   weaviate:
     url: "http://localhost:8080"
     collection: "ResearchPapers"

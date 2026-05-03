@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
-from vllm.inputs.data import TokensPrompt
+from vllm.inputs import TokensPrompt
 from vllm.sampling_params import StructuredOutputsParams
 
 from app.explorer.tools.tool_definitions import TOOL_DEFINITIONS, get_tool_executor
@@ -106,8 +106,9 @@ def _call_llm(
     messages = [{"role": "user", "content": prompt}]
 
     processed = tokenizer.apply_chat_template(
-        messages, tokenize=True, add_generation_prompt=True
+        messages, tokenize=False, add_generation_prompt=True
     )
+    processed = tokenizer(processed, add_special_tokens=False).input_ids
 
     inputs = [TokensPrompt(prompt_token_ids=processed)]
 

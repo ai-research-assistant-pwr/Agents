@@ -1,5 +1,4 @@
-from app.explorer.base import BaseExplorer
+from app.explorer.base import BaseExplorer, BaseSearchExplorer
 from app.explorer.const_explorer import ConstExplorer
-from app.explorer.weaviate_explorer import WeaviateExplorer
 
-__all__ = ["BaseExplorer", "ConstExplorer", "WeaviateExplorer"]
+__all__ = ["BaseExplorer", "BaseSearchExplorer", "ConstExplorer"]

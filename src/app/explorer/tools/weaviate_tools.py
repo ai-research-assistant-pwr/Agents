@@ -5,7 +5,7 @@ import weaviate
 from dotenv import load_dotenv
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
-from vllm.inputs.data import TokensPrompt
+from vllm.inputs import TokensPrompt
 from weaviate.classes.init import AdditionalConfig, Auth, Timeout
 from weaviate.collections.classes.filters import Filter
 
@@ -243,10 +243,11 @@ def rerank_and_limit(
     messages_list = [format_messages(instruction, q, d) for q, d in pairs]
 
     processed_messages = tokenizer.apply_chat_template(
-        messages_list, tokenize=True, add_generation_prompt=False, enable_thinking=False
+        messages_list, tokenize=False, add_generation_prompt=False, enable_thinking=False
     )
     processed_messages = [
-        ele[:max_length] + suffix_tokens for ele in processed_messages
+        tokenizer(ele[:max_length] + suffix, add_special_tokens=False).input_ids
+        for ele in processed_messages
     ]
     inputs = [TokensPrompt(prompt_token_ids=ele) for ele in processed_messages]
 

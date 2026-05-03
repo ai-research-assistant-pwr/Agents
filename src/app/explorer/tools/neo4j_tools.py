@@ -168,30 +168,32 @@ def random_walk(
 
     with neo4j_driver.session() as session:
         for start_id in start_paper_ids:
-            visited_ids: set[str] = set()
+            visited_ids: set[str] = {start_id}
             current_start = start_id
             results: list[dict[str, Any]] = []
 
+            # Always add starting paper at level 0 (consistent with BFS)
+            result = session.run(
+                """
+                MATCH (p:Paper {paperId: $startId})
+                RETURN p.paperId AS id, p.title AS title,
+                       coalesce(p.abstract, '') AS abstract,
+                       coalesce(p.summary, '') AS summary
+                """,
+                startId=start_id
+            )
+            record = result.single()
+            if record:
+                results.append({
+                    "id": record["id"],
+                    "title": record["title"],
+                    "abstract": record["abstract"],
+                    "summary": record["summary"],
+                    "level": 0,
+                    "source_id": start_id
+                })
+
             if target_nodes == 0:
-                result = session.run(
-                    """
-                    MATCH (p:Paper {paperId: $startId})
-                    RETURN p.paperId AS id, p.title AS title,
-                           coalesce(p.abstract, '') AS abstract,
-                           coalesce(p.summary, '') AS summary
-                    """,
-                    startId=start_id
-                )
-                record = result.single()
-                if record:
-                    results.append({
-                        "id": record["id"],
-                        "title": record["title"],
-                        "abstract": record["abstract"],
-                        "summary": record["summary"],
-                        "level": 0,
-                        "source_id": start_id
-                    })
                 all_results.extend(results)
                 continue
 
@@ -328,12 +330,15 @@ def personalized_pagerank(
             )
 
             for record in result:
+                score = record["score"]
+                if score <= 0:
+                    continue
                 results.append({
                     "id": record["id"],
                     "title": record["title"],
                     "abstract": record["abstract"],
                     "summary": record["summary"],
-                    "score": record["score"]
+                    "score": score
                 })
         finally:
             session.run("CALL gds.graph.drop('ppr-papers-graph')")
