@@ -258,12 +258,20 @@ async def workflow(
     papers: List[Dict[str, str]] = (metadata or {}).get("papers", [])
     paper_block = _format_papers(papers, max_papers=5)
 
+    # ── workflow_args unpacking ───────────────────────────────────────────────
+    # MARTI passes --workflow_args JSON as a single kwarg named "workflow_args",
+    # not spread into **kwargs directly. Read from there first, fall back to
+    # top-level kwargs for backwards compatibility.
+    _wargs: Dict[str, Any] = kwargs.get("workflow_args") or {}
+
     # ── embedding server config ───────────────────────────────────────────────
-    embed_host: str = kwargs.get("embed_host", "localhost")
-    embed_port: int = int(kwargs.get("embed_port", 8000))
+    embed_host: str = _wargs.get("embed_host", kwargs.get("embed_host", "localhost"))
+    embed_port: int = int(_wargs.get("embed_port", kwargs.get("embed_port", 8000)))
 
     # ── debug config ─────────────────────────────────────────────────────────
-    debug_dir: str = kwargs.get("debug_dir", "./workflow_debug_logs")
+    debug_dir: str = _wargs.get(
+        "debug_dir", kwargs.get("debug_dir", "./workflow_debug_logs")
+    )
     prompt_id: int = kwargs.get("prompt_id", 0)
     debug_turns: List[Dict[str, Any]] = []
 
