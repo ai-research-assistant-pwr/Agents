@@ -386,7 +386,7 @@ async def workflow(
     # Turn 2 – RETRIEVER: respond to generator's request with focused context
     # ──────────────────────────────────────────────────────────────────────────
     turn2_prompt = _build_prompt(
-        system=AgentPrompts.retriever_system(),
+        system=AgentPrompts.retriever_refine_system(),
         user=(
             f"The generator is asking:\n{gen_request}\n\n"
             f"Available papers (same pool):\n{paper_block}"
