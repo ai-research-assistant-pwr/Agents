@@ -65,6 +65,8 @@ from src.grpo.grpo_train.rewards import (
     retriever_word_count_reward,
     generator_request_format_reward,
     generator_hypothesis_reward,
+    embedding_similarity_reward,
+    _parse_hypotheses,
 )
 
 
@@ -256,6 +258,10 @@ async def workflow(
     papers: List[Dict[str, str]] = (metadata or {}).get("papers", [])
     paper_block = _format_papers(papers, max_papers=5)
 
+    # ── embedding server config ───────────────────────────────────────────────
+    embed_host: str = kwargs.get("embed_host", "localhost")
+    embed_port: int = int(kwargs.get("embed_port", 8000))
+
     # ── debug config ─────────────────────────────────────────────────────────
     debug_dir: str = kwargs.get("debug_dir", "./workflow_debug_logs")
     prompt_id: int = kwargs.get("prompt_id", 0)
@@ -280,7 +286,7 @@ async def workflow(
     seq0 = turn0_input_ids + ids0
 
     out0_content = _strip_thinking(out0)
-    r0 = retriever_word_count_reward(out0_content)
+    r0 = 0.0
     reward_matrix.append(r0)
     retriever_msg_1 = out0_content  # thinking stripped; passed to generator
 
@@ -332,7 +338,7 @@ async def workflow(
     seq1 = turn1_input_ids + ids1
 
     out1_content = _strip_thinking(out1)
-    r1 = generator_request_format_reward(out1_content)
+    r1 = 0.0
     reward_matrix.append(r1)
     gen_request = out1_content  # thinking stripped; passed to retriever
 
@@ -387,7 +393,7 @@ async def workflow(
     seq2 = turn2_input_ids + ids2
 
     out2_content = _strip_thinking(out2)
-    r2 = retriever_word_count_reward(out2_content)
+    r2 = 0.0
     reward_matrix.append(r2)
     retriever_msg_2 = out2_content  # thinking stripped; passed to generator
 
@@ -443,7 +449,8 @@ async def workflow(
     seq3 = turn3_input_ids + ids3
 
     out3_content = _strip_thinking(out3)
-    r3 = generator_hypothesis_reward(out3_content)
+    hypotheses = _parse_hypotheses(out3_content)
+    r3 = await embedding_similarity_reward(hypotheses, label, embed_host, embed_port)
     reward_matrix.append(r3)
 
     trajectory.append(
@@ -480,6 +487,8 @@ async def workflow(
 
     # total_reward = sum(reward_matrix)
     total_reward = r3  # ablation: reward only on final output
+    for turn in trajectory:
+        turn["reward"] = total_reward
     elapsed = time.time() - t_start
     logger.warning(
         f"workflow done | turns=4 | reward={total_reward:.3f} | time={elapsed:.1f}s"

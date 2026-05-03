@@ -8,7 +8,9 @@ Generator turn 3     – numbered-list format score + count score (peak at 3 hyp
 
 import re
 import math
-from typing import Tuple
+from typing import List, Tuple
+
+import aiohttp
 
 TARGET_WORDS: int = 100
 WORD_COUNT_SIGMA: float = 30.0
@@ -55,6 +57,73 @@ def generator_hypothesis_reward(output: str) -> float:
         count_score = 0.0
 
     return round(0.5 * format_score + 0.5 * count_score, 4)
+
+
+# ── embedding similarity reward ───────────────────────────────────────────────
+
+
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x**2 for x in a) ** 0.5
+    norm_b = sum(x**2 for x in b) ** 0.5
+    return dot / (norm_a * norm_b + 1e-8)
+
+
+def _parse_hypotheses(output: str) -> List[str]:
+    """Extract individual numbered hypotheses from the generator output.
+
+    Falls back to the whole output as a single hypothesis if no numbered
+    items are found.
+    """
+    # Match lines starting with a number followed by . or )
+    items = re.findall(r"(?m)^\s*\d+[.)]\s+(.+)", output)
+    return items if items else [output.strip()]
+
+
+async def _get_embeddings(
+    texts: List[str],
+    server_host: str,
+    server_port: int,
+    model: str = "Qwen/Qwen3-Embedding-4B",
+) -> List[List[float]]:
+    """Call the vLLM OpenAI-compatible /v1/embeddings endpoint."""
+    url = f"http://{server_host}:{server_port}/v1/embeddings"
+    payload = {"model": model, "input": texts}
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+    # Response follows OpenAI format: data[i]["embedding"]
+    ordered = sorted(data["data"], key=lambda x: x["index"])
+    return [item["embedding"] for item in ordered]
+
+
+async def embedding_similarity_reward(
+    hypotheses: List[str],
+    label: str,
+    server_host: str,
+    server_port: int,
+) -> float:
+    """Compute mean cosine similarity between each generated hypothesis and
+    the target label using the vLLM embedding server.
+
+    Parameters
+    ----------
+    hypotheses   : List of hypothesis strings extracted from the generator output.
+    label        : Ground-truth hypothesis string.
+    server_host  : Hostname/IP of the vLLM embedding server.
+    server_port  : Port of the vLLM embedding server.
+
+    Returns
+    -------
+    Mean cosine similarity in [-1, 1], typically in [0, 1] for semantic text.
+    """
+    texts = hypotheses + [label]
+    embeddings = await _get_embeddings(texts, server_host, server_port)
+    label_emb = embeddings[-1]
+    hyp_embs = embeddings[:-1]
+    similarities = [_cosine_similarity(e, label_emb) for e in hyp_embs]
+    return round(sum(similarities) / len(similarities), 4)
 
 
 # ── legacy shim ───────────────────────────────────────────────────────────────

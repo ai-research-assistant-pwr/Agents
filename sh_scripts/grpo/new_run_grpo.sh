@@ -41,7 +41,7 @@ MARTI_DIR="$MY_DISK/patryk/Agents/MARTI"
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-export MY_NEW_TMP="/mnt/lscratch/slurm/$SLURM_JOB_ID"
+export MY_NEW_TMP="$MY_DISK/patryk/tmp"
 export XDG_CACHE_HOME="$MY_NEW_TMP/xdg_cache"
 export TRITON_CACHE_DIR="$MY_NEW_TMP/triton_cache"
 export TORCHINDUCTOR_CACHE_DIR="$MY_NEW_TMP/torchinductor_cache"
@@ -128,7 +128,7 @@ srun --het-group=0 \
     --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$DATA_PATH" \
-    --workflow_args "{\"debug_dir\": \"$MY_DISK/patryk/Agents/logs\"}" \
+    --workflow_args "{\"debug_dir\": \"$MY_DISK/patryk/Agents/logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
     --metadata_key "metadata" \
@@ -166,9 +166,7 @@ srun --het-group=0 \
     --logging_steps 1 \
     --use_wandb $WANDB_API_KEY \
     --wandb_project MARTI_GRPO \
-    --wandb_run_name grpo_multiagent_1 \
-    --embedding_server_host $EMBED_NODE \
-    --embedding_server_port $EMBED_PORT
+    --wandb_run_name grpo_multiagent_1
 
 echo "=> Training completed successfully!"
 
