@@ -23,6 +23,7 @@
 #SBATCH --mem=32gb
 #SBATCH --gres=gpu:hopper:1
 #SBATCH --ntasks-per-node=1
+#SBATCH --output=/home/patswi3426/disk/patryk/Agents/out/grpo_embed.out
 
 set -e 
 
