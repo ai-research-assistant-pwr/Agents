@@ -1,0 +1,5 @@
+- dać w promptach trochę lepszą definicję jakie powinny być hipotezy
+- sprawdzić jak długi kontekst jest w stanie przyjąć retriever
+- dodać nagrode za różnorodność hipotez
+- dodać tool use (big one)
+- dodać nagrode za nowatorskość hipotez (trudniejsze) 
