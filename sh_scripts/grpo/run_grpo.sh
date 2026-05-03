@@ -131,7 +131,7 @@ srun --het-group=0 \
     --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$DATA_PATH" \
-    --workflow_args "{\"debug_dir\": \"$BASE_DIR/logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT}" \
+    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
     --metadata_key "metadata" \
