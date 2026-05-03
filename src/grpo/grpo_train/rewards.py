@@ -72,12 +72,10 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
 def _parse_hypotheses(output: str) -> List[str]:
     """Extract individual numbered hypotheses from the generator output.
 
-    Falls back to the whole output as a single hypothesis if no numbered
-    items are found.
+    Returns an empty list if no numbered items are found (wrong format).
     """
     # Match lines starting with a number followed by . or )
-    items = re.findall(r"(?m)^\s*\d+[.)]\s+(.+)", output)
-    return items if items else [output.strip()]
+    return re.findall(r"(?m)^\s*\d+[.)]\s+(.+)", output)
 
 
 async def _get_embeddings(

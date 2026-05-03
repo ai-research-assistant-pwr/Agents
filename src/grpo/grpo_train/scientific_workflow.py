@@ -450,7 +450,12 @@ async def workflow(
 
     out3_content = _strip_thinking(out3)
     hypotheses = _parse_hypotheses(out3_content)
-    r3 = await embedding_similarity_reward(hypotheses, label, embed_host, embed_port)
+    if hypotheses:
+        r3 = await embedding_similarity_reward(
+            hypotheses, label, embed_host, embed_port
+        )
+    else:
+        r3 = 0.0
     reward_matrix.append(r3)
 
     trajectory.append(
