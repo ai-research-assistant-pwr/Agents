@@ -1,12 +1,28 @@
 #!/bin/bash
+# =================================================
+# PACK GROUP 0: Primary Training Node (2 GPUs)
+# =================================================
+#SBATCH --job-name=grpo_qwen
+#SBATCH --output=/home/patswi3426/disk/patryk/Agents/out/grpo_qwen.out
+#SBATCH --time=0-00:05:00
+#SBATCH -p lem-gpu-short
 #SBATCH -N 1
 #SBATCH -c 32
 #SBATCH --mem=128gb
-#SBATCH --time=0-00:10:00
-#SBATCH --job-name=grpo_qwen
-#SBATCH --output=/home/patswi3426/disk/patryk/Agents/out/grpo_qwen.out
-#SBATCH -p lem-gpu-short
 #SBATCH --gres=gpu:hopper:2
+#SBATCH --ntasks-per-node=1
+
+#SBATCH hetjob
+
+# =================================================
+# PACK GROUP 1: Smaller Embedding Node (1 GPU)
+# =================================================
+#SBATCH -p lem-gpu-short
+#SBATCH -N 1
+#SBATCH -c 8
+#SBATCH --mem=32gb
+#SBATCH --gres=gpu:hopper:1
+#SBATCH --ntasks-per-node=1
 
 set -e 
 
@@ -22,7 +38,6 @@ AGENTS_DIR="$MY_DISK/patryk/Agents/"
 MARTI_DIR="$MY_DISK/patryk/Agents/MARTI"
 
 source $VENV_PATH/bin/activate
-
 VENV_PYTHON="$VENV_PATH/bin/python"
 
 export MY_NEW_TMP="/mnt/lscratch/slurm/$SLURM_JOB_ID"
@@ -38,22 +53,54 @@ mkdir -p "$TRITON_CACHE_DIR"
 mkdir -p "$TORCHINDUCTOR_CACHE_DIR"
 
 # =================================================
-# START TRAINING
+# NODE DISCOVERY FOR PACKJOBS
+# =================================================
+# SLURM automatically creates environment variables for each pack group
+TRAIN_NODE=$(scontrol show hostnames $SLURM_JOB_NODELIST_HET_GROUP_0 | head -n 1)
+EMBED_NODE=$(scontrol show hostnames $SLURM_JOB_NODELIST_HET_GROUP_1 | head -n 1)
+EMBED_PORT=8000
+
+echo "=> Job distributed across heterogeneous nodes:"
+echo "   Trainer Node (2 GPUs): $TRAIN_NODE"
+echo "   Embedding Node (1 GPU): $EMBED_NODE"
+
+# =================================================
+# START vLLM EMBEDDING SERVER (On Pack 1)
+# =================================================
+echo "=> Starting vLLM Embedding Server on $EMBED_NODE..."
+
+# Use --het-group=1 to specifically target the 1-GPU node
+srun --het-group=1 \
+    $VENV_PYTHON -m vllm.entrypoints.openai.api_server \
+    --model Qwen/Qwen3-Embedding-4B \
+    --host 0.0.0.0 \
+    --port $EMBED_PORT \
+    --max-model-len 4096 &
+VLLM_PID=$!
+
+echo "=> Waiting for vLLM server to become ready..."
+while ! curl -s http://$EMBED_NODE:$EMBED_PORT/v1/models > /dev/null; do
+    sleep 5
+done
+echo "=> vLLM server is online at http://$EMBED_NODE:$EMBED_PORT/v1!"
+
+# =================================================
+# START nvidia-smi LOGGING (On Pack 0)
+# =================================================
+NVIDIA_SMI_LOG="$MY_DISK/patryk/Agents/logs/nvidia_smi_$(date +%Y%m%d_%H%M%S).log"
+mkdir -p "$(dirname "$NVIDIA_SMI_LOG")"
+(while true; do echo "=== $(date '+%Y-%m-%d %H:%M:%S') ===" >> "$NVIDIA_SMI_LOG"; nvidia-smi >> "$NVIDIA_SMI_LOG"; sleep 10; done) &
+NVIDIA_SMI_PID=$!
+echo "=> nvidia-smi logging started -> $NVIDIA_SMI_LOG"
+
+# =================================================
+# START TRAINING (On Pack 0)
 # =================================================
 DATA_PATH="$AGENTS_DIR/data/rl_grounded_dataset_v2.csv"
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
 OUTPUT_DIR="$MY_DISK/patryk/models_output/grpo_results"
 
 mkdir -p "$OUTPUT_DIR"
-
-# =================================================
-# START nvidia-smi LOGGING
-# =================================================
-NVIDIA_SMI_LOG="$MY_DISK/patryk/Agents/logs/nvidia_smi_$(date +%Y%m%d_%H%M%S).log"
-mkdir -p "$(dirname "$NVIDIA_SMI_LOG")"
-watch -n 10 "echo \"=== \$(date '+%Y-%m-%d %H:%M:%S') ===\" >> \"$NVIDIA_SMI_LOG\"; nvidia-smi >> \"$NVIDIA_SMI_LOG\"" &
-NVIDIA_SMI_PID=$!
-echo "=> nvidia-smi logging started (PID=$NVIDIA_SMI_PID) -> $NVIDIA_SMI_LOG"
 
 DEFAULT_AGENT="{
     \"is_reasoning_model\": true
@@ -70,14 +117,11 @@ AGENT0="{
     }
 }"
 
-echo "=> Configuration:"
-echo "   Data: $DATA_PATH"
-echo "   Workflow: $WORKFLOW_SCRIPT"
-echo "   Output: $OUTPUT_DIR"
-echo ""
 echo "=> Running MARTI GRPO training (Workflow Mode)..."
 
-$VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
+# Use --het-group=0 to specifically target the 2-GPU node
+srun --het-group=0 \
+    $VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --pretrain "Qwen/Qwen3-0.6B" \
     --save_path "$OUTPUT_DIR" \
     --agents "$AGENT0" \
@@ -121,11 +165,13 @@ $VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --logging_steps 1 \
     --use_wandb $WANDB_API_KEY \
     --wandb_project MARTI_GRPO \
-    --wandb_run_name grpo_multiagent_1
-
+    --wandb_run_name grpo_multiagent_1 \
+    --embedding_server_host $EMBED_NODE \
+    --embedding_server_port $EMBED_PORT
 
 echo "=> Training completed successfully!"
 
-# Stop nvidia-smi logging
+# Stop background processes
 kill "$NVIDIA_SMI_PID" 2>/dev/null
-echo "=> nvidia-smi logging stopped."
+kill "$VLLM_PID" 2>/dev/null
+echo "=> Background logging and vLLM processes stopped."
