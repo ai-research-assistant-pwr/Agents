@@ -144,7 +144,7 @@ async def workflow(
 
     metadata = json.loads(json.loads(metadata))
     papers: List[Dict[str, str]] = (metadata or {}).get("papers", [])
-    paper_block = _format_papers(papers, max_papers=5)
+    paper_block = _format_papers(papers, max_papers=6)
 
     # ── kwargs unpacking ──────────────────────────────────────────────────────
     # MARTI passes --workflow_args JSON as a single kwarg named "workflow_args",
