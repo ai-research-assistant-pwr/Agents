@@ -4,8 +4,8 @@
 #SBATCH -c 8
 #SBATCH --mem=64gb
 #SBATCH --time=0-04:00:00
-#SBATCH --job-name=sft_qwen
-#SBATCH --output=Agents/out/sft_qwen.out
+#SBATCH --job-name=sft_shared
+#SBATCH --output=Agents/out/sft_shared.out
 #SBATCH -p lem-gpu-short
 #SBATCH --gres=gpu:hopper:1
 
@@ -21,6 +21,19 @@ source /usr/local/sbin/modules.sh
 module load Python/3.12.3-GCCcore-13.3.0
 source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
 VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
+
+echo "================================================="
+echo "APPLYING TEMPORARY ENVIRONMENT FIXES (pnw-2)"
+echo "================================================="
+# 1. Usuwamy zepsute torchao, żeby transformers o nie nie "haczyło"
+$VENV_PYTHON -m pip uninstall -y torchao
+
+# 2. Wymuszamy stabilną wersję PyTorch 2.5.1 zamiast wadliwego 2.6.0
+$VENV_PYTHON -m pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+
+# 3. Aktualizujemy główne pakiety do modelowania
+$VENV_PYTHON -m pip install --upgrade transformers peft trl accelerate
+echo "================================================="
 
 MY_DISK="/home/tymrom7227/disk"
 AGENTS_DIR="$MY_DISK/Agents"
@@ -38,56 +51,27 @@ export HF_HOME=$MY_DISK/.cache/hf
 export TORCHINDUCTOR_CACHE_DIR=$MY_DISK/.cache/torch_inductor
 
 export WANDB_API_KEY=$WANDB_API_KEY
-export WANDB_MODE="offline" 
+export WANDB_MODE="online"
 export TRANSFORMERS_OFFLINE=0
 
 echo "================================================="
-echo "DOWNLOADING BASE MODEL: Qwen/Qwen3-4B-Instruct-2507"
-echo "================================================="
-huggingface-cli download Qwen/Qwen3-4B-Instruct-2507 --local-dir $MY_DISK/models/Qwen/Qwen3-4B-Instruct-2507
-
-echo "================================================="
-echo "TESTING CONFIGURATION BEFORE SFT TRAINING"
+echo "VERIFYING PATHS FOR SHARED AGENT TRAINING"
 echo "================================================="
 
-DIRS_TO_CHECK=(
-    "$AGENTS_DIR"
-    "$AGENTS_DIR/data/datasets"
-    "$MY_DISK/models"
-)
+SHARED_DATASET="$AGENTS_DIR/data/datasets/sft3/shared_agent_train.jsonl"
 
-for DIR in "${DIRS_TO_CHECK[@]}"; do
-    if [ ! -d "$DIR" ]; then
-        echo "CRITICAL ERROR: Directory not found: $DIR"
-        exit 1
-    else
-        echo "Directory exists: $DIR"
-    fi
-done
-
-FILES_TO_CHECK=(
-    "$AGENTS_DIR/src/sft/sft_train/run_sft.py"
-    "$AGENTS_DIR/data/datasets/sft2/retriever_train.jsonl"
-    "$AGENTS_DIR/data/datasets/sft2/generator_train.jsonl"
-)
-
-for FILE in "${FILES_TO_CHECK[@]}"; do
-    if [ ! -f "$FILE" ]; then
-        echo "CRITICAL ERROR: File not found: $FILE"
-        exit 1
-    else
-        echo "File exists: $FILE"
-    fi
-done
+if [ ! -f "$SHARED_DATASET" ]; then
+    echo "CRITICAL ERROR: Shared dataset not found at $SHARED_DATASET"
+    echo "Please run 'python prepare_dataset.py' first."
+    exit 1
+fi
 
 echo "================================================="
-echo "All paths verified successfully. Starting SFT training..."
+echo "Starting UNIFIED SFT training (Shared Model)..."
 echo "================================================="
 
-
-$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/run_sft.py --task retriever
-$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/run_sft.py --task generator
+$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/run_sft.py --task shared_agent
 
 echo "====================================="
-echo "Training completed successfully!"
+echo "Unified SFT Training completed successfully!"
 echo "====================================="

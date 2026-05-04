@@ -20,21 +20,18 @@ os.makedirs(OUTPUT_DATASET_DIR, exist_ok=True)
 
 INPUT_FILE = os.path.join(DATASETS_DIR, CONFIG["files"].get("updated_sft_dataset", "multiagent_sft_dataset_v2.jsonl"))
 
-RETRIEVER_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "retriever_train.jsonl")
-RETRIEVER_EVAL  = os.path.join(OUTPUT_DATASET_DIR, "retriever_eval.jsonl")
-RETRIEVER_TEST  = os.path.join(OUTPUT_DATASET_DIR, "retriever_test.jsonl")
+SHARED_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "shared_agent_train.jsonl")
+SHARED_EVAL  = os.path.join(OUTPUT_DATASET_DIR, "shared_agent_eval.jsonl")
+SHARED_TEST  = os.path.join(OUTPUT_DATASET_DIR, "shared_agent_test.jsonl")
 
-GENERATOR_TRAIN = os.path.join(OUTPUT_DATASET_DIR, "generator_train.jsonl")
-GENERATOR_EVAL  = os.path.join(OUTPUT_DATASET_DIR, "generator_eval.jsonl")
-GENERATOR_TEST  = os.path.join(OUTPUT_DATASET_DIR, "generator_test.jsonl")
-
-
-RETRIEVER_SYSTEM_PROMPT = """You are an Expert Scientific Retriever Agent in a multi-agent system.
+RETRIEVER_SYSTEM_PROMPT = """[ROLE: RETRIEVER]
+You are an Expert Scientific Retriever Agent in a multi-agent system.
 Your task is to analyze raw scientific context based on a user's research query.
 You must extract the key variables, relationships, mechanisms, and evidence, and synthesize them into a concise, professional, natural-language message for the Generator agent.
 Do NOT hallucinate or add any information outside of the provided context. Do NOT generate the final hypothesis yourself."""
 
-GENERATOR_SYSTEM_PROMPT = """You are an AI Research Scientist agent.
+GENERATOR_SYSTEM_PROMPT = """[ROLE: GENERATOR]
+You are an AI Research Scientist agent.
 You will receive a summary message from the Retriever agent containing extracted scientific data.
 Your task is to formulate a strict, testable, causal hypothesis based ONLY on that data.
 
@@ -56,51 +53,30 @@ def create_chatml_record(prompt_id, system_msg, user_msg, assistant_msg):
         ],
     }
 
-def run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test):
+def run_tests(shared_train, shared_eval, shared_test):
     print("\n" + "=" * 50)
     print(" Running Dataset Integrity Tests...")
     print("=" * 50)
 
-    r_train_ids = set(r["prompt_id"] for r in r_train)
-    r_eval_ids  = set(r["prompt_id"] for r in r_eval)
-    r_test_ids  = set(r["prompt_id"] for r in r_test)
-
-    g_train_ids = set(r["prompt_id"] for r in g_train)
-    g_eval_ids  = set(r["prompt_id"] for r in g_eval)
-    g_test_ids  = set(r["prompt_id"] for r in g_test)
+    train_ids = set(r["prompt_id"] for r in shared_train)
+    eval_ids  = set(r["prompt_id"] for r in shared_eval)
+    test_ids  = set(r["prompt_id"] for r in shared_test)
 
     tests_passed = True
 
-    print("1. Checking for data leakage (retriever)...", end=" ")
-    leakage_te = r_train_ids & r_eval_ids
-    leakage_tt = r_train_ids & r_test_ids
-    leakage_et = r_eval_ids  & r_test_ids
+    print("Checking for data leakage between splits...", end=" ")
+    leakage_te = train_ids & eval_ids
+    leakage_tt = train_ids & test_ids
+    leakage_et = eval_ids  & test_ids
     if not any([leakage_te, leakage_tt, leakage_et]):
         print("OK!")
     else:
         print(f"\n   ERROR! Train∩Eval={leakage_te}, Train∩Test={leakage_tt}, Eval∩Test={leakage_et}")
         tests_passed = False
 
-    print("2. Checking for data leakage (generator)...", end=" ")
-    leakage_te = g_train_ids & g_eval_ids
-    leakage_tt = g_train_ids & g_test_ids
-    leakage_et = g_eval_ids  & g_test_ids
-    if not any([leakage_te, leakage_tt, leakage_et]):
-        print("OK!")
-    else:
-        print(f"\n   ERROR! Train∩Eval={leakage_te}, Train∩Test={leakage_tt}, Eval∩Test={leakage_et}")
-        tests_passed = False
-
-    print("3. Checking retriever/generator split alignment...", end=" ")
-    if r_train_ids == g_train_ids and r_eval_ids == g_eval_ids and r_test_ids == g_test_ids:
-        print("OK!")
-    else:
-        print("\n   ERROR! Generator IDs nie są identyczne z retriever IDs.")
-        tests_passed = False
-
-    print("4. Checking for empty required fields...", end=" ")
+    print("Checking for empty required fields...", end=" ")
     empty_found = False
-    for split_name, split in [("r_train", r_train), ("g_train", g_train)]:
+    for split_name, split in [("train", shared_train), ("eval", shared_eval), ("test", shared_test)]:
         for rec in split:
             for msg in rec["messages"]:
                 if not msg["content"].strip():
@@ -157,52 +133,48 @@ def main():
             # RETRIEVER RECORD
             # -------------------------
             retriever_user = f"USER QUERY:\n{data['user_query']}\n\nRAW CONTEXT:\n{raw_context}"
-
             retriever_assistant = data.get("retriever_message", "").strip()
 
-            if len(retriever_assistant) < 10:
-                continue
-
-            retriever_records.append(
-                create_chatml_record(
-                    prompt_id,
-                    RETRIEVER_SYSTEM_PROMPT,
-                    retriever_user,
-                    retriever_assistant,
+            if len(retriever_assistant) >= 10:
+                retriever_records.append(
+                    create_chatml_record(
+                        prompt_id,
+                        RETRIEVER_SYSTEM_PROMPT,
+                        retriever_user,
+                        retriever_assistant,
+                    )
                 )
-            )
 
             # -------------------------
             # GENERATOR RECORD
             # -------------------------
             generator_user = data.get("retriever_message", "")
-
             generator_assistant = data.get("generator_response", "").strip()
 
+            valid_generator = True
             if len(generator_assistant) < 20:
-                continue
+                valid_generator = False
+            elif "<REQUEST>" in generator_assistant and len(generator_assistant) < 40:
+                valid_generator = False
+            elif generator_assistant.replace("<THOUGHT>", "").replace("</THOUGHT>", "").strip() == "":
+                valid_generator = False
 
-            if "<REQUEST>" in generator_assistant and len(generator_assistant) < 40:
-                continue
-
-            if generator_assistant.replace("<THOUGHT>", "").replace("</THOUGHT>", "").strip() == "":
-                continue
-
-            generator_records.append(
-                create_chatml_record(
-                    prompt_id,
-                    GENERATOR_SYSTEM_PROMPT,
-                    generator_user,
-                    generator_assistant,
+            if valid_generator:
+                generator_records.append(
+                    create_chatml_record(
+                        prompt_id,
+                        GENERATOR_SYSTEM_PROMPT,
+                        generator_user,
+                        generator_assistant,
+                    )
                 )
-            )
 
     print(f"\nSkipped (empty context): {skipped_empty_context}")
-    print("\n=== Rozkład kombinacji klas ===")
+    print("\n=== Distribution of Prompt Combinations ===")
     for combo, count in sorted(stats.items()):
         print(f"  {combo}: {count}")
 
-    if len(retriever_records) == 0:
+    if len(retriever_records) == 0 and len(generator_records) == 0:
         print("ERROR: No valid records after filtering!")
         sys.exit(1)
 
@@ -213,7 +185,7 @@ def main():
         ids_by_combo[c].append(pid)
 
     rng = random.Random(42)
-    print("\n=== Stratyfikowany podział promptów ===")
+    print("\n=== Stratified Split of Prompts ===")
     for c, pids in sorted(ids_by_combo.items()):
         rng.shuffle(pids)
         n = len(pids)
@@ -230,17 +202,18 @@ def main():
         eval_ids.update(pids[n_train:n_train+n_eval])
         test_ids.update(pids[n_train+n_eval:])
         
-        print(f"  Klasa '{c}': n={n} -> train={n_train}, eval={n_eval}, test={n_test}")
+        print(f"  Class '{c}': n={n} -> train={n_train}, eval={n_eval}, test={n_test}")
+        
+    shared_train = [r for r in retriever_records + generator_records if r["prompt_id"] in train_ids]
+    shared_eval  = [r for r in retriever_records + generator_records if r["prompt_id"] in eval_ids]
+    shared_test  = [r for r in retriever_records + generator_records if r["prompt_id"] in test_ids]
 
-    r_train = [r for r in retriever_records if r["prompt_id"] in train_ids]
-    r_eval  = [r for r in retriever_records if r["prompt_id"] in eval_ids]
-    r_test  = [r for r in retriever_records if r["prompt_id"] in test_ids]
+    # Shuffle the datasets so the model learns to be both a retriever and a generator
+    rng.shuffle(shared_train)
+    rng.shuffle(shared_eval)
+    rng.shuffle(shared_test)
 
-    g_train = [r for r in generator_records if r["prompt_id"] in train_ids]
-    g_eval  = [r for r in generator_records if r["prompt_id"] in eval_ids]
-    g_test  = [r for r in generator_records if r["prompt_id"] in test_ids]
-
-    run_tests(r_train, r_eval, r_test, g_train, g_eval, g_test)
+    run_tests(shared_train, shared_eval, shared_test)
 
     def save_jsonl(records, filepath):
         with open(filepath, "w", encoding="utf-8") as f:
@@ -248,17 +221,12 @@ def main():
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         print(f"Saved {len(records):>4} records -> {os.path.basename(filepath)}")
 
-    print()
-    save_jsonl(r_train, RETRIEVER_TRAIN)
-    save_jsonl(r_eval,  RETRIEVER_EVAL)
-    save_jsonl(r_test,  RETRIEVER_TEST)
+    print("\n=== Saving the dataset ===")
+    save_jsonl(shared_train, SHARED_TRAIN)
+    save_jsonl(shared_eval,  SHARED_EVAL)
+    save_jsonl(shared_test,  SHARED_TEST)
 
-    print()
-    save_jsonl(g_train, GENERATOR_TRAIN)
-    save_jsonl(g_eval,  GENERATOR_EVAL)
-    save_jsonl(g_test,  GENERATOR_TEST)
-
-    print("\nDataset ready for SFT.")
+    print("\n=Dataset ready for SFT.")
 
 if __name__ == "__main__":
     main()

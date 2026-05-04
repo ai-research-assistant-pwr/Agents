@@ -9,10 +9,10 @@ paths:
   prompts_dir: "data/prompts"
   articles_dir: "articles"
   models_dir: "models"
-  models_output_dir: "models_output/run4"
+  models_output_dir: "models_output/run5"
 
   datasets: "data/datasets"
-  dataset_prepped: "data/datasets/sft2"
+  dataset_prepped: "data/datasets/sft3"
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"
@@ -37,6 +37,7 @@ retrieval:
 training:
   retriever_base_model: Qwen/Qwen3-4B-Instruct-2507
   generator_base_model: Qwen/Qwen3-4B-Instruct-2507
+  shared_agent_base_model: Qwen/Qwen3-4B-Instruct-2507
   learning_rate: 2e-5
   num_train_epochs: 5
   per_device_train_batch_size: 2

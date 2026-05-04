@@ -4,3 +4,7 @@ data/
 .env
 venv/
 outputs/
+wandb/
+logs/
+out/
+MARTI

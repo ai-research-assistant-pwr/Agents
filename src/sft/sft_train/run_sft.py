@@ -15,14 +15,14 @@ from src.sft.utils.config import CONFIG
 import torch
 from datasets import load_dataset
 from peft import LoraConfig
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from trl import SFTTrainer, SFTConfig
 import wandb
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run SFT Training")
-    parser.add_argument("--task", type=str, required=True, choices=["retriever", "generator"], 
-                        help="Which agent to train: 'retriever' or 'generator'")
+    parser = argparse.ArgumentParser(description="Run SFT Training for Multi-Agent System")
+    parser.add_argument("--task", type=str, default="shared_agent",
+                        help="Task name, defaults to 'shared_agent' for unified training.")
     return parser.parse_args()
 
 
@@ -37,13 +37,16 @@ def main():
     DATASETS_DIR = os.path.join(AGENTS_DIR, CONFIG["paths"]["dataset_prepped"])
     TRAIN_FILE = os.path.join(DATASETS_DIR, f"{task}_train.jsonl")
     EVAL_FILE = os.path.join(DATASETS_DIR, f"{task}_eval.jsonl")
-    
+
     base_model_key = f"{task}_base_model"
-    
-    if base_model_key not in CONFIG["training"]:
-        raise ValueError(f"ERROR: No key '{base_model_key}' found in config under 'training'. Please specify the base model for {task} in the config.yaml.")
+    if base_model_key in CONFIG["training"]:
+        BASE_MODEL_ID = CONFIG["training"][base_model_key]
+    elif "generator_base_model" in CONFIG["training"]:
+        BASE_MODEL_ID = CONFIG["training"]["generator_base_model"]
+        print(f"Note: '{base_model_key}' not found in config, falling back to 'generator_base_model'.")
+    else:
+        raise ValueError("ERROR: No base model found in config.yaml under 'training'.")
         
-    BASE_MODEL_ID = CONFIG["training"][base_model_key]
     MODELS_DIR = os.path.join(CONFIG["paths"]["base_path"], CONFIG["paths"]["models_dir"])
     MODEL_PATH = os.path.join(MODELS_DIR, BASE_MODEL_ID)
     
@@ -141,7 +144,7 @@ def main():
             project=CONFIG["training"].get("wandb_project", "agents_sft_training"),
             name=run_name,
             dir=WANDB_LOGS_DIR,
-            tags=["sft", task, "emergent-comm"],
+            tags=["sft", "shared_agent"],
             config=CONFIG,
             reinit=True,
         )
