@@ -28,9 +28,11 @@ Data contract
 
 kwargs (via workflow_args JSON or top-level)
 --------------------------------------------
-  embed_host  – hostname of the vLLM embedding server  (default: "localhost")
-  embed_port  – port of the vLLM embedding server       (default: 8000)
-  debug_dir   – directory for per-trajectory JSON logs  (default: "./workflow_debug_logs")
+  embed_host        – hostname of the vLLM embedding server  (default: "localhost")
+  embed_port        – port of the vLLM embedding server       (default: 8000)
+  debug_dir         – directory for per-trajectory JSON logs  (default: "./workflow_debug_logs")
+  similarity_weight – weight for the embedding similarity reward (default: 0.7)
+  diversity_weight  – weight for the hypothesis diversity reward  (default: 0.3)
 
 Debug logging
 -------------
@@ -153,6 +155,12 @@ async def workflow(
     debug_dir: str = _wargs.get(
         "debug_dir", kwargs.get("debug_dir", "./workflow_debug_logs")
     )
+    similarity_weight: float = float(
+        _wargs.get("similarity_weight", kwargs.get("similarity_weight", 0.7))
+    )
+    diversity_weight: float = float(
+        _wargs.get("diversity_weight", kwargs.get("diversity_weight", 0.3))
+    )
     prompt_id: int = kwargs.get("prompt_id", 0)
 
     # ── execute turns ─────────────────────────────────────────────────────────
@@ -176,6 +184,8 @@ async def workflow(
         label,
         embed_host,
         embed_port,
+        similarity_weight=similarity_weight,
+        diversity_weight=diversity_weight,
     )
 
     # ── assemble results ──────────────────────────────────────────────────────

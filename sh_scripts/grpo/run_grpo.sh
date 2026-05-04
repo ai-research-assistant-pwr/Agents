@@ -37,6 +37,8 @@ EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
 WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}" # Defaults to 'grpo_qwen'
 BATCH_SIZE="${TRAIN_BATCH_SIZE:-8}"
 ROLLOUT_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
+SIMILARITY_WEIGHT="${SIMILARITY_WEIGHT:-1.0}"
+DIVERSITY_WEIGHT="${DIVERSITY_WEIGHT:-1.0}"
 
 # 3. Derived Paths
 VENV_PATH="$BASE_DIR/venv"
@@ -131,7 +133,7 @@ srun --het-group=0 \
     --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$DATA_PATH" \
-    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT}" \
+    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
     --metadata_key "metadata" \

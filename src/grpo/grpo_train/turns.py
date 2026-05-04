@@ -20,7 +20,12 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from src.grpo.grpo_train.agents import AgentPrompts
-from src.grpo.grpo_train.rewards import embedding_similarity_reward, _parse_hypotheses
+from src.grpo.grpo_train.rewards import (
+    _parse_hypotheses,
+    get_hypothesis_and_label_embeddings,
+    embedding_similarity_reward_from_embs,
+    hypothesis_diversity_reward,
+)
 
 
 # ── shared helpers (imported by workflow too) ─────────────────────────────────
@@ -270,11 +275,18 @@ async def turn_3_generator_hypothesize(
     label: str,
     embed_host: str,
     embed_port: int,
+    similarity_weight: float = 0.7,
+    diversity_weight: float = 0.3,
 ) -> TurnResult:
     """Turn 3 – Generator: produce the final numbered hypothesis list.
 
-    Reward is the mean cosine similarity between each generated hypothesis and
-    the ground-truth label embedding, computed via the vLLM embedding server.
+    Reward is a weighted combination of:
+      - ``similarity_weight`` × mean cosine similarity between each hypothesis
+        and the ground-truth label embedding.
+      - ``diversity_weight`` × diversity score (1 − mean pairwise similarity
+        among hypotheses; requires ≥ 3 hypotheses, else 0).
+
+    Both scores share a single embedding call.
     Returns reward=0.0 if the output is not in the expected numbered-list format.
     """
     prompt = build_prompt(
@@ -296,10 +308,18 @@ async def turn_3_generator_hypothesize(
 
     hypotheses = _parse_hypotheses(output_content)
     if hypotheses:
-        reward = await embedding_similarity_reward(
+        hyp_embs, label_emb = await get_hypothesis_and_label_embeddings(
             hypotheses, label, embed_host, embed_port
         )
+        similarity_score = embedding_similarity_reward_from_embs(hyp_embs, label_emb)
+        diversity_score = hypothesis_diversity_reward(hyp_embs)
+        reward = round(
+            similarity_weight * similarity_score + diversity_weight * diversity_score,
+            4,
+        )
     else:
+        similarity_score = 0.0
+        diversity_score = 0.0
         reward = 0.0
 
     trajectory_record = {
@@ -325,6 +345,10 @@ async def turn_3_generator_hypothesize(
         "output": output,
         "output_content": output_content,
         "reward": reward,
+        "similarity_score": similarity_score,
+        "diversity_score": diversity_score,
+        "similarity_weight": similarity_weight,
+        "diversity_weight": diversity_weight,
         "n_input_tokens": len(input_ids),
         "n_output_tokens": len(output_ids),
     }

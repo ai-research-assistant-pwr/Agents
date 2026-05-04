@@ -96,6 +96,50 @@ async def _get_embeddings(
     return [item["embedding"] for item in ordered]
 
 
+async def get_hypothesis_and_label_embeddings(
+    hypotheses: List[str],
+    label: str,
+    server_host: str,
+    server_port: int,
+) -> Tuple[List[List[float]], List[float]]:
+    """Fetch embeddings for all hypotheses and the label in a single request.
+
+    Returns
+    -------
+    (hyp_embs, label_emb) – hypothesis embeddings and label embedding.
+    """
+    texts = hypotheses + [label]
+    embeddings = await _get_embeddings(texts, server_host, server_port)
+    return embeddings[:-1], embeddings[-1]
+
+
+def embedding_similarity_reward_from_embs(
+    hyp_embs: List[List[float]],
+    label_emb: List[float],
+) -> float:
+    """Mean cosine similarity between pre-computed hypothesis and label embeddings."""
+    similarities = [_cosine_similarity(e, label_emb) for e in hyp_embs]
+    return round(sum(similarities) / len(similarities), 4)
+
+
+def hypothesis_diversity_reward(hyp_embs: List[List[float]]) -> float:
+    """Diversity reward based on pairwise cosine similarity among hypotheses.
+
+    Computes mean pairwise cosine similarity between all hypothesis embeddings,
+    then returns ``1 - mean_similarity`` so that more diverse hypotheses are
+    rewarded higher.
+
+    Returns 0.0 if fewer than 3 hypotheses are provided.
+    """
+    if len(hyp_embs) < 3:
+        return 0.0
+    pairs = [(i, j) for i in range(len(hyp_embs)) for j in range(i + 1, len(hyp_embs))]
+    mean_sim = sum(
+        _cosine_similarity(hyp_embs[i], hyp_embs[j]) for i, j in pairs
+    ) / len(pairs)
+    return round(1.0 - mean_sim, 4)
+
+
 async def embedding_similarity_reward(
     hypotheses: List[str],
     label: str,
@@ -116,12 +160,10 @@ async def embedding_similarity_reward(
     -------
     Mean cosine similarity in [-1, 1], typically in [0, 1] for semantic text.
     """
-    texts = hypotheses + [label]
-    embeddings = await _get_embeddings(texts, server_host, server_port)
-    label_emb = embeddings[-1]
-    hyp_embs = embeddings[:-1]
-    similarities = [_cosine_similarity(e, label_emb) for e in hyp_embs]
-    return round(sum(similarities) / len(similarities), 4)
+    hyp_embs, label_emb = await get_hypothesis_and_label_embeddings(
+        hypotheses, label, server_host, server_port
+    )
+    return embedding_similarity_reward_from_embs(hyp_embs, label_emb)
 
 
 # ── legacy shim ───────────────────────────────────────────────────────────────
