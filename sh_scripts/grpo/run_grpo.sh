@@ -44,7 +44,7 @@ DIVERSITY_WEIGHT="${DIVERSITY_WEIGHT:-1.0}"
 VENV_PATH="$BASE_DIR/venv"
 AGENTS_DIR="$BASE_DIR"
 MARTI_DIR="$BASE_DIR/MARTI"
-DATA_PATH="$AGENTS_DIR/data/rl_grounded_dataset_v2.csv"
+DATA_PATH="$AGENTS_DIR/data/rl_grounded_dataset_merged.csv"
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
 OUTPUT_DIR="${OUTPUT_DIR:-$MY_DISK/patryk/models_output/${SLURM_JOB_NAME}_results}"
 
@@ -158,7 +158,7 @@ srun --het-group=0 \
     --micro_train_batch_size 1 \
     --rollout_batch_size "$ROLLOUT_SIZE" \
     --n_samples_per_prompt 16 \
-    --num_episodes 5 \
+    --num_episodes 1 \
     --max_epochs 1 \
     --prompt_max_len 8096 \
     --generate_max_len 2048 \
