@@ -26,13 +26,20 @@ Download precompiled flash attention 2.8.3 wheel for torch 2.9 and cuda 12.8, an
 
 Clone and install MARTI.
 
-    git clone https://github.com/TsinghuaC3I/MARTI.git
-    cd MARTI
+    git clone git@github.com:ai-research-assistant-pwr/marti-fork.git
+    cd marti-fork
     pip install -r requirements.txt
     pip install -e .
-
-MARTI repo has a problem, which needs to be fix - there are lacking __init__.py files. You need to add them to marti/agent_workflows and marti/agent_workflows/steps.
 
 At last, install some missing dependencies.
 
     pip install json5 srsly vllm==0.15.1
+
+
+## Run training
+
+Use script in `sh_scripts/grpo/run_grpo.sh` to run training. You can modify the script to change hyperparameters, or set in command line, e.g.
+
+    SIMILARITY_WEIGHT=0.5 DIVERSITY_WEIGHT=0.5 bash sh_scripts/grpo/run_grpo.sh
+
+Script starts two nodes, one for training and one for helper models, that are used for evaluation and tools use.
