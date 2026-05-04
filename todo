@@ -2,7 +2,6 @@
 
 - dodać readme
 - zweryfikować czy faktycznie node'y mają dobre gpu
-- dać w promptach trochę lepszą definicję jakie powinny być hipotezy
 - sprawdzić jak długi kontekst jest w stanie przyjąć retriever
 - setup weaviate w runie
 - dodać tool use (big one)
