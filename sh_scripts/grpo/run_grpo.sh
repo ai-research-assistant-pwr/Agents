@@ -40,6 +40,12 @@ ROLLOUT_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
 SIMILARITY_WEIGHT="${SIMILARITY_WEIGHT:-1.0}"
 DIVERSITY_WEIGHT="${DIVERSITY_WEIGHT:-1.0}"
 
+APPLY_LENGTH_PENALTY="${APPLY_LENGTH_PENALTY:-true}"
+LENGTH_PENALTY_LAMBDA="${LENGTH_PENALTY_LAMBDA:-0.001}"
+
+APPLY_CHANNEL_NOISE="${APPLY_CHANNEL_NOISE:-true}"
+NOISE_PROBABILITY="${NOISE_PROBABILITY:-0.15}"
+
 # 3. Derived Paths
 VENV_PATH="$BASE_DIR/venv"
 AGENTS_DIR="$BASE_DIR"
@@ -133,7 +139,7 @@ srun --het-group=0 \
     --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$DATA_PATH" \
-    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT}" \
+    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"apply_length_penalty\": $APPLY_LENGTH_PENALTY, \"length_penalty_lambda\": $LENGTH_PENALTY_LAMBDA, \"apply_channel_noise\": $APPLY_CHANNEL_NOISE, \"noise_probability\": $NOISE_PROBABILITY}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
     --metadata_key "metadata" \
