@@ -41,15 +41,15 @@ curl -s http://localhost:8080/v1/meta
 echo ""
 
 # Restore backup only on first run (runtime dir is empty / has no node data yet)
-if [ ! -d "$BASE_DIR/data/weaviate_runtime/node1" ]; then
+if [ ! -d "$BASE_DIR/data/weaviate_runtime/researchpapers" ]; then
     echo "Pierwszy start - przywracanie backupu: $BACKUP_ID ..."
     curl -s -X POST "http://localhost:8080/v1/backups/filesystem/$BACKUP_ID/restore" \
         -H "Content-Type: application/json" \
         -d '{}'
     echo ""
 
-    echo "Czekam 30 sekund na restore..."
-    sleep 30
+    echo "Czekam 120 sekund na restore..."
+    sleep 120
 
     echo "Sprawdzanie statusu restore..."
     curl -s "http://localhost:8080/v1/backups/filesystem/$BACKUP_ID/restore"
