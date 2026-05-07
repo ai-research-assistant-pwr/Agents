@@ -47,6 +47,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from marti.utils.logging_utils import init_logger
+from src.grpo.grpo_train.tools import search_weaviate
 from src.grpo.grpo_train.turns import (
     turn_0_retriever_synthesize,
     turn_1_generator_ask,
@@ -58,6 +59,15 @@ logger = init_logger(__name__)
 logger.setLevel("WARN")
 
 DEBUG: bool = True
+
+# ── feature flags ─────────────────────────────────────────────────────────────
+
+# When True, paper context is retrieved live from Weaviate by embedding the
+# user query, instead of being loaded from the dataset row's metadata field.
+USE_WEAVIATE_CONTEXT: bool = False
+
+# Number of papers to fetch from Weaviate when USE_WEAVIATE_CONTEXT is True.
+WEAVIATE_TOP_N: int = 6
 
 # ── paper-context helper ──────────────────────────────────────────────────────
 
@@ -142,10 +152,6 @@ async def workflow(
     elif isinstance(sp, dict):
         sp["stop"] = stop_tokens
 
-    metadata = json.loads(json.loads(metadata))
-    papers: List[Dict[str, str]] = (metadata or {}).get("papers", [])
-    paper_block = _format_papers(papers, max_papers=6)
-
     # ── kwargs unpacking ──────────────────────────────────────────────────────
     # MARTI passes --workflow_args JSON as a single kwarg named "workflow_args",
     # not spread into **kwargs. Read from there first, fall back to top-level.
@@ -162,6 +168,18 @@ async def workflow(
         _wargs.get("diversity_weight", kwargs.get("diversity_weight", 0.3))
     )
     prompt_id: int = kwargs.get("prompt_id", 0)
+
+    # ── paper context ─────────────────────────────────────────────────────────
+    if USE_WEAVIATE_CONTEXT:
+        weaviate_url: str = _wargs.get(
+            "weaviate_url", kwargs.get("weaviate_url", "http://localhost:8080")
+        )
+        papers = search_weaviate(prompt, WEAVIATE_TOP_N, weaviate_url)
+        paper_block = _format_papers(papers, max_papers=WEAVIATE_TOP_N)
+    else:
+        metadata = json.loads(json.loads(metadata))
+        papers = (metadata or {}).get("papers", [])
+        paper_block = _format_papers(papers, max_papers=WEAVIATE_TOP_N)
 
     # ── execute turns ─────────────────────────────────────────────────────────
     t0 = await turn_0_retriever_synthesize(
