@@ -28,6 +28,7 @@ apptainer run --contain \
     --env "PERSISTENCE_DATA_PATH=/var/lib/weaviate" \
     --env "CLUSTER_HOSTNAME=node1" \
     --env "BACKUP_FILESYSTEM_PATH=/var/backups" \
+    --env "ENABLE_MODULES=backup-filesystem" \
     data/weaviate.sif &
 
 WEAVIATE_PID=$!
