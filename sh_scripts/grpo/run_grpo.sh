@@ -3,7 +3,7 @@
 # HET GROUP 0: Primary Training Node (2 GPUs)
 # =================================================
 #SBATCH --job-name=grpo_qwen
-#SBATCH --output=/home/%u/disk/patryk/Agents/out/%x_%j.out
+#SBATCH --output=/home/%u/disk/Agents/out/%x_%j.out
 #SBATCH --time=0-00:05:00
 #SBATCH -p lem-gpu-short
 #SBATCH -N 1
@@ -31,7 +31,7 @@ WANDB_API_KEY=$1
 
 # 2. Flexible Bash Variables (Defaults applied if not provided)
 MY_DISK="${MY_DISK:-/home/$USER/disk}"
-BASE_DIR="${BASE_DIR:-$MY_DISK/patryk/Agents}"
+BASE_DIR="${BASE_DIR:-$MY_DISK/Agents}"
 TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-0.6B"}"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
 WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}" # Defaults to 'grpo_qwen'
@@ -52,7 +52,7 @@ AGENTS_DIR="$BASE_DIR"
 MARTI_DIR="$BASE_DIR/MARTI"
 DATA_PATH="$AGENTS_DIR/data/rl_grounded_dataset_v2.csv"
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
-OUTPUT_DIR="${OUTPUT_DIR:-$MY_DISK/patryk/models_output/${SLURM_JOB_NAME}_results}"
+OUTPUT_DIR="${OUTPUT_DIR:-$MY_DISK/Agents/models_output/${SLURM_JOB_NAME}_results}"
 
 source /usr/local/sbin/modules.sh
 module load CUDA/12.8.0
@@ -61,7 +61,7 @@ module load Python/3.12.3-GCCcore-13.3.0
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-export MY_NEW_TMP="$MY_DISK/patryk/tmp"
+export MY_NEW_TMP="$MY_DISK/Agents/tmp"
 export XDG_CACHE_HOME="$MY_NEW_TMP/xdg_cache"
 export TRITON_CACHE_DIR="$MY_NEW_TMP/triton_cache"
 export TORCHINDUCTOR_CACHE_DIR="$MY_NEW_TMP/torchinductor_cache"
