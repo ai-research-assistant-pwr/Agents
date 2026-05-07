@@ -19,7 +19,7 @@ apptainer run --contain \
     --env "AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true" \
     --env "PERSISTENCE_DATA_PATH=/var/lib/weaviate" \
     --env "CLUSTER_HOSTNAME=node1" \
-    weaviate.sif &
+    data/weaviate.sif &
 
 # Zapisujemy PID procesu, żeby SLURM go widział
 WEAVIATE_PID=$!
