@@ -4,7 +4,7 @@
 # =================================================
 #SBATCH --job-name=grpo_qwen
 #SBATCH --output=Agents/out/%x_%j.out
-#SBATCH --time=0-00:05:00
+#SBATCH --time=0-04:00:00
 #SBATCH -p lem-gpu-short
 #SBATCH -N 1
 #SBATCH -c 32
@@ -173,7 +173,7 @@ srun --het-group=0 \
     --micro_train_batch_size 1 \
     --rollout_batch_size "$ROLLOUT_SIZE" \
     --n_samples_per_prompt 16 \
-    --num_episodes 5 \
+    --num_episodes 1 \
     --max_epochs 1 \
     --prompt_max_len 8096 \
     --generate_max_len 2048 \
