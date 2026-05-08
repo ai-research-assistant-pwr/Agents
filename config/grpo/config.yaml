@@ -1,9 +1,9 @@
 paths:
-  base_dir: "/home/tymrom7227/disk"
-  data_path: "Agents/data/datasets/grpo_exp_dataset/mock_data.json"
-  sft_adapter: "models_output/run4/lora_generator_Qwen3-4B-Instruct-2507"
-  output_dir: "models_output/grpo_results"
-  agent_env_script: "Agents/src/grpo/grpo_train/environment.py"
+  base_dir: "/home/tymrom7227/disk/Agents"
+  data_path: "data/datasets/grpo_exp_dataset/mock_data.json"
+  sft_adapter: "../models_output/run4/lora_generator_Qwen3-4B-Instruct-2507"
+  output_dir: "../models_output/grpo_results"
+  agent_env_script: "src/grpo/grpo_train/environment.py"
 
 models:
   generator_base: "Qwen/Qwen3-4B-Instruct-2507"

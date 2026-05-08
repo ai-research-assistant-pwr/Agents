@@ -3,7 +3,7 @@
 # HET GROUP 0: Primary Training Node (2 GPUs)
 # =================================================
 #SBATCH --job-name=grpo_qwen
-#SBATCH --output=/home/%u/disk/patryk/Agents/out/%x_%j.out
+#SBATCH --output=../../out/%x_%j.out
 #SBATCH --time=0-00:05:00
 #SBATCH -p lem-gpu-short
 #SBATCH -N 1
@@ -29,12 +29,13 @@ set -e
 # 1. Command Line Arguments
 WANDB_API_KEY=$1
 
-# 2. Flexible Bash Variables (Defaults applied if not provided)
-MY_DISK="${MY_DISK:-/home/$USER/disk}"
-BASE_DIR="${BASE_DIR:-$MY_DISK/patryk/Agents}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." &> /dev/null && pwd)"
+MY_DISK="$(cd "$BASE_DIR/.." &> /dev/null && pwd)"
+
 TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-0.6B"}"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
-WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}" # Defaults to 'grpo_qwen'
+WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}"
 BATCH_SIZE="${TRAIN_BATCH_SIZE:-8}"
 ROLLOUT_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
 SIMILARITY_WEIGHT="${SIMILARITY_WEIGHT:-1.0}"
@@ -46,13 +47,11 @@ LENGTH_PENALTY_LAMBDA="${LENGTH_PENALTY_LAMBDA:-0.001}"
 APPLY_CHANNEL_NOISE="${APPLY_CHANNEL_NOISE:-true}"
 NOISE_PROBABILITY="${NOISE_PROBABILITY:-0.15}"
 
-# 3. Derived Paths
 VENV_PATH="$BASE_DIR/venv"
 AGENTS_DIR="$BASE_DIR"
-MARTI_DIR="$BASE_DIR/MARTI"
-DATA_PATH="$AGENTS_DIR/data/rl_grounded_dataset_v2.csv"
+DATA_PATH="/home/patswi3426/disk/patryk/Agents/data/rl_grounded_dataset_merged.csv"
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
-OUTPUT_DIR="${OUTPUT_DIR:-$MY_DISK/patryk/models_output/${SLURM_JOB_NAME}_results}"
+OUTPUT_DIR="${OUTPUT_DIR:-$MY_DISK/models_output/${SLURM_JOB_NAME}_results}"
 
 source /usr/local/sbin/modules.sh
 module load CUDA/12.8.0
@@ -61,7 +60,7 @@ module load Python/3.12.3-GCCcore-13.3.0
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-export MY_NEW_TMP="$MY_DISK/patryk/tmp"
+export MY_NEW_TMP="$MY_DISK/tmp"
 export XDG_CACHE_HOME="$MY_NEW_TMP/xdg_cache"
 export TRITON_CACHE_DIR="$MY_NEW_TMP/triton_cache"
 export TORCHINDUCTOR_CACHE_DIR="$MY_NEW_TMP/torchinductor_cache"
@@ -82,6 +81,7 @@ echo "   Trainer Node (2 GPUs): $TRAIN_NODE"
 echo "   Embedding Node (1 GPU): $EMBED_NODE"
 echo "   Train Model: $TRAIN_MODEL"
 echo "   Embed Model: $EMBED_MODEL"
+echo "   Base Dir resolved to: $BASE_DIR"
 
 # =================================================
 # START vLLM EMBEDDING SERVER (On Het Group 1)
@@ -114,11 +114,6 @@ echo "=> nvidia-smi logging started -> $NVIDIA_SMI_LOG"
 # =================================================
 # START TRAINING (On Het Group 0)
 # =================================================
-DEFAULT_AGENT="{
-    \"is_reasoning_model\": true
-}"
-
-# Dynamically injected the training model variable
 AGENT0="{
     \"0\": {
         \"agent_id\": \"shared_agent\",
