@@ -90,6 +90,12 @@ RELEVANCY_USER_TEMPLATE = (
 # Clarity judge
 # ---------------------------------------------------------------------------
 
+# change to informativeness & clarity score.
+# use these aspects:
+# - hypothesis describes methodology more than expected relationship that it proposes. Hypothesis should be more focused on describing method/novel approach that is used to get expected relationship. scored 0-2
+# - hypothesis explains all complicated concepts, that are neccessary to understand it. scored 0-1
+# get rid of conciseness aspect,
+
 CLARITY_SYSTEM_PROMPT = (
     "You are an Expert Scientific Evaluator specializing in assessing the "
     "clarity of research hypotheses.\n\n"

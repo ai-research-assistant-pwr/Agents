@@ -64,6 +64,7 @@ class OpenAIAPIClient(BaseAPIClient):
                 model=self.model,
                 input=input_messages,
                 text_format=response_schema,
+                reasoning={"effort": "low"}
             )
             if instructions is not None:
                 kwargs["instructions"] = instructions

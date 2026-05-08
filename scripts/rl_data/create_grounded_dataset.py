@@ -43,7 +43,7 @@ paper proposes to investigate or validate. Focus on what the authors argue, clai
 to demonstrate, or set out to test — not background facts or general statements.
 
 Instructions:
-- Extract between 1 hypothesis from the paper.
+- Extract 1 hypothesis from the paper.
 - Extract hypothesis that is introduced by the paper, not those that are only cited from other work.
 - Hypothesis must be a concise, self-contained declarative statement.
 - Every newly introduced term, dataset or method that is essential to understanding the hypothesis should be \

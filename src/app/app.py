@@ -6,7 +6,7 @@ from pathlib import Path
 from app.config import PROJECT_ROOT, load_config
 from app.explorer.base import BaseExplorer
 from app.generator.base import BaseGenerator
-from app.models import GeneratorResult
+from app.models import ExplorerResult, GeneratorResult
 from app.retriever.base import BaseRetriever
 
 
@@ -29,11 +29,15 @@ class App:
         self.retriever = retriever
         self.generator = generator
 
-    def run(self, prompt: str) -> GeneratorResult:
+    def run(self, prompt: str, context: str | None = None) -> GeneratorResult:
         """Run the full hypothesis generation pipeline.
 
         Args:
             prompt: The user's research prompt / question.
+            context: Optional pre-formed context string to pass directly to the
+                retriever, bypassing the explorer entirely. When provided the
+                explorer is not called and this string is wrapped in an
+                ExplorerResult instead.
 
         Returns:
             A GeneratorResult containing the generated hypotheses and metadata.
@@ -42,8 +46,14 @@ class App:
         save_steps = pipeline_cfg.get("save_steps", False)
         save_dir = self._prepare_save_dir() if save_steps else None
 
-        # Step 1: Explorer
-        explorer_output = self.explorer.explore(prompt)
+        # Step 1: Explorer (skipped when context is provided directly)
+        if context is not None:
+            explorer_output = ExplorerResult(
+                content=context,
+                metadata={"source": "provided_context"},
+            )
+        else:
+            explorer_output = self.explorer.explore(prompt)
         if save_dir:
             self._save_step(save_dir, "01_explorer", asdict(explorer_output))
 
