@@ -3,7 +3,7 @@
 # HET GROUP 0: Primary Training Node (2 GPUs)
 # =================================================
 #SBATCH --job-name=grpo_qwen
-#SBATCH --output=../../out/%x_%j.out
+#SBATCH --output=Agents/out/%x_%j.out
 #SBATCH --time=0-00:05:00
 #SBATCH -p lem-gpu-short
 #SBATCH -N 1
@@ -29,10 +29,8 @@ set -e
 # 1. Command Line Arguments
 WANDB_API_KEY=$1
 
-# SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
-SCRIPT_DIR="$SLURM_SUBMIT_DIR"
-BASE_DIR="$(cd "$SCRIPT_DIR/../.." &> /dev/null && pwd)"
-MY_DISK="$(cd "$BASE_DIR/.." &> /dev/null && pwd)"
+MY_DISK="$SLURM_SUBMIT_DIR"
+BASE_DIR="$MY_DISK/Agents"
 
 TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-0.6B"}"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
@@ -81,6 +79,7 @@ export TRITON_CACHE_DIR="$MY_NEW_TMP/triton_cache"
 export TORCHINDUCTOR_CACHE_DIR="$MY_NEW_TMP/torchinductor_cache"
 export VLLM_USE_V1="0"
 export VLLM_WORKER_MULTIPROC_METHOD="spawn"
+export PYTHONPATH="$BASE_DIR:$PYTHONPATH"
 
 mkdir -p "$MY_NEW_TMP" "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" "$OUTPUT_DIR"
 
