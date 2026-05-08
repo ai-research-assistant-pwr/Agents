@@ -48,14 +48,7 @@ LENGTH_PENALTY_LAMBDA="${LENGTH_PENALTY_LAMBDA:-0.001}"
 APPLY_CHANNEL_NOISE="${APPLY_CHANNEL_NOISE:-true}"
 NOISE_PROBABILITY="${NOISE_PROBABILITY:-0.15}"
 
-if [ -d "/home/$USER/disk/venvs/pnw-3" ]; then
-    VENV_PATH="/home/$USER/disk/venvs/pnw-3"
-    echo "=> Detected custom venv: $VENV_PATH"
-else
-    VENV_PATH="$BASE_DIR/venv"
-    echo "=> Using default venv: $VENV_PATH"
-fi
-
+VENV_PATH="$BASE_DIR/venv"
 AGENTS_DIR="$BASE_DIR"
 DATA_PATH="/home/patswi3426/disk/patryk/Agents/data/rl_grounded_dataset_merged.csv"
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
