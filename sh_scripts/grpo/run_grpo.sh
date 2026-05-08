@@ -50,7 +50,21 @@ NOISE_PROBABILITY="${NOISE_PROBABILITY:-0.15}"
 
 VENV_PATH="$BASE_DIR/venv"
 AGENTS_DIR="$BASE_DIR"
-DATA_PATH="/home/patswi3426/disk/patryk/Agents/data/rl_grounded_dataset_merged.csv"
+
+DATASET_PATH_TYM="$BASE_DIR/data/datasets/rl_grounded_dataset_merged.csv"
+DATASET_PATH_PAT="/home/patswi3426/disk/patryk/Agents/data/rl_grounded_dataset_merged.csv"
+
+if [ -r "$DATASET_PATH_TYM" ]; then
+    DATA_PATH="$DATASET_PATH_TYM"
+    echo "=> Loading dataset (Tym): $DATA_PATH"
+elif [ -r "$DATASET_PATH_PAT" ]; then
+    DATA_PATH="$DATASET_PATH_PAT"
+    echo "=> Loading dataset (Pat): $DATA_PATH"
+else
+    echo "=> ERROR: Dataset not found in either location"
+    exit 1
+fi
+
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
 OUTPUT_DIR="${OUTPUT_DIR:-$MY_DISK/models_output/${SLURM_JOB_NAME}_results}"
 
