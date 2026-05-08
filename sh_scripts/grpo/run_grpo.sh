@@ -29,7 +29,8 @@ set -e
 # 1. Command Line Arguments
 WANDB_API_KEY=$1
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+# SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+SCRIPT_DIR="$SLURM_SUBMIT_DIR"
 BASE_DIR="$(cd "$SCRIPT_DIR/../.." &> /dev/null && pwd)"
 MY_DISK="$(cd "$BASE_DIR/.." &> /dev/null && pwd)"
 
