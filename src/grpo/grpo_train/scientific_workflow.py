@@ -1,35 +1,59 @@
 """
 Scientific Hypothesis Generation Workflow
 ==========================================
-Fixed 4-turn pipeline – each turn is an independent trajectory record:
+Variable-length pipeline driven by tool calls.
 
-  Turn 0  [RETRIEVER]  query + up-to-5 paper summaries  →  initial synthesis
-  Turn 1  [GENERATOR]  query + retriever synthesis       →  follow-up question
-  Turn 2  [RETRIEVER]  generator question + same papers  →  focused clarification
-  Turn 3  [GENERATOR]  query + both retriever outputs    →  numbered hypothesis list
+Architecture
+------------
+  Both agents (retriever and generator) communicate exclusively via structured
+  tool calls.  Every LLM response must contain one ``<tool_call>`` block after
+  optional ``<think>`` reasoning:
 
-Each turn is independent: it receives its own fresh prompt and its trajectory
-record carries only that turn's ``sequence_ids`` (input_ids + output_ids) and
-``output_ids``.  Prior turns' outputs are injected as plain text (thinking
-tokens stripped) inside the next turn's user message.
+      <think>…</think>
+      <tool_call>{"name": "<tool>", "arguments": {…}}</tool_call>
+
+  Retriever tools
+  ~~~~~~~~~~~~~~~
+    send_to_generator(message)  – forward synthesis/answer to the generator
+
+  Generator tools
+  ~~~~~~~~~~~~~~~
+    generate_hypotheses(hypotheses)  – terminal; produces the final list
+    ask_retriever(question)          – request a follow-up from the retriever
+                                       (limited to 1 use per trajectory; removed
+                                        from the prompt once the limit is reached)
+
+Trajectory flow
+---------------
+  The pipeline starts with the retriever (turn 0) and alternates agents
+  according to tool calls.  The loop terminates when:
+
+    - the generator calls ``generate_hypotheses``  → reward computed
+    - any agent produces a missing / malformed tool call               → reward 0
+    - an agent calls a disallowed tool                                 → reward 0
+    - ``max_turns`` is reached without a terminal tool call            → reward 0
+
+  Every turn appends one record to the trajectory list; the final reward is
+  propagated to all records at the end.
 
 Reward
 ------
-  Turns 0–2 : 0.0  (no per-turn signal)
-  Turn 3    : mean cosine similarity between each generated hypothesis and the
-              ground-truth label, computed via the vLLM embedding server.
-              Returns 0.0 if the output is not in the expected numbered-list format.
+  Weighted combination of:
+    similarity_weight × mean cosine similarity (hypotheses ↔ ground-truth label)
+    diversity_weight  × pairwise diversity among hypotheses
+  Requires ≥ 1 hypothesis; returns 0.0 on empty list or bad format.
 
 Data contract
 -------------
   prompt   – raw user query string
-  label    – ground-truth hypothesis (used in Turn 3 reward)
+  label    – ground-truth hypothesis (used in terminal reward)
   metadata – dict with key "papers": list of {"id", "title", "summary"} dicts
 
 kwargs (via workflow_args JSON or top-level)
 --------------------------------------------
   embed_host        – hostname of the vLLM embedding server  (default: "localhost")
   embed_port        – port of the vLLM embedding server       (default: 8000)
+  max_turns         – hard cap on trajectory length            (default: 10)
   debug_dir         – directory for per-trajectory JSON logs  (default: "./workflow_debug_logs")
   similarity_weight – weight for the embedding similarity reward (default: 0.7)
   diversity_weight  – weight for the hypothesis diversity reward  (default: 0.3)
@@ -49,10 +73,9 @@ from typing import Any, Dict, List, Optional
 from marti.utils.logging_utils import init_logger
 from src.grpo.grpo_train.tools import search_weaviate
 from src.grpo.grpo_train.turns import (
-    turn_0_retriever_synthesize,
-    turn_1_generator_ask,
-    turn_2_retriever_refine,
-    turn_3_generator_hypothesize,
+    TrajectoryState,
+    execute_turn,
+    initial_state,
 )
 
 logger = init_logger(__name__)
@@ -92,6 +115,7 @@ def _write_debug_log(
     label: str,
     total_reward: float,
     elapsed_s: float,
+    terminal_reason: Optional[str],
     turns: List[Dict[str, Any]],
 ) -> None:
     os.makedirs(debug_dir, exist_ok=True)
@@ -104,6 +128,7 @@ def _write_debug_log(
         "prompt": prompt,
         "label": label,
         "total_reward": total_reward,
+        "terminal_reason": terminal_reason,
         "elapsed_s": elapsed_s,
         "turns": turns,
     }
@@ -111,6 +136,33 @@ def _write_debug_log(
         json.dump(payload, f, ensure_ascii=False, indent=2)
     os.replace(tmp_path, path)
     logger.warning(f"[DEBUG] trajectory log written → {path}")
+
+
+# ── terminal-state helpers ────────────────────────────────────────────────────
+
+
+def _finalize_max_turns(state: TrajectoryState) -> TrajectoryState:
+    """Return a copy of *state* marked as terminal due to max-turns exhaustion."""
+    return TrajectoryState(
+        turn_id=state.turn_id,
+        current_agent=state.current_agent,
+        history=state.history,
+        tool_usage=state.tool_usage,
+        paper_block=state.paper_block,
+        query=state.query,
+        is_terminal=True,
+        terminal_reason="max_turns",
+        hypotheses=None,
+        trajectory_records=state.trajectory_records,
+        debug_entries=state.debug_entries,
+    )
+
+
+def _extract_final_reward(state: TrajectoryState) -> float:
+    """Return the reward from the last trajectory record, or 0.0 if none."""
+    if state.trajectory_records:
+        return state.trajectory_records[-1].get("reward", 0.0)
+    return 0.0
 
 
 # ── main workflow ─────────────────────────────────────────────────────────────
@@ -126,12 +178,12 @@ async def workflow(
     **kwargs,
 ) -> Dict[str, Any]:
     """
-    Fixed 4-turn scientific hypothesis generation pipeline.
+    Variable-length scientific hypothesis generation pipeline.
 
     Parameters
     ----------
     prompt   : The user research query.
-    label    : Ground-truth hypothesis (used in Turn 3 reward).
+    label    : Ground-truth hypothesis (used in terminal reward).
     agents   : List with at least one agent dict containing 'llm', 'tokenizer',
                'sampling_params'.  A single model plays both roles.
     metadata : Must include key 'papers': list of dicts with 'id', 'title',
@@ -158,6 +210,7 @@ async def workflow(
     _wargs: Dict[str, Any] = kwargs.get("workflow_args") or {}
     embed_host: str = _wargs.get("embed_host", kwargs.get("embed_host", "localhost"))
     embed_port: int = int(_wargs.get("embed_port", kwargs.get("embed_port", 8000)))
+    max_turns: int = int(_wargs.get("max_turns", kwargs.get("max_turns", 10)))
     debug_dir: str = _wargs.get(
         "debug_dir", kwargs.get("debug_dir", "./workflow_debug_logs")
     )
@@ -181,48 +234,40 @@ async def workflow(
         papers = (metadata or {}).get("papers", [])
         paper_block = _format_papers(papers, max_papers=WEAVIATE_TOP_N)
 
-    # ── execute turns ─────────────────────────────────────────────────────────
-    t0 = await turn_0_retriever_synthesize(
-        llm, tokenizer, sp, agent_name, prompt, paper_block
-    )
-    t1 = await turn_1_generator_ask(
-        llm, tokenizer, sp, agent_name, prompt, t0.output_content
-    )
-    t2 = await turn_2_retriever_refine(
-        llm, tokenizer, sp, agent_name, t1.output_content, paper_block
-    )
-    t3 = await turn_3_generator_hypothesize(
-        llm,
-        tokenizer,
-        sp,
-        agent_name,
-        prompt,
-        t0.output_content,
-        t2.output_content,
-        label,
-        embed_host,
-        embed_port,
-        similarity_weight=similarity_weight,
-        diversity_weight=diversity_weight,
-    )
+    # ── trajectory loop ───────────────────────────────────────────────────────
+    state: TrajectoryState = initial_state(prompt, paper_block)
+
+    while not state.is_terminal and state.turn_id < max_turns:
+        state = await execute_turn(
+            state=state,
+            llm=llm,
+            tokenizer=tokenizer,
+            sampling_params=sp,
+            agent_name=agent_name,
+            label=label,
+            embed_host=embed_host,
+            embed_port=embed_port,
+            similarity_weight=similarity_weight,
+            diversity_weight=diversity_weight,
+        )
+
+    if not state.is_terminal:
+        state = _finalize_max_turns(state)
 
     # ── assemble results ──────────────────────────────────────────────────────
-    total_reward = t3.reward
-    trajectory = [
-        t0.trajectory_record,
-        t1.trajectory_record,
-        t2.trajectory_record,
-        t3.trajectory_record,
-    ]
-    reward_matrix = [t0.reward, t1.reward, t2.reward, t3.reward]
+    total_reward = _extract_final_reward(state)
+    trajectory = list(state.trajectory_records)
 
     # propagate final reward to all trajectory records
     for record in trajectory:
         record["reward"] = total_reward
 
+    reward_matrix = [r.get("reward", 0.0) for r in trajectory]
+
     elapsed = time.time() - t_start
     logger.warning(
-        f"workflow done | turns=4 | reward={total_reward:.3f} | time={elapsed:.1f}s"
+        f"workflow done | turns={state.turn_id} | reason={state.terminal_reason} "
+        f"| reward={total_reward:.3f} | time={elapsed:.1f}s"
     )
 
     if DEBUG:
@@ -233,7 +278,8 @@ async def workflow(
             label=label,
             total_reward=total_reward,
             elapsed_s=round(elapsed, 2),
-            turns=[t0.debug_entry, t1.debug_entry, t2.debug_entry, t3.debug_entry],
+            terminal_reason=state.terminal_reason,
+            turns=list(state.debug_entries),
         )
 
     return {

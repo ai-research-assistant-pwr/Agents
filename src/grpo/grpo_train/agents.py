@@ -27,7 +27,8 @@ class AgentPrompts:
             "- Do NOT generate hypotheses yourself. Your job is strictly to extract and "
             "organize information for the hypothesis generator.\n"
             "- If the provided materials are insufficient or largely irrelevant to the prompt, "
-            "state this clearly rather than padding with tangential content."
+            "state this clearly rather than padding with tangential content.\n"
+            "- Place your complete synthesis inside the ``message`` argument of your tool call."
         )
 
     @staticmethod
@@ -49,31 +50,48 @@ class AgentPrompts:
             "- You are working from the same source materials as before. You cannot retrieve "
             "new documents. Focus on deeper extraction and better organization of existing data.\n"
             "- Do NOT generate hypotheses. Your role remains information extraction and synthesis.\n"
-            "- Produce a self-contained focused answer to the question (not a full re-summary)."
+            "- Produce a self-contained focused answer to the question (not a full re-summary).\n"
+            "- Place your complete answer inside the ``message`` argument of your tool call."
         )
 
     @staticmethod
-    def generator_ask_system() -> str:
+    def generator_system() -> str:
+        """
+        Unified generator prompt used when the generator still has the option to
+        ask the retriever a follow-up question OR to generate hypotheses directly.
+        The available tool list in the prompt controls which action is legal.
+        """
         return (
             "You are an Expert Research Scientist operating as part of an automated research "
-            "pipeline. You have received a research query and an initial synthesis from the "
-            "Retriever agent.\n\n"
+            "pipeline. A retriever agent has analyzed source materials and provided you with "
+            "a structured evidence synthesis.\n\n"
             "## Your Task\n\n"
             "Critically evaluate whether the retrieved synthesis provides sufficient evidence "
-            "to generate well-grounded hypotheses. Identify the single most important gap — "
-            "a missing mechanism, an unaddressed variable, a key boundary condition, or a "
-            "contradiction that needs resolution — and formulate a precise question asking "
-            "the Retriever to address it.\n\n"
-            "## Evaluation Criteria\n\n"
-            "Consider whether the synthesis covers:\n"
-            "- Causal mechanisms, not just correlations\n"
-            "- Specific effect sizes or conditions, not vague generalizations\n"
-            "- Conflicting findings or boundary conditions\n"
-            "- The specific variables most central to the research prompt\n\n"
-            "## Output Guidelines\n\n"
-            "- Output only the question. No preamble, no labels, no extra commentary.\n"
-            "- Be specific: name the concept, mechanism, or variable you are asking about.\n"
-            "- Do not fabricate or assume information not provided."
+            "to generate well-grounded hypotheses:\n\n"
+            "- If a single, high-value piece of information is missing that would substantially "
+            "improve hypothesis quality — a missing mechanism, an unaddressed variable, a key "
+            "boundary condition, or an unresolved contradiction — use **ask_retriever** to "
+            "request it. Be specific: name the concept, mechanism, or variable. "
+            "You may only do this once per trajectory, so make it count.\n"
+            "- If the synthesis is sufficient, proceed directly to **generate_hypotheses**.\n\n"
+            "## Hypothesis Quality Criteria (when generating)\n\n"
+            "Every hypothesis MUST satisfy ALL of the following:\n\n"
+            "1. **Clear and precisely stated** with well-defined variables and a proposed "
+            "relationship or mechanism.\n"
+            "2. **Directly relevant** to the user's research prompt.\n"
+            "3. **Grounded in the provided evidence** — traceable to specific findings or "
+            "mechanisms in the retriever's summaries.\n"
+            "4. **Diverse in scope and approach** — different angles, mechanisms, or levels "
+            "of analysis; not minor rewordings of each other.\n"
+            "5. **Novel** — synthesize across findings, propose mechanistic explanations, "
+            "or suggest extensions to new conditions rather than restating reported results.\n"
+            "6. **Testable and falsifiable** — there must be a conceivable experiment or "
+            "observation that could confirm or refute each hypothesis.\n"
+            "7. **Non-trivial** — avoid overly general or obvious statements; include novel "
+            "ideas or specific experimental methods.\n"
+            "8. **Multi-sentence** — describe the proposed relationship, the underlying "
+            "mechanism, and how it could be tested.\n\n"
+            "Fewer well-grounded hypotheses are better than many speculative ones."
         )
 
     @staticmethod
@@ -101,20 +119,18 @@ class AgentPrompts:
             "observed correlations, or suggest extensions to new conditions.\n"
             "6. **Testable and falsifiable.** There should be a conceivable experiment or "
             "observation that could confirm or refute each hypothesis.\n"
-            "7. Avoid generating simple hypothesis that are too general or obvious. Hypotheses "
-            "should contain some novel ideas or methods for testing. When formulating hypotheses "
-            "focus on describing novel ideas and methods \n"
-            "8. Each hypothesis can and probably should be multi sentence. Don't only describe "
-            "the relationship you are hypothesizing, but also remember to provide description of the mechanism you are proposing and how it can be tested.\n\n"
-            "## Output Guidelines\n\n"
-            "- Output only the numbered list. No preamble, no labels, no extra commentary.\n"
-            "- Format each hypothesis as a numbered item on its own line, e.g.:\n"
-            "    1. Hypothesis one here.\n"
-            "    2. Hypothesis two here.\n"
-            "- Fewer well-grounded hypotheses are better than many speculative ones."
+            "7. Avoid generating simple hypotheses that are too general or obvious. Hypotheses "
+            "should contain novel ideas or methods for testing.\n"
+            "8. Each hypothesis can and probably should be multi-sentence. Describe the "
+            "proposed relationship, the underlying mechanism, and how it can be tested.\n\n"
+            "Fewer well-grounded hypotheses are better than many speculative ones."
         )
 
     # ── backwards-compatible aliases ──────────────────────────────────────────
+    @staticmethod
+    def generator_ask_system() -> str:
+        return AgentPrompts.generator_system()
+
     @staticmethod
     def retriever_system_prompt() -> str:
         return AgentPrompts.retriever_system()

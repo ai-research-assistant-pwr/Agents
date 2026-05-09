@@ -28,6 +28,7 @@ set -e
 
 # 1. Command Line Arguments
 WANDB_API_KEY=$1
+WEAVIATE_NODE_ID=$2
 
 # 2. Flexible Bash Variables (Defaults applied if not provided)
 MY_DISK="${MY_DISK:-/home/$USER/disk}"
@@ -133,7 +134,7 @@ srun --het-group=0 \
     --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$DATA_PATH" \
-    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT}" \
+    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"weaviate_url\": \"http://$WEAVIATE_NODE_ID:8080\"}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
     --metadata_key "metadata" \
