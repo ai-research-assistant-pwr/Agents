@@ -21,6 +21,9 @@ module load Python/3.12.3-GCCcore-13.3.0
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
+echo "=> Ensuring required packages are installed in the venv..."
+$VENV_PYTHON -m pip install pandas matplotlib numpy scipy
+
 echo "=> Job executing on node: $(hostname)"
 echo "=> Base Dir resolved to: $BASE_DIR"
 echo "=> Starting Experiment 1 Morphology Analysis..."
