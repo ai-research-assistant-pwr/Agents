@@ -25,10 +25,16 @@ async def get_embeddings(texts: list, host: str, port: str, model: str) -> list:
     if not texts: return []
     url = f"http://{host}:{port}/v1/embeddings"
     payload = {"model": model, "input": texts}
+    
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload) as resp:
+            if resp.status != 200:
+                error_msg = await resp.text()
+                print(f"\n[VLLM Error] Received status {resp.status}. Details: {error_msg}")
+            
             resp.raise_for_status()
             data = await resp.json()
+            
     # Sort by index to maintain original order
     ordered = sorted(data["data"], key=lambda x: x["index"])
     return [item["embedding"] for item in ordered]
@@ -90,8 +96,14 @@ async def run_hybrid_topsim_analysis(logs_dir: str, output_dir: str, window_size
                 
                 # Meaning: Prompt + Paper Summaries (Turn 0 input)
                 meaning_space = turn0.get("input", data.get("prompt", ""))
+                # Cutting to 12k characters to avoid vLLM limits and reduce noise
+                if meaning_space:
+                    meaning_space = meaning_space[:12000]
+                
                 # Signal: Concatenated Retriever messages from Turn 0 and Turn 2
                 signal_space = turn0.get("output_content", "") + " " + turn2.get("output_content", "")
+                if signal_space:
+                    signal_space = signal_space[:12000]
                 
                 if meaning_space and signal_space:
                     meanings.append(meaning_space)
