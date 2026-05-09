@@ -21,15 +21,18 @@ export EMBED_MODEL="Qwen/Qwen3-Embedding-4B"
 export EMBED_PORT=8001
 export EMBED_HOST="localhost"
 
+export MY_NEW_TMP="$BASE_DIR/tmp"
+export XDG_CACHE_HOME="$MY_NEW_TMP/xdg_cache"
+export TRITON_CACHE_DIR="$MY_NEW_TMP/triton_cache"
+export TORCHINDUCTOR_CACHE_DIR="$MY_NEW_TMP/torchinductor_cache"
+mkdir -p "$MY_NEW_TMP" "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
+
 source /usr/local/sbin/modules.sh
 module load CUDA/12.8.0
 module load Python/3.12.3-GCCcore-13.3.0
 
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
-
-echo "=> Installing missing dependencies (Levenshtein)..."
-$VENV_PYTHON -m pip install python-Levenshtein requests pandas matplotlib numpy scipy
 
 # =================================================
 # Setting up vLLM for TopSim Metric
@@ -50,7 +53,7 @@ done
 echo "=> vLLM ready"
 
 # =================================================
-# 2. Uruchomienie Ewaluacji
+# Running the evaluation script
 # =================================================
 export PYTHONPATH="$BASE_DIR:$PYTHONPATH"
 
