@@ -254,12 +254,13 @@ async def workflow(
         step_reward = total_reward
 
         if apply_length_penalty and record["agent_role"] == "retriever":
-            token_count = len(record["output_ids"])
+            clean_message = debug_entries[i]["output_content"]
+            token_count = len(clean_message.split())
             penalty = length_penalty_lambda * token_count
             step_reward -= penalty
 
             debug_entries[i]["length_penalty"] = round(penalty, 4)
-            debug_entries[i]["n_output_tokens"] = token_count
+            debug_entries[i]["n_channel_tokens"] = token_count
 
         record["reward"] = step_reward
         debug_entries[i]["reward"] = step_reward
