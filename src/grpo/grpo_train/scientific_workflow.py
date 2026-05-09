@@ -10,6 +10,8 @@ Feature flags (all controllable via workflow_args / run_grpo.sh)
                         (default: false)
   weaviate_top_n      – number of Weaviate results when use_weaviate_context
                         is enabled (default: 6)
+  ask_retriever_limit – max generator→retriever questions per trajectory (default: 1)
+  retriever_search_limit – max search_papers calls per retriever turn (default: 3)
 
 Architecture
 ------------
@@ -146,6 +148,9 @@ def _finalize_max_turns(state: TrajectoryState) -> TrajectoryState:
         current_agent=state.current_agent,
         history=state.history,
         tool_usage=state.tool_usage,
+        ask_retriever_limit=state.ask_retriever_limit,
+        retriever_search_limit=state.retriever_search_limit,
+        retriever_search_exchanges=state.retriever_search_exchanges,
         paper_block=state.paper_block,
         query=state.query,
         is_terminal=True,
@@ -221,11 +226,11 @@ async def workflow(
         _get("use_weaviate_context", "false")
     ).lower() not in ("false", "0", "no")
     weaviate_top_n: int = int(_get("weaviate_top_n", 6))
+    ask_retriever_limit: int = int(_get("ask_retriever_limit", 1))
+    retriever_search_limit: int = int(_get("retriever_search_limit", 3))
+    weaviate_url: str = _get("weaviate_url", "http://localhost:8080")
     prompt_id: int = kwargs.get("prompt_id", 0)
-
-    # ── paper context ─────────────────────────────────────────────────────────
     if use_weaviate_context:
-        weaviate_url: str = _get("weaviate_url", "http://localhost:8080")
         papers = search_weaviate(prompt, weaviate_top_n, weaviate_url)
         paper_block = _format_papers(papers, max_papers=weaviate_top_n)
     else:
@@ -234,7 +239,12 @@ async def workflow(
         paper_block = _format_papers(papers, max_papers=weaviate_top_n)
 
     # ── trajectory loop ───────────────────────────────────────────────────────
-    state: TrajectoryState = initial_state(prompt, paper_block)
+    state: TrajectoryState = initial_state(
+        prompt,
+        paper_block,
+        ask_retriever_limit=ask_retriever_limit,
+        retriever_search_limit=retriever_search_limit,
+    )
 
     while not state.is_terminal and state.turn_id < max_turns:
         state = await execute_turn(
@@ -246,6 +256,7 @@ async def workflow(
             label=label,
             embed_host=embed_host,
             embed_port=embed_port,
+            weaviate_url=weaviate_url,
             similarity_weight=similarity_weight,
             diversity_weight=diversity_weight,
         )
