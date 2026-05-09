@@ -1,9 +1,8 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass
 
+from openai import OpenAI
 from pydantic import BaseModel
-
-from app.api_client.base import BaseAPIClient
 
 
 class JudgeResponse(BaseModel):
@@ -15,25 +14,25 @@ class JudgeResponse(BaseModel):
 
 @dataclass
 class JudgeResult:
-    """Result returned by a single judge evaluation.
-
-    Carries the numeric score, the model's reasoning, and the name of
-    the model that produced the judgment — mirroring the CallResult
-    pattern used elsewhere in the pipeline.
-    """
-
     score: int
     reasoning: str
     model: str
 
 
 class BaseJudge(ABC):
-    """Abstract base class for LLM-based hypothesis judges.
+    def __init__(self, client: OpenAI, model: str) -> None:
+        self.client = client
+        self.model = model
 
-    All concrete judges wrap a :class:`BaseAPIClient` and expose a
-    single ``judge`` method whose signature varies per subclass to
-    reflect the inputs each metric requires.
-    """
-
-    def __init__(self, api_client: BaseAPIClient) -> None:
-        self.api_client = api_client
+    def _call(self, system: str, user: str) -> JudgeResult:
+        response = self.client.responses.parse(
+            model=self.model,
+            instructions=system,
+            input=[{"role": "user", "content": user}],
+            text_format=JudgeResponse,
+            reasoning={"effort": "medium"},
+        )
+        parsed: JudgeResponse = response.output_parsed
+        return JudgeResult(
+            score=parsed.score, reasoning=parsed.reasoning, model=self.model
+        )
