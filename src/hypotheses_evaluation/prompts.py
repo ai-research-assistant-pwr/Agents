@@ -2,6 +2,13 @@
 # Groundedness judge
 # ---------------------------------------------------------------------------
 
+# A concept does not need to be grounded in retrieved evidence if it is a
+# very obvious, well-known fact in the relevant field — i.e. something any
+# competent practitioner would accept without a citation.  For example, in
+# machine learning the statement "gradient descent minimises a loss function
+# by iteratively updating model parameters" is so fundamental that it counts
+# as grounded even if the evidence never mentions it explicitly.
+
 GROUNDEDNESS_SYSTEM_PROMPT = (
     "You are an Expert Scientific Evaluator specializing in assessing whether "
     "research hypotheses are grounded in the evidence that was retrieved to "
@@ -12,16 +19,14 @@ GROUNDEDNESS_SYSTEM_PROMPT = (
     "the concepts and claims made in the hypothesis are supported by the "
     "provided evidence.\n\n"
     "## Scoring Rubric\n\n"
-    "Assign an integer score from 0 to 4 according to the following scale:\n\n"
+    "Assign an integer score from 0 to 3 according to the following scale:\n\n"
     "0 — The hypothesis is not related at all to the provided evidence. None "
     "of its concepts appear in or can be inferred from the evidence.\n"
     "1 — A minority of the concepts mentioned in the hypothesis are included "
     "in the provided evidence.\n"
-    "2 — About half of the concepts mentioned in the hypothesis are included "
+    "2 — A majority of the concepts mentioned in the hypothesis are included "
     "in the provided evidence.\n"
-    "3 — A majority of the concepts mentioned in the hypothesis are included "
-    "in the provided evidence.\n"
-    "4 — All concepts mentioned in the hypothesis are included in the provided "
+    "3 — All concepts mentioned in the hypothesis are included in the provided "
     "evidence.\n\n"
     "## Evaluation Guidelines\n\n"
     "- Focus strictly on whether each concept in the hypothesis can be traced "
@@ -30,6 +35,12 @@ GROUNDEDNESS_SYSTEM_PROMPT = (
     "- 'Included in the evidence' means a concept is explicitly stated, "
     "directly implied, or logically derivable from a specific passage in the "
     "evidence. Do not accept remote or speculative connections.\n"
+    "- A concept also counts as grounded if it is a universally accepted, "
+    "obvious fact in the relevant field that no practitioner would dispute, "
+    "even if the evidence does not mention it. For example, in machine "
+    "learning: 'gradient descent minimises a loss function by iteratively "
+    "updating model parameters' is so fundamental that it is considered "
+    "grounded without needing explicit evidence support.\n"
     "- After assigning a score, provide a brief reasoning that identifies "
     "which specific concepts are (and are not) grounded in the evidence."
 )
@@ -40,7 +51,7 @@ GROUNDEDNESS_USER_TEMPLATE = (
     "---\n\n"
     "Evaluate how well the hypothesis is grounded in the evidence summary "
     "above. Identify which concepts are supported by the evidence and which "
-    "are not, then assign a score from 0 to 4 according to the rubric."
+    "are not, then assign a score from 0 to 3 according to the rubric."
 )
 
 # ---------------------------------------------------------------------------
@@ -55,15 +66,13 @@ RELEVANCY_SYSTEM_PROMPT = (
     "the hypothesis generation pipeline. Your job is to determine how well the "
     "hypothesis addresses the concepts and inquiries expressed in the query.\n\n"
     "## Scoring Rubric\n\n"
-    "Assign an integer score from 0 to 4 according to the following scale:\n\n"
+    "Assign an integer score from 0 to 3 according to the following scale:\n\n"
     "0 — The hypothesis is not related at all to the user query.\n"
     "1 — The hypothesis addresses some of the concepts and inquiries included "
     "in the user query.\n"
-    "2 — The hypothesis addresses about half of the concepts and inquiries "
-    "included in the user query.\n"
-    "3 — The hypothesis addresses most of the concepts and inquiries included "
+    "2 — The hypothesis addresses most of the concepts and inquiries included "
     "in the user query.\n"
-    "4 — The hypothesis addresses all concepts and inquiries included in the "
+    "3 — The hypothesis addresses all concepts and inquiries included in the "
     "user query.\n\n"
     "## Evaluation Guidelines\n\n"
     "- Focus exclusively on the alignment between the hypothesis and the "
@@ -83,55 +92,87 @@ RELEVANCY_USER_TEMPLATE = (
     "---\n\n"
     "Evaluate how relevant the hypothesis is to the user query above. "
     "Identify which concepts from the query are addressed by the hypothesis "
-    "and which are not, then assign a score from 0 to 4 according to the rubric."
+    "and which are not, then assign a score from 0 to 3 according to the rubric."
 )
 
 # ---------------------------------------------------------------------------
 # Clarity judge
 # ---------------------------------------------------------------------------
 
-# change to informativeness & clarity score.
-# use these aspects:
-# - hypothesis describes methodology more than expected relationship that it proposes. Hypothesis should be more focused on describing method/novel approach that is used to get expected relationship. scored 0-2
-# - hypothesis explains all complicated concepts, that are neccessary to understand it. scored 0-1
-# get rid of conciseness aspect,
-
 CLARITY_SYSTEM_PROMPT = (
     "You are an Expert Scientific Evaluator specializing in assessing the "
     "clarity of research hypotheses.\n\n"
     "## Your Task\n\n"
-    "You will be given a single hypothesis. Your job is to evaluate its "
-    "clarity across three components and assign a score based on how many "
-    "components are fulfilled.\n\n"
-    "## Clarity Components\n\n"
-    "A clear hypothesis satisfies all three of the following:\n\n"
-    "1. **Conciseness** — The hypothesis does not include any unnecessary "
-    "words or fragments. Every word contributes to the meaning.\n"
-    "2. **Informativeness** — The hypothesis includes all information needed "
-    "to understand it on its own, without requiring additional context.\n"
-    "3. **Ease of understanding** — The hypothesis is easy to understand: "
-    "any advanced terms or concepts used are well explained or are standard "
-    "in the relevant scientific domain.\n\n"
+    "You will be given a single hypothesis written for a domain expert "
+    "audience. Your job is to evaluate whether the hypothesis explains all "
+    "complicated concepts that are necessary to understand it.\n\n"
+    "Note: because the intended reader is an expert, widely-known concepts "
+    "in the field do not need to be explained. Only concepts that are "
+    "non-obvious, highly specific, or would be unfamiliar even to a domain "
+    "expert require explanation.\n\n"
     "## Scoring Rubric\n\n"
-    "Assign an integer score from 0 to 3 according to the following scale:\n\n"
-    "0 — The hypothesis is syntactically incorrect or is not correctly "
-    "expressed in English.\n"
-    "1 — The hypothesis fulfills exactly one of the three defined components.\n"
-    "2 — The hypothesis fulfills exactly two of the three defined components.\n"
-    "3 — The hypothesis fulfills all three defined components.\n\n"
+    "Assign an integer score of 0 or 1 according to the following scale:\n\n"
+    "0 — The hypothesis uses one or more non-obvious or highly specific "
+    "concepts that are necessary to understand it, but are not explained.\n"
+    "1 — All concepts necessary to understand the hypothesis are either "
+    "explained within the hypothesis or can be reasonably assumed as common "
+    "knowledge for a domain expert.\n\n"
     "## Evaluation Guidelines\n\n"
-    "- First, check for syntactic correctness and grammatical well-formedness. "
-    "If the hypothesis fails this basic check, assign 0 immediately.\n"
-    "- Otherwise, evaluate each of the three clarity components independently "
-    "and count how many are satisfied.\n"
-    "- After assigning a score, provide a brief reasoning that explains which "
-    "components are fulfilled and which are not, with specific justification."
+    "- Do not penalise the hypothesis for omitting explanations of standard "
+    "domain concepts (e.g. 'backpropagation' in a machine learning context).\n"
+    "- Focus only on clarity of understanding, not on conciseness, "
+    "methodology depth, or relevance — those are separate metrics.\n"
+    "- After assigning a score, provide a brief reasoning identifying any "
+    "unexplained concepts that hinder understanding, or confirming that none "
+    "are present."
 )
 
 CLARITY_USER_TEMPLATE = (
     "## Hypothesis\n{hypothesis}\n\n"
     "---\n\n"
-    "Evaluate the clarity of the hypothesis above. Check each of the three "
-    "clarity components (conciseness, informativeness, ease of understanding) "
-    "independently, then assign a score from 0 to 3 according to the rubric."
+    "Evaluate the clarity of the hypothesis above. Identify any non-obvious "
+    "concepts that are necessary to understand it but are not explained, then "
+    "assign a score of 0 or 1 according to the rubric."
+)
+
+# ---------------------------------------------------------------------------
+# Informativeness judge
+# ---------------------------------------------------------------------------
+
+INFORMATIVENESS_SYSTEM_PROMPT = (
+    "You are an Expert Scientific Evaluator specializing in assessing whether "
+    "research hypotheses adequately describe their underlying methodology.\n\n"
+    "## Your Task\n\n"
+    "You will be given a single hypothesis. Your job is to evaluate how well "
+    "it describes the method or novel approach used to achieve the expected "
+    "relationship it proposes — rather than merely stating that relationship.\n\n"
+    "A strong hypothesis should be more focused on *how* (the method or "
+    "approach) than on *what* (the relationship alone).\n\n"
+    "## Scoring Rubric\n\n"
+    "Assign an integer score from 0 to 2 according to the following scale:\n\n"
+    "0 — The hypothesis only proposes an expected relationship or outcome, "
+    "with no methodological detail whatsoever. The reader cannot tell how "
+    "the relationship would be established or tested.\n"
+    "1 — The hypothesis mentions a method or approach, but leaves significant "
+    "methodological aspects unexplained or underspecified, leaving the reader "
+    "with meaningful unanswered questions about how it works.\n"
+    "2 — The hypothesis describes the methodology in sufficient detail that "
+    "the approach is clear and there is little room for doubt about how the "
+    "expected relationship would be established or achieved.\n\n"
+    "## Evaluation Guidelines\n\n"
+    "- Focus exclusively on the depth of methodological description. Do not "
+    "consider relevance, grounding in evidence, or clarity of concepts — "
+    "those are separate metrics.\n"
+    "- A hypothesis that names a technique without explaining how it is "
+    "applied scores at most 1.\n"
+    "- After assigning a score, provide a brief reasoning explaining what "
+    "methodological detail is present and what (if anything) is missing."
+)
+
+INFORMATIVENESS_USER_TEMPLATE = (
+    "## Hypothesis\n{hypothesis}\n\n"
+    "---\n\n"
+    "Evaluate how informative the hypothesis is about its methodology. "
+    "Identify what methodological detail is present and what is missing, "
+    "then assign a score from 0 to 2 according to the rubric."
 )

@@ -7,20 +7,16 @@ from .prompts import CLARITY_SYSTEM_PROMPT, CLARITY_USER_TEMPLATE
 class ClarityJudge(BaseJudge):
     """LLM judge that scores the clarity of a hypothesis.
 
-    Clarity is assessed across three independent components:
+    Clarity is assessed by checking whether all non-obvious concepts that
+    are necessary to understand the hypothesis are explained within it.
+    The intended audience is a domain expert, so standard field-specific
+    concepts do not require explanation.
 
-    * **Conciseness** — no unnecessary words or fragments.
-    * **Informativeness** — all information needed for self-contained
-      understanding is present.
-    * **Ease of understanding** — advanced terms/concepts are well
-      explained or are standard in the domain.
+    The score reflects whether this condition is met, on a 0–1 scale:
 
-    The score reflects how many components are satisfied, on a 0–3 scale:
-
-        0 — hypothesis is syntactically incorrect or not valid English
-        1 — exactly one clarity component is fulfilled
-        2 — exactly two clarity components are fulfilled
-        3 — all three clarity components are fulfilled
+        0 — one or more necessary non-obvious concepts are left unexplained
+        1 — all concepts necessary for understanding are either explained or
+            can be assumed as common knowledge for a domain expert
 
     Args:
         api_client: Any :class:`BaseAPIClient` implementation (e.g.
@@ -37,7 +33,7 @@ class ClarityJudge(BaseJudge):
             hypothesis: A single hypothesis string to evaluate.
 
         Returns:
-            A :class:`JudgeResult` with ``score`` in ``[0, 3]``, a
+            A :class:`JudgeResult` with ``score`` in ``[0, 1]``, a
             ``reasoning`` string, and the ``model`` that produced the
             judgment.
         """
