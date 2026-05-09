@@ -17,7 +17,7 @@ def tokenize(text: str) -> list:
 def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 50):
     os.makedirs(output_dir, exist_ok=True)
     
-    # load and sort log files by timestamp
+    # Load and sort log files by timestamp
     log_files = glob.glob(os.path.join(logs_dir, "traj_*.json"))
     
     parsed_files = []
@@ -40,7 +40,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
 
     results = []
     
-    # process logs in windows to compute metrics over time
+    # Process logs in windows to compute metrics over time
     for i in range(0, len(parsed_files), window_size):
         batch_files = parsed_files[i:i+window_size]
         
@@ -100,58 +100,85 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     df.to_csv(csv_path, index=False)
     print(f"Saved raw windowed data to: {csv_path}")
 
-    # Generate Plots
+    # ==========================================
+    # Aesthetic Plot Generation (Thesis-Ready)
+    # ==========================================
     
-    # Plot 1: Trade-off - Compression vs. Usefulness (Reward vs Length)
-    plt.figure(figsize=(12, 5))
-    ax1 = plt.gca()
+    # Global matplotlib settings for a cleaner look
+    plt.rcParams.update({
+        'font.size': 11,
+        'axes.labelsize': 12,
+        'axes.titlesize': 14,
+        'legend.fontsize': 10,
+        'figure.titlesize': 16
+    })
+
+    # Academic Color Palette
+    c_reward = '#1f77b4'  # Steel Blue
+    c_length = '#d62728'  # Brick Red
+    c_entropy = '#2ca02c' # Forest Green
+    c_vocab = '#9467bd'   # Deep Purple
+
+    x_axis = df["Window_Index"]
+
+    # Plot 1: Trade-off - Compression vs. Usefulness
+    fig1, ax1 = plt.subplots(figsize=(10, 5))
     ax2 = ax1.twinx()
     
-    x_axis = df["Window_Index"]
+    # Plotting lines with distinct markers and thicker lines
+    line1 = ax1.plot(x_axis, df["Avg_Reward"], color=c_reward, marker='o', linestyle='-', linewidth=2, markersize=6, label='Average Reward (Task)')
+    line2 = ax2.plot(x_axis, df["Avg_Message_Length"], color=c_length, marker='s', linestyle='-', linewidth=2, markersize=6, label='Avg Message Length (Retriever)')
     
-    # Plotting lines
-    line1 = ax1.plot(x_axis, df["Avg_Reward"], 'b-o', label='Average Reward (Task)')
-    line2 = ax2.plot(x_axis, df["Avg_Message_Length"], 'r-s', label='Avg Message Length (Retriever)')
-    
+    # Axis styling
     ax1.set_xlabel('Training Steps (Windows)')
-    ax1.set_ylabel('Reward', color='b')
-    ax2.set_ylabel('Number of Tokens', color='r')
+    ax1.set_ylabel('Task Reward', color=c_reward, fontweight='bold')
+    ax2.set_ylabel('Number of Tokens', color=c_length, fontweight='bold')
     
-    # Combine legends from both axes
+    # Color tick labels to match the lines
+    ax1.tick_params(axis='y', labelcolor=c_reward)
+    ax2.tick_params(axis='y', labelcolor=c_length)
+    
+    # Combine legends from both axes cleanly
     lines = line1 + line2
     labels = [l.get_label() for l in lines]
-    ax1.legend(lines, labels, loc='upper left')
+    ax1.legend(lines, labels, loc='upper left', frameon=True, shadow=False, edgecolor='black')
     
-    plt.title('Information Bottleneck Trade-off: Compression vs. Usefulness')
-    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.title('Information Bottleneck: Compression vs. Task Usefulness', pad=15)
+    
+    # Soft grid on the primary axis
+    ax1.grid(True, linestyle='--', alpha=0.5, color='#b0b0b0')
     
     fig1_path = os.path.join(output_dir, "exp1_compression_vs_reward.png")
-    plt.savefig(fig1_path)
+    # Save with high DPI for thesis print quality
+    plt.savefig(fig1_path, dpi=300, bbox_inches='tight')
     plt.close()
 
     # Plot 2: Evolution of Entropy and Vocabulary Size
-    fig, (ax_ent, ax_voc) = plt.subplots(2, 1, figsize=(10, 8))
+    fig2, (ax_ent, ax_voc) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
     
-    ax_ent.plot(x_axis, df["Unigram_Entropy"], 'g-^')
-    ax_ent.set_title(f'Entropy of Token Distribution (Windows of {window_size})')
+    # Entropy Subplot
+    ax_ent.plot(x_axis, df["Unigram_Entropy"], color=c_entropy, marker='^', linestyle='-', linewidth=2, markersize=7)
+    ax_ent.set_title(f'Entropy of Token Distribution (Windows of {window_size} trajectories)')
     ax_ent.set_ylabel('Entropy (bits)')
-    ax_ent.grid(True, linestyle='--', alpha=0.7)
+    ax_ent.grid(True, linestyle='--', alpha=0.5, color='#b0b0b0')
     
-    ax_voc.plot(x_axis, df["Active_Vocab_Size"], 'm-D')
+    # Vocabulary Subplot
+    ax_voc.plot(x_axis, df["Active_Vocab_Size"], color=c_vocab, marker='D', linestyle='-', linewidth=2, markersize=5)
     ax_voc.set_title('Active Vocabulary Size Over Time')
     ax_voc.set_xlabel('Training Steps (Windows)')
     ax_voc.set_ylabel('Unique Words')
-    ax_voc.grid(True, linestyle='--', alpha=0.7)
+    ax_voc.grid(True, linestyle='--', alpha=0.5, color='#b0b0b0')
+    
+    fig2.tight_layout(pad=2.0) # Adds clean spacing between subplots
     
     fig2_path = os.path.join(output_dir, "exp1_entropy_and_vocab.png")
-    plt.tight_layout()
-    plt.savefig(fig2_path)
+    # Save with high DPI
+    plt.savefig(fig2_path, dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"Completed analysis. Plots saved to: {output_dir}")
+    print(f"Completed analysis. High-resolution plots saved to: {output_dir}")
 
 if __name__ == "__main__":
-    # Execute from 'disk' directory
     LOG_DIR = "./Agents/workflow_logs" 
     OUT_DIR = "./Agents/eval_results/experiment_1"
     
