@@ -104,20 +104,52 @@ def _write_debug_log(
     os.replace(tmp_path, path)
     logger.warning(f"[DEBUG] trajectory log written → {path}")
 
+
 # ── emergent communication helper──────────────────────────────────────────────
 
-def _inject_noise(text: str, noise_prob: float, mask_token: str = "[MASK]") -> str:
-    """
-    Substitutes alphanumeric words with a mask token based on probability.
-    Preserves all whitespace, newlines, and punctuation to maintain original formatting.
-    """
+MASK_PATTERN = re.compile(r"\b[a-zA-Z][a-zA-Z\-]{2,}\b")
+
+def _inject_noise(
+    text: str,
+    noise_prob: float,
+    mask_token: str = "[MASK]",
+    span_probability: float = 0.15,
+    max_span_length: int = 3,
+) -> str:
     if noise_prob <= 0.0:
-        return text  # No noise to apply
-    
-    def replacer(match):
-        return mask_token if random.random() < noise_prob else match.group(0)
-    
-    return re.sub(r'\b\w+\b', replacer, text)
+        return text
+
+    matches = list(MASK_PATTERN.finditer(text))
+    if not matches:
+        return text
+
+    output = []
+    last_end = 0
+    i = 0
+
+    while i < len(matches):
+        match = matches[i]
+
+        output.append(text[last_end:match.start()])
+
+        if random.random() < noise_prob:
+            span_len = 1
+
+            if random.random() < span_probability:
+                span_len = random.randint(1, max_span_length)
+
+            output.append(mask_token)
+
+            end_idx = min(i + span_len - 1, len(matches) - 1)
+            last_end = matches[end_idx].end()
+            i = end_idx + 1
+        else:
+            output.append(match.group(0))
+            last_end = match.end()
+            i += 1
+
+    output.append(text[last_end:])
+    return "".join(output)
 
 
 # ── main workflow ─────────────────────────────────────────────────────────────
@@ -132,21 +164,8 @@ async def workflow(
     metadata: Optional[Dict] = None,
     **kwargs,
 ) -> Dict[str, Any]:
-    """
-    Fixed 4-turn scientific hypothesis generation pipeline.
-
-    Parameters
-    ----------
-    prompt   : The user research query.
-    label    : Ground-truth hypothesis (used in Turn 3 reward).
-    agents   : List with at least one agent dict containing 'llm', 'tokenizer',
-               'sampling_params'.  A single model plays both roles.
-    metadata : Must include key 'papers': list of dicts with 'id', 'title',
-               'summary' fields.
-    """
     t_start = time.time()
 
-    # ── agent setup ──────────────────────────────────────────────────────────
     agent = agents[0]
     llm = agent["llm"]
     tokenizer = agent["tokenizer"]
@@ -163,9 +182,6 @@ async def workflow(
     papers: List[Dict[str, str]] = (metadata or {}).get("papers", [])
     paper_block = _format_papers(papers, max_papers=6)
 
-    # ── kwargs unpacking ──────────────────────────────────────────────────────
-    # MARTI passes --workflow_args JSON as a single kwarg named "workflow_args",
-    # not spread into **kwargs. Read from there first, fall back to top-level.
     _wargs: Dict[str, Any] = kwargs.get("workflow_args") or {}
     embed_host: str = _wargs.get("embed_host", kwargs.get("embed_host", "localhost"))
     embed_port: int = int(_wargs.get("embed_port", kwargs.get("embed_port", 8000)))
@@ -180,7 +196,6 @@ async def workflow(
     )
     prompt_id: int = kwargs.get("prompt_id", 0)
 
-    # emergent communication variables
     apply_length_penalty: bool = str(
         _wargs.get("apply_length_penalty", kwargs.get("apply_length_penalty", "False"))
     ).lower() == "true"
@@ -195,23 +210,29 @@ async def workflow(
         _wargs.get("noise_probability", kwargs.get("noise_probability", 0.1))
     )
 
-    # ── execute turns ─────────────────────────────────────────────────────────
     t0 = await turn_0_retriever_synthesize(
         llm, tokenizer, sp, agent_name, prompt, paper_block
     )
 
-    t0_message = _inject_noise(t0.output_content, noise_probability) if apply_channel_noise else t0.output_content
+    t0_message = (
+        _inject_noise(t0.output_content, noise_probability)
+        if apply_channel_noise
+        else t0.output_content
+    )
 
     t1 = await turn_1_generator_ask(
         llm, tokenizer, sp, agent_name, prompt, t0_message
     )
 
-
     t2 = await turn_2_retriever_refine(
         llm, tokenizer, sp, agent_name, t1.output_content, paper_block
     )
 
-    t2_message = _inject_noise(t2.output_content, noise_probability) if apply_channel_noise else t2.output_content
+    t2_message = (
+        _inject_noise(t2.output_content, noise_probability)
+        if apply_channel_noise
+        else t2.output_content
+    )
 
     t3 = await turn_3_generator_hypothesize(
         llm,
@@ -228,7 +249,6 @@ async def workflow(
         diversity_weight=diversity_weight,
     )
 
-    # ── assemble results ──────────────────────────────────────────────────────
     total_reward = t3.reward
     trajectory = [
         t0.trajectory_record,
@@ -249,7 +269,6 @@ async def workflow(
         debug_entries[0]["noisy_output_content"] = t0_message
         debug_entries[2]["noisy_output_content"] = t2_message
 
-    # propagate final reward to all trajectory records
     for i, record in enumerate(trajectory):
         step_reward = total_reward
 
@@ -281,8 +300,15 @@ async def workflow(
             turns=debug_entries,
         )
 
-    retriever_avg_tokens = (debug_entries[0].get("n_output_tokens", 0) + debug_entries[2].get("n_output_tokens", 0)) / 2.0
-    retriever_avg_penalty = (debug_entries[0].get("length_penalty", 0) + debug_entries[2].get("length_penalty", 0)) / 2.0
+    retriever_avg_tokens = (
+        debug_entries[0].get("n_output_tokens", 0)
+        + debug_entries[2].get("n_output_tokens", 0)
+    ) / 2.0
+
+    retriever_avg_penalty = (
+        debug_entries[0].get("length_penalty", 0)
+        + debug_entries[2].get("length_penalty", 0)
+    ) / 2.0
 
     return {
         "prompt": prompt,
@@ -293,5 +319,5 @@ async def workflow(
         "metrics": {
             "retriever_avg_tokens": retriever_avg_tokens,
             "retriever_avg_length_penalty": retriever_avg_penalty,
-        }
+        },
     }
