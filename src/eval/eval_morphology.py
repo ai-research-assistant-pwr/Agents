@@ -166,28 +166,31 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     # ------------------------------------------------------------------
     # Plot 1: Trade-off — Compression vs. Usefulness
     # ------------------------------------------------------------------
-    fig1, ax1 = plt.subplots(figsize=(10, 5))
-    ax2 = ax1.twinx()
+    fig1, (ax1_reward, ax1_length) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
 
-    line1 = ax1.plot(x_axis, df["Avg_Reward"],
-                     color=c_reward, marker='o', linestyle='-',
-                     linewidth=2, markersize=6, label='Average Reward (Task)')
-    line2 = ax2.plot(x_axis, df["Avg_Message_Length"],
-                     color=c_length, marker='s', linestyle='-',
-                     linewidth=2, markersize=6, label='Avg Message Length (Retriever)')
+    ax1_reward.plot(x_axis, df["Avg_Reward"],
+                    color=c_reward, marker='o', linestyle='-',
+                    linewidth=2, markersize=6, label='Task Reward')
+    ax1_reward.set_title('Average Task Reward Over Time', pad=10)
+    ax1_reward.set_ylabel('Task Reward', color=c_reward, fontweight='bold')
+    ax1_reward.tick_params(axis='y', labelcolor=c_reward)
+    ax1_reward.grid(True, linestyle='--', alpha=0.5, color='#b0b0b0')
+    ax1_reward.legend(loc='upper left', frameon=True, edgecolor='black')
 
-    ax1.set_xlabel('Training Steps (Windows)')
-    ax1.set_ylabel('Task Reward', color=c_reward, fontweight='bold')
-    ax2.set_ylabel('Number of Tokens', color=c_length, fontweight='bold')
-    ax1.tick_params(axis='y', labelcolor=c_reward)
-    ax2.tick_params(axis='y', labelcolor=c_length)
+    # Length Subplot
+    ax1_length.plot(x_axis, df["Avg_Message_Length"],
+                    color=c_length, marker='s', linestyle='-',
+                    linewidth=2, markersize=6, label='Message Length')
+    ax1_length.set_title('Average Retriever Message Length (Compression)', pad=10)
+    ax1_length.set_xlabel('Training Steps (Windows)')
+    ax1_length.set_ylabel('Number of Tokens', color=c_length, fontweight='bold')
+    ax1_length.tick_params(axis='y', labelcolor=c_length)
+    ax1_length.grid(True, linestyle='--', alpha=0.5, color='#b0b0b0')
+    ax1_length.legend(loc='upper right', frameon=True, edgecolor='black')
 
-    lines  = line1 + line2
-    labels = [l.get_label() for l in lines]
-    ax1.legend(lines, labels, loc='upper left', frameon=True, shadow=False, edgecolor='black')
-
-    plt.title('Information Bottleneck: Compression vs. Task Usefulness', pad=15)
-    ax1.grid(True, linestyle='--', alpha=0.5, color='#b0b0b0')
+    # Add a main title for the figure to tie the concept together
+    fig1.suptitle('Information Bottleneck: Compression vs. Task Usefulness', y=0.98, fontweight='bold')
+    fig1.tight_layout(pad=2.0, rect=[0, 0, 1, 0.95]) # Adjust rect to accommodate suptitle
 
     fig1_path = os.path.join(output_dir, "exp1_compression_vs_reward.png")
     plt.savefig(fig1_path, dpi=300, bbox_inches='tight')
@@ -206,7 +209,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     ax_ent.set_ylabel('Entropy (bits)')
     ax_ent.grid(True, linestyle='--', alpha=0.5, color='#b0b0b0')
 
-    # FIX #3: Normalised entropy subplot — comparable across window sizes
+    # Normalised entropy subplot
     ax_enorm.plot(x_axis, df["Unigram_Entropy_Norm"],
                   color=c_enorm, marker='^', linestyle='-', linewidth=2, markersize=7)
     ax_enorm.set_title('Normalised Entropy  H / log₂(V)  — window-size independent')
