@@ -40,6 +40,9 @@ BATCH_SIZE="${TRAIN_BATCH_SIZE:-8}"
 ROLLOUT_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
 SIMILARITY_WEIGHT="${SIMILARITY_WEIGHT:-1.0}"
 DIVERSITY_WEIGHT="${DIVERSITY_WEIGHT:-1.0}"
+DEBUG_WORKFLOW="${DEBUG_WORKFLOW:-true}"
+USE_WEAVIATE_CONTEXT="${USE_WEAVIATE_CONTEXT:-false}"
+WEAVIATE_TOP_N="${WEAVIATE_TOP_N:-6}"
 
 # 3. Derived Paths
 VENV_PATH="$BASE_DIR/venv"
@@ -134,7 +137,7 @@ srun --het-group=0 \
     --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$DATA_PATH" \
-    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"weaviate_url\": \"http://$WEAVIATE_NODE_ID:8080\"}" \
+    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"weaviate_url\": \"http://$WEAVIATE_NODE_ID:8080\", \"debug\": $DEBUG_WORKFLOW, \"use_weaviate_context\": $USE_WEAVIATE_CONTEXT, \"weaviate_top_n\": $WEAVIATE_TOP_N}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
     --metadata_key "metadata" \

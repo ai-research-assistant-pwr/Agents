@@ -3,6 +3,14 @@ Scientific Hypothesis Generation Workflow
 ==========================================
 Variable-length pipeline driven by tool calls.
 
+Feature flags (all controllable via workflow_args / run_grpo.sh)
+----------------------------------------------------------------
+  debug               – write per-trajectory JSON logs (default: true)
+  use_weaviate_context– fetch papers live from Weaviate instead of metadata
+                        (default: false)
+  weaviate_top_n      – number of Weaviate results when use_weaviate_context
+                        is enabled (default: 6)
+
 Architecture
 ------------
   Both agents (retriever and generator) communicate exclusively via structured
@@ -51,17 +59,21 @@ Data contract
 
 kwargs (via workflow_args JSON or top-level)
 --------------------------------------------
-  embed_host        – hostname of the vLLM embedding server  (default: "localhost")
-  embed_port        – port of the vLLM embedding server       (default: 8000)
-  max_turns         – hard cap on trajectory length            (default: 10)
-  debug_dir         – directory for per-trajectory JSON logs  (default: "./workflow_debug_logs")
-  similarity_weight – weight for the embedding similarity reward (default: 0.7)
-  diversity_weight  – weight for the hypothesis diversity reward  (default: 0.3)
+  embed_host          – hostname of the vLLM embedding server   (default: "localhost")
+  embed_port          – port of the vLLM embedding server        (default: 8000)
+  max_turns           – hard cap on trajectory length             (default: 10)
+  debug_dir           – directory for per-trajectory JSON logs   (default: "./workflow_debug_logs")
+  debug               – write per-trajectory JSON logs           (default: true)
+  similarity_weight   – weight for the embedding similarity reward (default: 0.7)
+  diversity_weight    – weight for the hypothesis diversity reward  (default: 0.3)
+  use_weaviate_context– fetch papers live from Weaviate           (default: false)
+  weaviate_top_n      – number of Weaviate results to fetch       (default: 6)
+  weaviate_url        – Weaviate base URL (when use_weaviate_context is true)
 
 Debug logging
 -------------
-  Set DEBUG = True to write one JSON file per trajectory into ``debug_dir``.
-  Files are written atomically (temp file + rename).
+  When ``debug`` is true (the default), one JSON file per trajectory is written
+  into ``debug_dir``.  Files are written atomically (temp file + rename).
 """
 
 import json
@@ -72,25 +84,11 @@ from typing import Any, Dict, List, Optional
 
 from marti.utils.logging_utils import init_logger
 from src.grpo.grpo_train.tools import search_weaviate
-from src.grpo.grpo_train.turns import (
-    TrajectoryState,
-    execute_turn,
-    initial_state,
-)
+from src.grpo.grpo_train.state import TrajectoryState, initial_state
+from src.grpo.grpo_train.turns import execute_turn
 
 logger = init_logger(__name__)
 logger.setLevel("WARN")
-
-DEBUG: bool = True
-
-# ── feature flags ─────────────────────────────────────────────────────────────
-
-# When True, paper context is retrieved live from Weaviate by embedding the
-# user query, instead of being loaded from the dataset row's metadata field.
-USE_WEAVIATE_CONTEXT: bool = False
-
-# Number of papers to fetch from Weaviate when USE_WEAVIATE_CONTEXT is True.
-WEAVIATE_TOP_N: int = 6
 
 # ── paper-context helper ──────────────────────────────────────────────────────
 
@@ -208,31 +206,32 @@ async def workflow(
     # MARTI passes --workflow_args JSON as a single kwarg named "workflow_args",
     # not spread into **kwargs. Read from there first, fall back to top-level.
     _wargs: Dict[str, Any] = kwargs.get("workflow_args") or {}
-    embed_host: str = _wargs.get("embed_host", kwargs.get("embed_host", "localhost"))
-    embed_port: int = int(_wargs.get("embed_port", kwargs.get("embed_port", 8000)))
-    max_turns: int = int(_wargs.get("max_turns", kwargs.get("max_turns", 10)))
-    debug_dir: str = _wargs.get(
-        "debug_dir", kwargs.get("debug_dir", "./workflow_debug_logs")
-    )
-    similarity_weight: float = float(
-        _wargs.get("similarity_weight", kwargs.get("similarity_weight", 0.7))
-    )
-    diversity_weight: float = float(
-        _wargs.get("diversity_weight", kwargs.get("diversity_weight", 0.3))
-    )
+
+    def _get(key: str, default: Any) -> Any:
+        return _wargs.get(key, kwargs.get(key, default))
+
+    embed_host: str = _get("embed_host", "localhost")
+    embed_port: int = int(_get("embed_port", 8000))
+    max_turns: int = int(_get("max_turns", 10))
+    debug_dir: str = _get("debug_dir", "./workflow_debug_logs")
+    debug: bool = str(_get("debug", "true")).lower() not in ("false", "0", "no")
+    similarity_weight: float = float(_get("similarity_weight", 0.7))
+    diversity_weight: float = float(_get("diversity_weight", 0.3))
+    use_weaviate_context: bool = str(
+        _get("use_weaviate_context", "false")
+    ).lower() not in ("false", "0", "no")
+    weaviate_top_n: int = int(_get("weaviate_top_n", 6))
     prompt_id: int = kwargs.get("prompt_id", 0)
 
     # ── paper context ─────────────────────────────────────────────────────────
-    if USE_WEAVIATE_CONTEXT:
-        weaviate_url: str = _wargs.get(
-            "weaviate_url", kwargs.get("weaviate_url", "http://localhost:8080")
-        )
-        papers = search_weaviate(prompt, WEAVIATE_TOP_N, weaviate_url)
-        paper_block = _format_papers(papers, max_papers=WEAVIATE_TOP_N)
+    if use_weaviate_context:
+        weaviate_url: str = _get("weaviate_url", "http://localhost:8080")
+        papers = search_weaviate(prompt, weaviate_top_n, weaviate_url)
+        paper_block = _format_papers(papers, max_papers=weaviate_top_n)
     else:
         metadata = json.loads(json.loads(metadata))
         papers = (metadata or {}).get("papers", [])
-        paper_block = _format_papers(papers, max_papers=WEAVIATE_TOP_N)
+        paper_block = _format_papers(papers, max_papers=weaviate_top_n)
 
     # ── trajectory loop ───────────────────────────────────────────────────────
     state: TrajectoryState = initial_state(prompt, paper_block)
@@ -270,7 +269,7 @@ async def workflow(
         f"| reward={total_reward:.3f} | time={elapsed:.1f}s"
     )
 
-    if DEBUG:
+    if debug:
         _write_debug_log(
             debug_dir=debug_dir,
             prompt_id=prompt_id,
