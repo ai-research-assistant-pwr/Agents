@@ -20,9 +20,10 @@ class JudgeResult:
 
 
 class BaseJudge(ABC):
-    def __init__(self, client: OpenAI, model: str) -> None:
+    def __init__(self, client: OpenAI, model: str, reasoning: dict) -> None:
         self.client = client
         self.model = model
+        self.reasoning = reasoning
 
     def _call(self, system: str, user: str) -> JudgeResult:
         response = self.client.responses.parse(
@@ -30,7 +31,7 @@ class BaseJudge(ABC):
             instructions=system,
             input=[{"role": "user", "content": user}],
             text_format=JudgeResponse,
-            reasoning={"effort": "medium"},
+            reasoning=self.reasoning,
         )
         parsed: JudgeResponse = response.output_parsed
         return JudgeResult(
