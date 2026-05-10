@@ -2,40 +2,32 @@
 Turn execution for the scientific hypothesis generation pipeline.
 ================================================================
 
-``execute_turn`` is the single public function here.  It orchestrates one
-iteration of the trajectory loop:
+``execute_turn`` orchestrates one step of the fixed-length trajectory:
 
-  1. Build the prompt for the current agent (including any prior search
-     exchanges already in state, so the LLM sees its full history).
-  2. Call the LLM.  The prompt's input_ids cover all prior context; the
-     returned output_ids contain *only* the tokens generated this call.
-  3. Parse the tool call from the raw output.
-  4. Validate that the tool is allowed this turn.
-  5. For ``search_papers``: execute the Weaviate search synchronously and
-     inject the result into tool_args before transition.
-  6. For ``generate_hypotheses``: compute the embedding-based reward.
-  7. Delegate to ``apply_tool_call`` and return the next ``TrajectoryState``.
+  1. Build the ChatML prompt for the current step type.
+  2. Call the LLM and collect the raw output text + token ids.
+  3. Extract the relevant content from the output based on step type:
+       retriever_search   → strip the output → use as search query
+       retriever_message  → strip the output → use as synthesis message
+       generator_ask      → strip the output → use as follow-up question
+       generator_generate → _parse_hypotheses(output) → compute final reward
+  4. For ``retriever_search``: execute the Weaviate search and store the result.
+  5. For ``generator_generate``: compute embedding-based reward (0.0 if no
+     valid hypotheses were parsed).
+  6. Delegate to ``apply_step`` in transitions.py and return the next state.
 
-Any failure in steps 3–4 immediately terminates the trajectory with
-``terminal_reason="bad_tool_call"`` and reward 0.
+All intermediate steps receive reward=0.0 in the trajectory record; the final
+reward from ``generator_generate`` is propagated to all records by the workflow.
 """
 
 from typing import Any, Dict, List
 
 from src.grpo.grpo_train.prompts import build_agent_prompt
-from src.grpo.grpo_train.records import (
-    make_debug_entry,
-    make_turn_record,
-    parse_tool_call,
-    tokenize,
-)
+from src.grpo.grpo_train.records import make_debug_entry, make_turn_record, tokenize
+from src.grpo.grpo_train.rewards import _parse_hypotheses
 from src.grpo.grpo_train.state import TrajectoryState
-from src.grpo.grpo_train.tools import available_tools, search_papers_tool
-from src.grpo.grpo_train.transitions import (
-    _terminal_bad_call,
-    apply_tool_call,
-    compute_final_reward,
-)
+from src.grpo.grpo_train.tools import search_papers_tool
+from src.grpo.grpo_train.transitions import apply_step, compute_final_reward
 
 
 async def execute_turn(
@@ -52,7 +44,7 @@ async def execute_turn(
     diversity_weight: float = 0.3,
 ) -> TrajectoryState:
     """
-    Execute one trajectory turn and return the next ``TrajectoryState``.
+    Execute one trajectory step and return the next ``TrajectoryState``.
 
     Parameters
     ----------
@@ -64,18 +56,10 @@ async def execute_turn(
     label           : Ground-truth hypothesis string (used for terminal reward).
     embed_host      : Hostname of the embedding server.
     embed_port      : Port of the embedding server.
-    weaviate_url    : Base URL of the Weaviate instance (used by search_papers).
+    weaviate_url    : Base URL of the Weaviate instance.
     similarity_weight, diversity_weight : Reward weighting coefficients.
-
-    Token accounting note
-    ---------------------
-    ``input_ids`` are the full prompt tokens for this call, including all prior
-    search-exchange context injected by ``build_agent_prompt``.  ``output_ids``
-    contain *only* the tokens produced by the LLM in this call — they are taken
-    directly from ``resp.outputs[0].token_ids`` and never overlap with input.
     """
-    role = state.current_agent
-    tools = available_tools(state)
+    step = state.current_step
     prompt = build_agent_prompt(state)
 
     input_ids = tokenize(tokenizer, prompt)
@@ -85,85 +69,29 @@ async def execute_turn(
     output: str = resp.outputs[0].text
     output_ids: List[int] = list(resp.outputs[0].token_ids)
 
-    # ── parse tool call ───────────────────────────────────────────────────────
-    parsed = parse_tool_call(output)
+    # ── step-specific extraction and side-effects ─────────────────────────────
+    reward: float = 0.0
+    extra_debug: Dict[str, Any] = {"step": step}
+    step_payload: Dict[str, Any] = {}  # passed to apply_step
 
-    if parsed is None:
-        turn_record = make_turn_record(
-            state.turn_id,
-            agent_name,
-            role,
-            prompt,
-            output,
-            input_ids,
-            output_ids,
-            sampling_params,
-            resp.outputs[0],
-            reward=0.0,
-        )
-        debug_entry = make_debug_entry(
-            state.turn_id,
-            role,
-            prompt,
-            output,
-            reward=0.0,
-            input_ids=input_ids,
-            output_ids=output_ids,
-            tool_name=None,
-            extra={"error": "missing_tool_call"},
-        )
-        return _terminal_bad_call(state, turn_record, debug_entry)
-
-    tool_name, tool_args = parsed
-
-    # ── validate tool is allowed this turn ────────────────────────────────────
-    if tool_name not in tools:
-        turn_record = make_turn_record(
-            state.turn_id,
-            agent_name,
-            role,
-            prompt,
-            output,
-            input_ids,
-            output_ids,
-            sampling_params,
-            resp.outputs[0],
-            reward=0.0,
-        )
-        debug_entry = make_debug_entry(
-            state.turn_id,
-            role,
-            prompt,
-            output,
-            reward=0.0,
-            input_ids=input_ids,
-            output_ids=output_ids,
-            tool_name=tool_name,
-            extra={"error": f"tool_not_allowed: {tool_name} not in {tools}"},
-        )
-        return _terminal_bad_call(state, turn_record, debug_entry)
-
-    # ── tool-specific side-effects and reward computation ─────────────────────
-    reward = 0.0
-    extra_debug: Dict[str, Any] = {}
-    metadata: Dict[str, Any] = {}
-
-    if tool_name == "search_papers":
-        # Execute the Weaviate search and inject the result into tool_args so
-        # apply_tool_call can store it in retriever_search_exchanges.
-        # The raw LLM output (including thinking tokens) is also passed so the
-        # prompt for the next call can faithfully replay the full exchange.
-        query = tool_args.get("query", "")
+    if step == "retriever_search":
+        query = output.strip()
         search_result = search_papers_tool(query, weaviate_url, embed_host, embed_port)
-        tool_args = {
-            **tool_args,
-            "_raw_llm_output": output,
-            "_search_result": search_result,
-        }
-        extra_debug = {"search_query": query, "search_result": search_result}
+        step_payload = {"query": query, "search_result": search_result}
+        extra_debug.update({"search_query": query, "search_result": search_result})
 
-    elif tool_name == "generate_hypotheses":
-        hypotheses = tool_args.get("hypotheses", [])
+    elif step == "retriever_message":
+        message = output.strip()
+        step_payload = {"message": message}
+        extra_debug.update({"message": message})
+
+    elif step == "generator_ask":
+        question = output.strip()
+        step_payload = {"question": question}
+        extra_debug.update({"question": question})
+
+    elif step == "generator_generate":
+        hypotheses = _parse_hypotheses(output)
         reward, sim_score, div_score = await compute_final_reward(
             hypotheses,
             label,
@@ -172,37 +100,40 @@ async def execute_turn(
             similarity_weight,
             diversity_weight,
         )
-        extra_debug = {
-            "similarity_score": sim_score,
-            "diversity_score": div_score,
-            "similarity_weight": similarity_weight,
-            "diversity_weight": diversity_weight,
-        }
-        metadata = {"label": label}
+        step_payload = {"hypotheses": hypotheses}
+        extra_debug.update(
+            {
+                "hypotheses": hypotheses,
+                "similarity_score": sim_score,
+                "diversity_score": div_score,
+                "similarity_weight": similarity_weight,
+                "diversity_weight": diversity_weight,
+            }
+        )
 
     turn_record = make_turn_record(
-        state.turn_id,
-        agent_name,
-        role,
-        prompt,
-        output,
-        input_ids,
-        output_ids,
-        sampling_params,
-        resp.outputs[0],
+        turn_id=state.turn_id,
+        agent_name=agent_name,
+        role=state.current_agent,
+        prompt=prompt,
+        output=output,
+        input_ids=input_ids,
+        output_ids=output_ids,
+        sampling_params=sampling_params,
+        resp_output=resp.outputs[0],
         reward=reward,
-        metadata=metadata,
+        metadata={"label": label} if step == "generator_generate" else {},
     )
     debug_entry = make_debug_entry(
-        state.turn_id,
-        role,
-        prompt,
-        output,
+        turn_id=state.turn_id,
+        role=state.current_agent,
+        prompt=prompt,
+        output=output,
         reward=reward,
         input_ids=input_ids,
         output_ids=output_ids,
-        tool_name=tool_name,
-        extra=extra_debug if extra_debug else None,
+        tool_name=step,
+        extra=extra_debug,
     )
 
-    return apply_tool_call(state, tool_name, tool_args, turn_record, debug_entry)
+    return apply_step(state, step, step_payload, turn_record, debug_entry)

@@ -1,25 +1,22 @@
 """
-State-transition functions for the scientific hypothesis generation pipeline.
-=============================================================================
+State-transition function for the scientific hypothesis generation pipeline.
+============================================================================
 
-``apply_tool_call`` is the core pure transition function: given the current
-``TrajectoryState`` and a validated tool invocation it returns the next state.
+``apply_step`` is the single pure transition function: given the current
+``TrajectoryState``, the completed step type, and the extracted payload, it
+returns the next state with turn_id incremented and the appropriate accumulator
+list updated.
 
-``compute_final_reward`` is an async helper that calls the embedding server
-and computes the weighted similarity + diversity reward.
+``compute_final_reward`` computes the weighted similarity + diversity reward
+using the embedding server.
 
-``_terminal_bad_call`` is an internal helper that stamps a trajectory as
-failed due to a malformed or disallowed tool call.
-
-Tool transitions summary
-------------------------
-  search_papers      → stays on retriever; appends (raw_output, result) to
-                       retriever_search_exchanges; increments search_papers count.
-  send_to_generator  → switches to generator; resets retriever_search_exchanges
-                       and search_papers count (for next potential retriever turn).
-  ask_retriever      → switches to retriever; resets retriever_search_exchanges
-                       and search_papers count for the new retriever turn.
-  generate_hypotheses→ terminal; populates hypotheses.
+Step transitions
+----------------
+  retriever_search   → appends search_result to state.search_results
+  retriever_message  → appends message to state.retriever_messages
+  generator_ask      → appends question to state.generator_questions
+  generator_generate → appends hypotheses to state.hypotheses; trajectory ends
+                       when turn_id reaches len(step_sequence)
 """
 
 from typing import Any, Dict, List, Tuple
@@ -29,7 +26,7 @@ from src.grpo.grpo_train.rewards import (
     get_hypothesis_and_label_embeddings,
     hypothesis_diversity_reward,
 )
-from src.grpo.grpo_train.state import HistoryEntry, TrajectoryState
+from src.grpo.grpo_train.state import TrajectoryState
 
 
 # ── reward computation ────────────────────────────────────────────────────────
@@ -60,179 +57,88 @@ async def compute_final_reward(
     return reward, sim, div
 
 
-# ── terminal-state factory ────────────────────────────────────────────────────
+# ── state transition ──────────────────────────────────────────────────────────
 
 
-def _terminal_bad_call(
+def apply_step(
     state: TrajectoryState,
-    turn_record: Dict[str, Any],
-    debug_entry: Dict[str, Any],
-) -> TrajectoryState:
-    """Return a terminal state representing a malformed or disallowed tool call."""
-    return TrajectoryState(
-        turn_id=state.turn_id + 1,
-        current_agent=state.current_agent,
-        history=state.history,
-        tool_usage=state.tool_usage,
-        ask_retriever_limit=state.ask_retriever_limit,
-        retriever_search_limit=state.retriever_search_limit,
-        retriever_search_exchanges=state.retriever_search_exchanges,
-        paper_block=state.paper_block,
-        query=state.query,
-        is_terminal=True,
-        terminal_reason="bad_tool_call",
-        hypotheses=None,
-        trajectory_records=state.trajectory_records + [turn_record],
-        debug_entries=state.debug_entries + [debug_entry],
-    )
-
-
-def _reset_retriever_turn_state(tool_usage: Dict[str, int]) -> Dict[str, int]:
-    """Return a copy of tool_usage with the per-retriever-turn search counter reset."""
-    return {**tool_usage, "search_papers": 0}
-
-
-# ── state transitions ─────────────────────────────────────────────────────────
-
-
-def apply_tool_call(
-    state: TrajectoryState,
-    tool_name: str,
-    tool_args: Dict[str, Any],
+    step: str,
+    payload: Dict[str, Any],
     turn_record: Dict[str, Any],
     debug_entry: Dict[str, Any],
 ) -> TrajectoryState:
     """
-    Pure transition function.
+    Pure transition: advance turn_id and update the relevant accumulator.
 
-    Given the current state and a *validated* tool invocation, return the next
-    ``TrajectoryState``.  The ``tool_args`` dict may carry a private key
-    ``"_search_result"`` (injected by ``execute_turn``) when ``tool_name`` is
-    ``"search_papers"``; this value is stored in ``retriever_search_exchanges``.
-
-    Outcomes by tool
-    ----------------
-    search_papers
-        Control stays with the retriever.  The pair
-        ``(raw_llm_output, search_result)`` is appended to
-        ``retriever_search_exchanges`` so the next prompt includes it.
-        ``search_papers`` usage is incremented.
-
-    send_to_generator
-        Control passes to the generator.  ``retriever_search_exchanges`` and
-        the ``search_papers`` counter are reset (clean slate for the next
-        potential retriever turn).
-
-    ask_retriever
-        Control passes back to the retriever for a new turn.
-        ``retriever_search_exchanges`` and the ``search_papers`` counter are
-        reset so the retriever starts fresh.
-
-    generate_hypotheses
-        Terminal state; ``hypotheses`` is populated.
-
-    Unknown tool name
-        Falls through to ``_terminal_bad_call`` (should be unreachable after
-        validation in ``execute_turn``).
+    Parameters
+    ----------
+    state       : Current (immutable) trajectory state.
+    step        : Step type string (e.g. ``"retriever_search"``).
+    payload     : Extracted content for this step:
+                    retriever_search   → {"query": str, "search_result": str}
+                    retriever_message  → {"message": str}
+                    generator_ask      → {"question": str}
+                    generator_generate → {"hypotheses": List[str]}
+    turn_record : MARTI-compatible record dict to append.
+    debug_entry : Human-readable debug dict to append.
     """
     new_records = state.trajectory_records + [turn_record]
     new_debug = state.debug_entries + [debug_entry]
 
-    # ── search_papers ─────────────────────────────────────────────────────────
-    if tool_name == "search_papers":
-        raw_output = tool_args.get("_raw_llm_output", "")
-        search_result = tool_args.get("_search_result", "")
-        new_exchanges = state.retriever_search_exchanges + [(raw_output, search_result)]
-        new_usage = {
-            **state.tool_usage,
-            "search_papers": state.tool_usage.get("search_papers", 0) + 1,
-        }
+    if step == "retriever_search":
         return TrajectoryState(
             turn_id=state.turn_id + 1,
-            current_agent="retriever",
-            history=state.history,
-            tool_usage=new_usage,
-            ask_retriever_limit=state.ask_retriever_limit,
-            retriever_search_limit=state.retriever_search_limit,
-            retriever_search_exchanges=new_exchanges,
+            step_sequence=state.step_sequence,
+            search_results=state.search_results + [payload["search_result"]],
+            retriever_messages=state.retriever_messages,
+            generator_questions=state.generator_questions,
             paper_block=state.paper_block,
             query=state.query,
-            is_terminal=False,
-            terminal_reason=None,
-            hypotheses=None,
+            hypotheses=state.hypotheses,
             trajectory_records=new_records,
             debug_entries=new_debug,
         )
 
-    # ── send_to_generator ─────────────────────────────────────────────────────
-    if tool_name == "send_to_generator":
-        message = tool_args.get("message", "")
-        new_entry = HistoryEntry(
-            agent="retriever", tool="send_to_generator", message=message
-        )
+    if step == "retriever_message":
         return TrajectoryState(
             turn_id=state.turn_id + 1,
-            current_agent="generator",
-            history=state.history + [new_entry],
-            tool_usage=_reset_retriever_turn_state(state.tool_usage),
-            ask_retriever_limit=state.ask_retriever_limit,
-            retriever_search_limit=state.retriever_search_limit,
-            retriever_search_exchanges=[],  # reset for next retriever turn
+            step_sequence=state.step_sequence,
+            search_results=state.search_results,
+            retriever_messages=state.retriever_messages + [payload["message"]],
+            generator_questions=state.generator_questions,
             paper_block=state.paper_block,
             query=state.query,
-            is_terminal=False,
-            terminal_reason=None,
-            hypotheses=None,
+            hypotheses=state.hypotheses,
             trajectory_records=new_records,
             debug_entries=new_debug,
         )
 
-    # ── ask_retriever ─────────────────────────────────────────────────────────
-    if tool_name == "ask_retriever":
-        question = tool_args.get("question", "")
-        new_entry = HistoryEntry(
-            agent="generator", tool="ask_retriever", message=question
-        )
-        new_usage = {
-            **_reset_retriever_turn_state(state.tool_usage),
-            "ask_retriever": state.tool_usage.get("ask_retriever", 0) + 1,
-        }
+    if step == "generator_ask":
         return TrajectoryState(
             turn_id=state.turn_id + 1,
-            current_agent="retriever",
-            history=state.history + [new_entry],
-            tool_usage=new_usage,
-            ask_retriever_limit=state.ask_retriever_limit,
-            retriever_search_limit=state.retriever_search_limit,
-            retriever_search_exchanges=[],  # fresh start for new retriever turn
+            step_sequence=state.step_sequence,
+            search_results=state.search_results,
+            retriever_messages=state.retriever_messages,
+            generator_questions=state.generator_questions + [payload["question"]],
             paper_block=state.paper_block,
             query=state.query,
-            is_terminal=False,
-            terminal_reason=None,
-            hypotheses=None,
+            hypotheses=state.hypotheses,
             trajectory_records=new_records,
             debug_entries=new_debug,
         )
 
-    # ── generate_hypotheses ───────────────────────────────────────────────────
-    if tool_name == "generate_hypotheses":
-        hypotheses = tool_args.get("hypotheses", [])
+    if step == "generator_generate":
         return TrajectoryState(
             turn_id=state.turn_id + 1,
-            current_agent="generator",
-            history=state.history,
-            tool_usage=state.tool_usage,
-            ask_retriever_limit=state.ask_retriever_limit,
-            retriever_search_limit=state.retriever_search_limit,
-            retriever_search_exchanges=state.retriever_search_exchanges,
+            step_sequence=state.step_sequence,
+            search_results=state.search_results,
+            retriever_messages=state.retriever_messages,
+            generator_questions=state.generator_questions,
             paper_block=state.paper_block,
             query=state.query,
-            is_terminal=True,
-            terminal_reason="hypotheses_generated",
-            hypotheses=hypotheses,
+            hypotheses=payload["hypotheses"],
             trajectory_records=new_records,
             debug_entries=new_debug,
         )
 
-    # unknown tool — should be unreachable after validation in execute_turn
-    return _terminal_bad_call(state, turn_record, debug_entry)
+    raise ValueError(f"Unknown step type in apply_step: {step!r}")

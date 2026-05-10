@@ -1,131 +1,24 @@
 """
-Weaviate search tool and agent tool definitions for the scientific workflow.
-============================================================================
+Weaviate search tools for the scientific workflow.
+===================================================
 
-Tool schemas
-------------
-  send_to_generator  – Retriever sends its synthesis to the generator.
-  search_papers      – Retriever searches Weaviate for one additional paper
-                       (limited to ``state.retriever_search_limit`` calls per
-                       retriever turn; counter resets at the start of each new
-                       retriever turn).
-  generate_hypotheses– Generator outputs the final hypothesis list (terminal).
-  ask_retriever      – Generator asks the retriever a follow-up question
-                       (limited to ``state.ask_retriever_limit`` uses per
-                       trajectory).
+The tool-call schema machinery from the previous version has been removed.
+The pipeline is now step-driven and does not require LLMs to emit tool calls.
 
-Tool availability is determined by ``available_tools(state)``, which reads
-limits from the state so they can be configured at runtime via workflow_args
-without touching source code.
+Public API
+----------
+  search_weaviate(query, n, weaviate_url, embed_host, embed_port)
+      Full Weaviate semantic search; returns a list of paper dicts.
+
+  search_papers_tool(query, weaviate_url, embed_host, embed_port)
+      Convenience wrapper used by execute_turn for retriever_search steps.
+      Fetches exactly 1 paper and returns a formatted string.
 """
 
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import requests
 
-from src.grpo.grpo_train.state import TrajectoryState
-
-
-# ── tool schemas ──────────────────────────────────────────────────────────────
-# Descriptions that depend on runtime limits are formatted lazily in
-# build_tool_section so the correct numbers are always shown.
-
-TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
-    "send_to_generator": {
-        "description": (
-            "Send your synthesis or focused answer to the generator agent. "
-            "Use this when you have extracted the relevant information from the papers."
-        ),
-        "parameters": {
-            "message": "string — your complete synthesis or answer text",
-        },
-    },
-    "search_papers": {
-        "description": (
-            "Search the paper database for one additional paper relevant to a specific "
-            "aspect of the query. Use this to fill evidence gaps before sending your "
-            "synthesis. Your full prior reasoning and the search result will be preserved "
-            "in context. {limit_note}"
-        ),
-        "parameters": {
-            "query": "string — a focused search query targeting a specific topic or mechanism",
-        },
-    },
-    "generate_hypotheses": {
-        "description": (
-            "Output the final list of scientific hypotheses. "
-            "Use this when you have enough information to generate well-grounded hypotheses."
-        ),
-        "parameters": {
-            "hypotheses": (
-                "array of strings — each element is one complete, self-contained hypothesis"
-            ),
-        },
-    },
-    "ask_retriever": {
-        "description": (
-            "Ask the retriever a single focused follow-up question to fill a critical "
-            "evidence gap. {limit_note}"
-        ),
-        "parameters": {
-            "question": "string — your precise, specific question for the retriever",
-        },
-    },
-}
-
-
-def _render_description(tool_name: str, state: TrajectoryState) -> str:
-    """Return the tool description with any runtime limit notes filled in."""
-    desc = TOOL_SCHEMAS[tool_name]["description"]
-    if tool_name == "search_papers":
-        remaining = state.retriever_search_limit - state.tool_usage.get(
-            "search_papers", 0
-        )
-        note = f"Allowed {remaining} more time(s) this retriever turn."
-        return desc.format(limit_note=note)
-    if tool_name == "ask_retriever":
-        remaining = state.ask_retriever_limit - state.tool_usage.get("ask_retriever", 0)
-        note = f"Allowed {remaining} more time(s) per trajectory."
-        return desc.format(limit_note=note)
-    return desc.format(limit_note="")  # no placeholder in other tools
-
-
-def build_tool_section(tools: List[str], state: TrajectoryState) -> str:
-    """Render the tool-call instruction block for the given tool names."""
-    lines = [
-        "## Tool Use\n",
-        "After your thinking, you MUST output exactly one tool call using this format:\n",
-        '<tool_call>{"name": "<tool_name>", "arguments": {<arguments as JSON>}}</tool_call>\n',
-        "Do not output anything after the closing </tool_call> tag.\n",
-        "\n### Available tools:\n",
-    ]
-    for name in tools:
-        schema = TOOL_SCHEMAS[name]
-        description = _render_description(name, state)
-        param_str = json.dumps(schema["parameters"], indent=4)
-        lines.append(f"**{name}**")
-        lines.append(f"  {description}")
-        lines.append(f"  Parameters:\n{param_str}\n")
-    return "\n".join(lines)
-
-
-def available_tools(state: TrajectoryState) -> List[str]:
-    """Return the list of tool names the current agent may call this turn."""
-    if state.current_agent == "retriever":
-        tools = ["send_to_generator"]
-        if state.tool_usage.get("search_papers", 0) < state.retriever_search_limit:
-            tools.append("search_papers")
-        return tools
-
-    # generator
-    tools = ["generate_hypotheses"]
-    if state.tool_usage.get("ask_retriever", 0) < state.ask_retriever_limit:
-        tools.append("ask_retriever")
-    return tools
-
-
-# ── Weaviate search ───────────────────────────────────────────────────────────
 
 EMBEDDING_MODEL: str = "Qwen/Qwen3-Embedding-4B"
 
@@ -157,16 +50,15 @@ def search_weaviate(
     Search the Weaviate database for papers relevant to the given query.
 
     The query is embedded via the vLLM embedding server and the resulting
-    vector is passed to Weaviate's ``nearVector`` GraphQL operator, so the
-    search uses the same model that was used to index the papers.
+    vector is passed to Weaviate's ``nearVector`` GraphQL operator.
 
     Parameters
     ----------
-    query       : Natural-language search query (e.g. the user research prompt).
-    n           : Maximum number of results to return.
-    weaviate_url: Base URL of the Weaviate instance, e.g. "http://localhost:8080".
-    embed_host  : Hostname of the vLLM embedding server.
-    embed_port  : Port of the vLLM embedding server.
+    query        : Natural-language search query.
+    n            : Maximum number of results to return.
+    weaviate_url : Base URL of the Weaviate instance, e.g. "http://localhost:8080".
+    embed_host   : Hostname of the vLLM embedding server.
+    embed_port   : Port of the vLLM embedding server.
 
     Returns
     -------
@@ -211,13 +103,10 @@ def search_papers_tool(
     embed_port: int,
 ) -> str:
     """
-    Tool-call wrapper around ``search_weaviate``.
+    Retrieve exactly 1 paper from Weaviate and format it as a string
+    suitable for injection into the retriever's prompt context.
 
-    Always retrieves exactly 1 paper and formats it as a human-readable string
-    suitable for injection into the retriever's context as a tool-result message.
-
-    Returns a plain string — either the formatted paper or an error note if
-    Weaviate returned no results.
+    Returns a plain string — either the formatted paper or an error note.
     """
     papers = search_weaviate(
         query,

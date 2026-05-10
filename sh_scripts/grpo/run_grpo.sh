@@ -132,6 +132,11 @@ AGENT0="{
 
 echo "=> Running MARTI GRPO training (Workflow Mode)..."
 
+# max_num_nodes = total trajectory records per prompt = (K+1)*(S+2)
+# where K=ASK_RETRIEVER_LIMIT and S=RETRIEVER_SEARCH_LIMIT
+MAX_NUM_NODES=$(( (ASK_RETRIEVER_LIMIT + 1) * (RETRIEVER_SEARCH_LIMIT + 2) ))
+echo "   max_num_nodes (trajectory steps per prompt): $MAX_NUM_NODES"
+
 srun --het-group=0 \
     $VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --pretrain "$TRAIN_MODEL" \
@@ -139,7 +144,7 @@ srun --het-group=0 \
     --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$DATA_PATH" \
-    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"weaviate_url\": \"http://$WEAVIATE_NODE_ID:8080\", \"debug\": \"$DEBUG_WORKFLOW\", \"use_weaviate_context\": \"$USE_WEAVIATE_CONTEXT\", \"weaviate_top_n\": $WEAVIATE_TOP_N, \"ask_retriever_limit\": $ASK_RETRIEVER_LIMIT, \"retriever_search_limit\": $RETRIEVER_SEARCH_LIMIT}" \
+    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"weaviate_url\": \"http://$WEAVIATE_NODE_ID:8080\", \"debug\": \"$DEBUG_WORKFLOW\", \"use_weaviate_context\": \"$USE_WEAVIATE_CONTEXT\", \"weaviate_top_n\": $WEAVIATE_TOP_N, \"ask_retriever_limit\": $ASK_RETRIEVER_LIMIT, \"retriever_search_limit\": $RETRIEVER_SEARCH_LIMIT, \"max_num_nodes\": $MAX_NUM_NODES}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
     --metadata_key "metadata" \

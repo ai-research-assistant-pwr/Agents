@@ -2,33 +2,27 @@
 Prompt-building utilities for the scientific hypothesis generation pipeline.
 ============================================================================
 
-``build_agent_prompt`` is the main entry point: it inspects the current
-``TrajectoryState`` and constructs the full ChatML-formatted prompt (system +
-user + prior search exchanges + assistant prefix) for whichever agent is about
-to act.
+``build_agent_prompt`` dispatches on the current step type from
+``TrajectoryState.current_step`` and builds the appropriate ChatML prompt.
 
-Retriever prompt structure
---------------------------
-When the retriever has already called ``search_papers`` one or more times in
-the current turn, those exchanges are injected *after* the initial user message
-so the model sees its full prior reasoning:
+Each step type has a predictable context:
 
-  <|im_start|>system\\n…\\n<|im_end|>
-  <|im_start|>user\\n…\\n<|im_end|>
-  <|im_start|>assistant\\n{raw output incl. <think> + <tool_call>}\\n<|im_end|>
-  <|im_start|>tool\\n{formatted search result}\\n<|im_end|>
-  … repeated for each prior search_papers call …
-  <|im_start|>assistant\\n          ← model generates here
+  retriever_search    – shows the research query, paper block, and (if this is
+                        a follow-up search) the generator's question. If prior
+                        searches exist in this retriever episode, shows them too.
+  retriever_message   – shows the research query (or generator question), paper
+                        block, and all search results from the current episode.
+  generator_ask       – shows the research query and all retriever syntheses so far.
+  generator_generate  – shows the research query and all retriever syntheses.
 
-This ensures the input_ids fed to the LLM include all prior tokens and the
-output_ids for a turn contain *only* the newly generated tokens.
+The retriever episodes are separated by generator_ask turns.  The number of
+search results belonging to the current retriever episode is determined by
+counting how many retriever_search steps have occurred since the last
+generator_ask (or the start).
 """
-
-from typing import Optional
 
 from src.grpo.grpo_train.agents import AgentPrompts
 from src.grpo.grpo_train.state import TrajectoryState
-from src.grpo.grpo_train.tools import available_tools, build_tool_section
 
 
 # ── ChatML helpers ────────────────────────────────────────────────────────────
@@ -38,86 +32,137 @@ def _fmt(role: str, content: str) -> str:
     return f"<|im_start|>{role}\n{content}\n<|im_end|>\n"
 
 
-def build_prompt(system: str, user: str) -> str:
+def _build_prompt(system: str, user: str) -> str:
     """Full ChatML prompt ready for generation (ends at <|im_start|>assistant)."""
     return _fmt("system", system) + _fmt("user", user) + "<|im_start|>assistant\n"
 
 
-# ── agent-specific prompt builders ───────────────────────────────────────────
+# ── episode helpers ───────────────────────────────────────────────────────────
 
 
-def _build_retriever_prompt(state: TrajectoryState) -> str:
-    tools = available_tools(state)
-    tool_section = build_tool_section(tools, state)
+def _current_episode_index(state: TrajectoryState) -> int:
+    """Return which retriever episode we are in (0-based)."""
+    return len(state.generator_questions)
 
-    # detect whether we're responding to a generator follow-up question
-    generator_question: Optional[str] = None
-    for entry in reversed(state.history):
-        if entry.tool == "ask_retriever":
-            generator_question = entry.message
+
+def _search_results_for_episode(state: TrajectoryState, episode: int) -> list:
+    """
+    Return the search results that belong to the given retriever episode.
+
+    The number of searches per episode equals the number of consecutive
+    ``retriever_search`` steps before the first ``retriever_message`` in the
+    step sequence (this equals ``retriever_search_limit``).
+    """
+    searches_per_episode = 0
+    for s in state.step_sequence:
+        if s == "retriever_search":
+            searches_per_episode += 1
+        elif s == "retriever_message":
             break
 
-    if generator_question is None:
-        system = AgentPrompts.retriever_system() + "\n\n" + tool_section
+    start = episode * searches_per_episode
+    end = start + searches_per_episode
+    return state.search_results[start:end]
+
+
+# ── step-specific prompt builders ─────────────────────────────────────────────
+
+
+def _build_retriever_search_prompt(state: TrajectoryState) -> str:
+    episode = _current_episode_index(state)
+    episode_results = _search_results_for_episode(state, episode)
+
+    if episode == 0:
+        # Initial retriever turn — search to answer the main query
+        system = AgentPrompts.retriever_search_system()
         user = (
             f"Research query:\n{state.query}\n\nAvailable papers:\n{state.paper_block}"
         )
     else:
-        system = AgentPrompts.retriever_refine_system() + "\n\n" + tool_section
+        # Follow-up retriever turn — search to answer the generator's question
+        question = state.generator_questions[episode - 1]
+        system = AgentPrompts.retriever_search_followup_system()
         user = (
-            f"The generator is asking:\n{generator_question}\n\n"
-            f"Available papers (same pool):\n{state.paper_block}"
+            f"Generator's question:\n{question}\n\n"
+            f"Available papers:\n{state.paper_block}"
         )
 
-    # base: system + user
-    prompt = _fmt("system", system) + _fmt("user", user)
+    # If we already ran searches in this episode, show them so the model can
+    # pick a different/refined query
+    user_parts = [user]
+    for i, result in enumerate(episode_results, 1):
+        user_parts.append(f"\n[Previous search {i} result]\n{result}")
 
-    # inject prior search_papers exchanges from the current retriever turn so the
-    # model sees its full reasoning history (thinking tokens + tool calls included)
-    for raw_llm_output, search_result in state.retriever_search_exchanges:
-        prompt += _fmt("assistant", raw_llm_output)
-        prompt += _fmt("tool", search_result)
-
-    # assistant prefix — model generates from here
-    prompt += "<|im_start|>assistant\n"
-    return prompt
+    return _build_prompt(system, "\n".join(user_parts))
 
 
-def _build_generator_prompt(state: TrajectoryState) -> str:
-    tools = available_tools(state)
-    tool_section = build_tool_section(tools, state)
+def _build_retriever_message_prompt(state: TrajectoryState) -> str:
+    episode = _current_episode_index(state)
+    episode_results = _search_results_for_episode(state, episode)
 
-    retriever_outputs = [e for e in state.history if e.tool == "send_to_generator"]
-    ask_retriever_exhausted = (
-        state.tool_usage.get("ask_retriever", 0) >= state.ask_retriever_limit
+    if episode == 0:
+        system = AgentPrompts.retriever_message_system()
+        user = (
+            f"Research query:\n{state.query}\n\nAvailable papers:\n{state.paper_block}"
+        )
+    else:
+        question = state.generator_questions[episode - 1]
+        system = AgentPrompts.retriever_message_followup_system()
+        user = (
+            f"Generator's question:\n{question}\n\n"
+            f"Available papers:\n{state.paper_block}"
+        )
+
+    # Append the search results gathered in this episode
+    result_block = (
+        "\n\n".join(
+            f"[Search result {i}]\n{r}" for i, r in enumerate(episode_results, 1)
+        )
+        if episode_results
+        else "(No search results available.)"
     )
 
-    # use the hypothesize-only system prompt once ask_retriever is no longer available
-    if ask_retriever_exhausted or len(retriever_outputs) >= 2:
-        system = AgentPrompts.generator_hypothesize_system() + "\n\n" + tool_section
-    else:
-        system = AgentPrompts.generator_system() + "\n\n" + tool_section
+    user = user + f"\n\nSearch results:\n{result_block}"
+    return _build_prompt(system, user)
 
-    # build user message from accumulated retriever outputs
-    if len(retriever_outputs) == 0:
-        user = f"Research query:\n{state.query}"
-    elif len(retriever_outputs) == 1:
-        user = (
-            f"Research query:\n{state.query}\n\n"
-            f"Retriever synthesis:\n{retriever_outputs[0].message}"
-        )
-    else:
-        user = (
-            f"Research query:\n{state.query}\n\n"
-            f"Retriever synthesis:\n{retriever_outputs[0].message}\n\n"
-            f"Additional retriever context:\n{retriever_outputs[1].message}"
-        )
 
-    return build_prompt(system, user)
+def _build_generator_ask_prompt(state: TrajectoryState) -> str:
+    system = AgentPrompts.generator_ask_system()
+
+    user_parts = [f"Research query:\n{state.query}"]
+    for i, msg in enumerate(state.retriever_messages, 1):
+        user_parts.append(f"\n[Retriever synthesis {i}]\n{msg}")
+
+    return _build_prompt(system, "\n".join(user_parts))
+
+
+def _build_generator_generate_prompt(state: TrajectoryState) -> str:
+    system = AgentPrompts.generator_generate_system()
+
+    user_parts = [f"Research query:\n{state.query}"]
+    for i, msg in enumerate(state.retriever_messages, 1):
+        label = (
+            "Initial retriever synthesis"
+            if i == 1
+            else f"Additional retriever context {i - 1}"
+        )
+        user_parts.append(f"\n[{label}]\n{msg}")
+
+    return _build_prompt(system, "\n".join(user_parts))
+
+
+# ── main entry point ──────────────────────────────────────────────────────────
 
 
 def build_agent_prompt(state: TrajectoryState) -> str:
-    """Build the full ChatML prompt for the agent whose turn it is."""
-    if state.current_agent == "retriever":
-        return _build_retriever_prompt(state)
-    return _build_generator_prompt(state)
+    """Build the full ChatML prompt for the current step."""
+    step = state.current_step
+    if step == "retriever_search":
+        return _build_retriever_search_prompt(state)
+    if step == "retriever_message":
+        return _build_retriever_message_prompt(state)
+    if step == "generator_ask":
+        return _build_generator_ask_prompt(state)
+    if step == "generator_generate":
+        return _build_generator_generate_prompt(state)
+    raise ValueError(f"Unknown step type: {step!r}")
