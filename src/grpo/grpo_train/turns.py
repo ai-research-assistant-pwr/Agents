@@ -23,7 +23,12 @@ reward from ``generator_generate`` is propagated to all records by the workflow.
 from typing import Any, Dict, List
 
 from src.grpo.grpo_train.prompts import build_agent_prompt
-from src.grpo.grpo_train.records import make_debug_entry, make_turn_record, tokenize
+from src.grpo.grpo_train.records import (
+    make_debug_entry,
+    make_turn_record,
+    tokenize,
+    strip_thinking,
+)
 from src.grpo.grpo_train.rewards import _parse_hypotheses
 from src.grpo.grpo_train.state import TrajectoryState
 from src.grpo.grpo_train.tools import search_papers_tool
@@ -75,23 +80,23 @@ async def execute_turn(
     step_payload: Dict[str, Any] = {}  # passed to apply_step
 
     if step == "retriever_search":
-        query = output.strip()
+        query = strip_thinking(output)
         search_result = search_papers_tool(query, weaviate_url, embed_host, embed_port)
         step_payload = {"query": query, "search_result": search_result}
         extra_debug.update({"search_query": query, "search_result": search_result})
 
     elif step == "retriever_message":
-        message = output.strip()
+        message = strip_thinking(output)
         step_payload = {"message": message}
         extra_debug.update({"message": message})
 
     elif step == "generator_ask":
-        question = output.strip()
+        question = strip_thinking(output)
         step_payload = {"question": question}
         extra_debug.update({"question": question})
 
     elif step == "generator_generate":
-        hypotheses = _parse_hypotheses(output)
+        hypotheses = _parse_hypotheses(strip_thinking(output))
         reward, sim_score, div_score = await compute_final_reward(
             hypotheses,
             label,

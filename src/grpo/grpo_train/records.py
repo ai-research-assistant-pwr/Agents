@@ -14,6 +14,12 @@ import re as _re
 from typing import Any, Dict, List, Optional
 
 _TOOL_CALL_RE = _re.compile(r"<tool_call>(.*?)</tool_call>", _re.DOTALL)
+_THINK_RE = _re.compile(r"<think>.*?</think>", _re.DOTALL)
+
+
+def strip_thinking(text: str) -> str:
+    """Remove <think>…</think> blocks and return the remaining text stripped."""
+    return _THINK_RE.sub("", text).strip()
 
 
 # ── tokenisation ──────────────────────────────────────────────────────────────
