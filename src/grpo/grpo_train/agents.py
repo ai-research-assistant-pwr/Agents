@@ -47,6 +47,7 @@ class AgentPrompts:
             "## Output Format\n\n"
             "Output ONLY your synthesis — a well-organized paragraph or set of paragraphs. "
             "Be concise but scientifically precise. Do NOT generate hypotheses yourself. "
+            "Your synthesis should contain at least 10 sentences to provide sufficient depth and detail. "
             "Do NOT include any preamble like 'Here is my synthesis:'."
         )
 
@@ -59,6 +60,7 @@ class AgentPrompts:
             "## Output Format\n\n"
             "Output ONLY your focused answer — directly addressing the generator's question "
             "with evidence from your search. Be concise and scientifically precise. "
+            "Your answer should contain at least 5 sentences to provide sufficient depth and detail.\n\n"
             "Do NOT generate hypotheses. Do NOT include any preamble."
         )
 

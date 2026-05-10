@@ -50,7 +50,9 @@ RETRIEVER_SEARCH_LIMIT="${RETRIEVER_SEARCH_LIMIT:-1}"
 VENV_PATH="$BASE_DIR/venv"
 AGENTS_DIR="$BASE_DIR"
 MARTI_DIR="$BASE_DIR/MARTI"
-DATA_PATH="$AGENTS_DIR/data/rl_grounded_dataset_merged.csv"
+TRAIN_DATA_PATH="$AGENTS_DIR/data/rl_grounded_dataset_train.csv"
+EVAL_DATA_PATH="$AGENTS_DIR/data/rl_grounded_dataset_test.csv"
+EVAL_STEPS="${EVAL_STEPS:-25}"
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
 OUTPUT_DIR="${OUTPUT_DIR:-$MY_DISK/patryk/models_output/${SLURM_JOB_NAME}_results}"
 
@@ -143,7 +145,11 @@ srun --het-group=0 \
     --save_path "$OUTPUT_DIR" \
     --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
-    --prompt_data "$DATA_PATH" \
+    --prompt_data "$TRAIN_DATA_PATH" \
+    --eval_dataset "$EVAL_DATA_PATH" \
+    --eval_steps "$EVAL_STEPS" \
+    --eval_before_training \
+    --eval_n_samples_per_prompt 1 \
     --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"weaviate_url\": \"http://$WEAVIATE_NODE_ID:8080\", \"debug\": \"$DEBUG_WORKFLOW\", \"use_weaviate_context\": \"$USE_WEAVIATE_CONTEXT\", \"weaviate_top_n\": $WEAVIATE_TOP_N, \"ask_retriever_limit\": $ASK_RETRIEVER_LIMIT, \"retriever_search_limit\": $RETRIEVER_SEARCH_LIMIT, \"max_num_nodes\": $MAX_NUM_NODES}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
