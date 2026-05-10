@@ -154,7 +154,7 @@ async def execute_turn(
         # The raw LLM output (including thinking tokens) is also passed so the
         # prompt for the next call can faithfully replay the full exchange.
         query = tool_args.get("query", "")
-        search_result = search_papers_tool(query, weaviate_url)
+        search_result = search_papers_tool(query, weaviate_url, embed_host, embed_port)
         tool_args = {
             **tool_args,
             "_raw_llm_output": output,

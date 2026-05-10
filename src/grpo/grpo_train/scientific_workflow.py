@@ -231,7 +231,9 @@ async def workflow(
     weaviate_url: str = _get("weaviate_url", "http://localhost:8080")
     prompt_id: int = kwargs.get("prompt_id", 0)
     if use_weaviate_context:
-        papers = search_weaviate(prompt, weaviate_top_n, weaviate_url)
+        papers = search_weaviate(
+            prompt, weaviate_top_n, weaviate_url, embed_host, embed_port
+        )
         paper_block = _format_papers(papers, max_papers=weaviate_top_n)
     else:
         metadata = json.loads(json.loads(metadata))

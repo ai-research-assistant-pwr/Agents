@@ -22,7 +22,7 @@ without touching source code.
 import json
 from typing import Any, Dict, List, Optional
 
-import weaviate
+import requests
 
 from src.grpo.grpo_train.state import TrajectoryState
 
@@ -127,58 +127,89 @@ def available_tools(state: TrajectoryState) -> List[str]:
 
 # ── Weaviate search ───────────────────────────────────────────────────────────
 
+EMBEDDING_MODEL: str = "Qwen/Qwen3-Embedding-4B"
 
-def search_weaviate(query: str, n: int, weaviate_url: str) -> List[Dict[str, str]]:
+
+def _get_query_vector(
+    query: str,
+    embed_host: str,
+    embed_port: int,
+) -> List[float]:
+    """Embed *query* using the vLLM OpenAI-compatible /v1/embeddings endpoint."""
+    url = f"http://{embed_host}:{embed_port}/v1/embeddings"
+    payload = {"model": EMBEDDING_MODEL, "input": [query]}
+    response = requests.post(
+        url, json=payload, headers={"Content-Type": "application/json"}
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+def search_weaviate(
+    query: str,
+    n: int,
+    weaviate_url: str,
+    embed_host: str,
+    embed_port: int,
+) -> List[Dict[str, str]]:
     """
     Search the Weaviate database for papers relevant to the given query.
 
-    The query is embedded using Weaviate's built-in text2vec vectoriser
-    (the same model used when papers were indexed), so no separate embedding
-    call is required here.
+    The query is embedded via the vLLM embedding server and the resulting
+    vector is passed to Weaviate's ``nearVector`` GraphQL operator, so the
+    search uses the same model that was used to index the papers.
 
     Parameters
     ----------
     query       : Natural-language search query (e.g. the user research prompt).
     n           : Maximum number of results to return.
     weaviate_url: Base URL of the Weaviate instance, e.g. "http://localhost:8080".
+    embed_host  : Hostname of the vLLM embedding server.
+    embed_port  : Port of the vLLM embedding server.
 
     Returns
     -------
     List of dicts with keys "id", "title", "summary".
     """
-    client = weaviate.connect_to_custom(
-        http_host=weaviate_url.split("://")[-1].split(":")[0],
-        http_port=int(weaviate_url.split(":")[-1])
-        if ":" in weaviate_url.split("://")[-1]
-        else 80,
-        http_secure=weaviate_url.startswith("https"),
-        grpc_host=weaviate_url.split("://")[-1].split(":")[0],
-        grpc_port=50051,
-        grpc_secure=False,
+    vector = _get_query_vector(query, embed_host, embed_port)
+    vector_str = ", ".join(str(v) for v in vector)
+    graphql_query = {
+        "query": (
+            "{ Get { ResearchPapers("
+            f"nearVector: {{vector: [{vector_str}]}} limit: {n}"
+            ") { paperId title content } } }"
+        )
+    }
+    response = requests.post(
+        f"{weaviate_url}/v1/graphql",
+        json=graphql_query,
+        headers={"Content-Type": "application/json"},
     )
-
-    collection = client.collections.get("Paper")
-    result = collection.query.near_text(
-        query=query,
-        limit=n,
-        return_properties=["paper_id", "title", "summary"],
-    )
+    response.raise_for_status()
+    result = response.json()
 
     papers: List[Dict[str, str]] = []
-    for obj in result.objects:
-        props = obj.properties
+    hits: List[Dict[str, Any]] = (
+        result.get("data", {}).get("Get", {}).get("ResearchPapers", [])
+    )
+    for hit in hits:
         papers.append(
             {
-                "id": props.get("paper_id", ""),
-                "title": props.get("title", ""),
-                "summary": props.get("summary", ""),
+                "id": hit.get("paperId", ""),
+                "title": hit.get("title", ""),
+                "summary": hit.get("content", ""),
             }
         )
-    client.close()
     return papers
 
 
-def search_papers_tool(query: str, weaviate_url: str) -> str:
+def search_papers_tool(
+    query: str,
+    weaviate_url: str,
+    embed_host: str,
+    embed_port: int,
+) -> str:
     """
     Tool-call wrapper around ``search_weaviate``.
 
@@ -188,7 +219,13 @@ def search_papers_tool(query: str, weaviate_url: str) -> str:
     Returns a plain string — either the formatted paper or an error note if
     Weaviate returned no results.
     """
-    papers = search_weaviate(query, n=1, weaviate_url=weaviate_url)
+    papers = search_weaviate(
+        query,
+        n=1,
+        weaviate_url=weaviate_url,
+        embed_host=embed_host,
+        embed_port=embed_port,
+    )
     if not papers:
         return "No results found for the given query."
     p = papers[0]
