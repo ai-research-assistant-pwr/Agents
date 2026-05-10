@@ -18,7 +18,7 @@ from hypotheses_evaluation import (
     RelevancyJudge,
 )
 
-MODEL = "gpt-5.4"
+MODEL = "gpt-5.4-mini"
 SCORE_COLS = [
     "groundedness_socre",
     "relevance_score",
@@ -28,7 +28,7 @@ SCORE_COLS = [
 
 
 def load_data() -> pd.DataFrame:
-    annotated = pd.read_csv(PROJECT_ROOT / "data/annotated_25.csv")
+    annotated = pd.read_csv(PROJECT_ROOT / "data/annotated_25 copy.csv")
     human_friendly = pd.read_csv(
         PROJECT_ROOT / "data/interesting_rows_human_friendly.csv"
     )
@@ -57,15 +57,24 @@ def evaluate_row(row, g_judge, r_judge, c_judge, i_judge):
         f_r = ex.submit(r_judge.judge, hypothesis=hypothesis, query=row["query"])
         f_c = ex.submit(c_judge.judge, hypothesis=hypothesis)
         f_i = ex.submit(i_judge.judge, hypothesis=hypothesis)
+    g_result = f_g.result() if f_g else None
+    r_result = f_r.result()
+    c_result = f_c.result()
+    i_result = f_i.result()
     return {
-        "llm_groundedness": f_g.result().score if f_g else None,
+        "llm_groundedness": g_result.score if g_result else None,
+        "llm_groundedness_reasoning": g_result.reasoning if g_result else None,
         "human_groundedness": row.get("groundedness_socre"),
-        "llm_relevancy": f_r.result().score,
+        "llm_relevancy": r_result.score,
+        "llm_relevancy_reasoning": r_result.reasoning,
         "human_relevancy": row.get("relevance_score"),
-        "llm_clarity": f_c.result().score,
+        "llm_clarity": c_result.score,
+        "llm_clarity_reasoning": c_result.reasoning,
         "human_clarity": row.get("clarity_score"),
-        "llm_informativeness": f_i.result().score,
+        "llm_informativeness": i_result.score,
+        "llm_informativeness_reasoning": i_result.reasoning,
         "human_informativeness": row.get("informativeness_score"),
+        "hypothesis": hypothesis,
     }
 
 
@@ -90,6 +99,19 @@ def main() -> None:
             print(
                 f"g={rec['llm_groundedness']} r={rec['llm_relevancy']} c={rec['llm_clarity']} i={rec['llm_informativeness']}  |  human: g={rec['human_groundedness']} r={rec['human_relevancy']} c={rec['human_clarity']} i={rec['human_informativeness']}"
             )
+            for metric in ["groundedness", "relevancy", "clarity", "informativeness"]:
+                llm_val = rec[f"llm_{metric}"]
+                human_val = rec[f"human_{metric}"]
+                hypothesis = rec["hypothesis"]
+                if (
+                    pd.notna(llm_val)
+                    and pd.notna(human_val)
+                    and int(llm_val) != int(human_val)
+                ):
+                    reasoning = rec[f"llm_{metric}_reasoning"]
+                    print(
+                        f"  [{metric}]  Hypothesis: {hypothesis} | LLM={int(llm_val)} vs Human={int(human_val)} | reasoning: {reasoning}"
+                    )
 
     print("\n--- Summary ---")
     for metric in ["groundedness", "relevancy", "clarity", "informativeness"]:
