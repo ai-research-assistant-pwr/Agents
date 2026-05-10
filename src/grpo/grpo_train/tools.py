@@ -146,25 +146,35 @@ def search_weaviate(query: str, n: int, weaviate_url: str) -> List[Dict[str, str
     -------
     List of dicts with keys "id", "title", "summary".
     """
-    client = weaviate.Client(weaviate_url)
+    client = weaviate.connect_to_custom(
+        http_host=weaviate_url.split("://")[-1].split(":")[0],
+        http_port=int(weaviate_url.split(":")[-1])
+        if ":" in weaviate_url.split("://")[-1]
+        else 80,
+        http_secure=weaviate_url.startswith("https"),
+        grpc_host=weaviate_url.split("://")[-1].split(":")[0],
+        grpc_port=50051,
+        grpc_secure=False,
+    )
 
-    result = (
-        client.query.get("Paper", ["paper_id", "title", "summary"])
-        .with_near_text({"concepts": [query]})
-        .with_limit(n)
-        .do()
+    collection = client.collections.get("Paper")
+    result = collection.query.near_text(
+        query=query,
+        limit=n,
+        return_properties=["paper_id", "title", "summary"],
     )
 
     papers: List[Dict[str, str]] = []
-    hits: List[Dict[str, Any]] = result.get("data", {}).get("Get", {}).get("Paper", [])
-    for hit in hits:
+    for obj in result.objects:
+        props = obj.properties
         papers.append(
             {
-                "id": hit.get("paper_id", ""),
-                "title": hit.get("title", ""),
-                "summary": hit.get("summary", ""),
+                "id": props.get("paper_id", ""),
+                "title": props.get("title", ""),
+                "summary": props.get("summary", ""),
             }
         )
+    client.close()
     return papers
 
 

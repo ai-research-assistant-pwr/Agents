@@ -4,7 +4,7 @@
 # =================================================
 #SBATCH --job-name=grpo_qwen
 #SBATCH --output=/home/%u/disk/patryk/Agents/out/%x_%j.out
-#SBATCH --time=0-00:05:00
+#SBATCH --time=0-00:10:00
 #SBATCH -p lem-gpu-short
 #SBATCH -N 1
 #SBATCH -c 32
@@ -41,10 +41,10 @@ ROLLOUT_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
 SIMILARITY_WEIGHT="${SIMILARITY_WEIGHT:-1.0}"
 DIVERSITY_WEIGHT="${DIVERSITY_WEIGHT:-1.0}"
 DEBUG_WORKFLOW="${DEBUG_WORKFLOW:-true}"
-USE_WEAVIATE_CONTEXT="${USE_WEAVIATE_CONTEXT:-false}"
-WEAVIATE_TOP_N="${WEAVIATE_TOP_N:-6}"
+USE_WEAVIATE_CONTEXT="${USE_WEAVIATE_CONTEXT:-true}"
+WEAVIATE_TOP_N="${WEAVIATE_TOP_N:-5}"
 ASK_RETRIEVER_LIMIT="${ASK_RETRIEVER_LIMIT:-1}"
-RETRIEVER_SEARCH_LIMIT="${RETRIEVER_SEARCH_LIMIT:-3}"
+RETRIEVER_SEARCH_LIMIT="${RETRIEVER_SEARCH_LIMIT:-1}"
 
 # 3. Derived Paths
 VENV_PATH="$BASE_DIR/venv"
@@ -139,7 +139,7 @@ srun --het-group=0 \
     --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$DATA_PATH" \
-    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"weaviate_url\": \"http://$WEAVIATE_NODE_ID:8080\", \"debug\": $DEBUG_WORKFLOW, \"use_weaviate_context\": $USE_WEAVIATE_CONTEXT, \"weaviate_top_n\": $WEAVIATE_TOP_N, \"ask_retriever_limit\": $ASK_RETRIEVER_LIMIT, \"retriever_search_limit\": $RETRIEVER_SEARCH_LIMIT}" \
+    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"weaviate_url\": \"http://$WEAVIATE_NODE_ID:8080\", \"debug\": \"$DEBUG_WORKFLOW\", \"use_weaviate_context\": \"$USE_WEAVIATE_CONTEXT\", \"weaviate_top_n\": $WEAVIATE_TOP_N, \"ask_retriever_limit\": $ASK_RETRIEVER_LIMIT, \"retriever_search_limit\": $RETRIEVER_SEARCH_LIMIT}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
     --metadata_key "metadata" \
