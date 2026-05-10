@@ -142,6 +142,10 @@ async def workflow(
     embed_port: int = int(_get("embed_port", 8000))
     debug_dir: str = _get("debug_dir", "./workflow_debug_logs")
     debug: bool = str(_get("debug", "true")).lower() not in ("false", "0", "no")
+    is_eval: bool = kwargs.get("is_eval", False)
+    if debug:
+        split_name = "eval" if is_eval else "train"
+        debug_dir = os.path.join(debug_dir, split_name)
     similarity_weight: float = float(_get("similarity_weight", 0.7))
     diversity_weight: float = float(_get("diversity_weight", 0.3))
     use_weaviate_context: bool = str(
