@@ -1,3 +1,64 @@
+"""
+Semantics Evaluation — Experiment 2
+======================================
+Tests whether channel noise (random token masking during training) causes the
+Retriever's emergent language to become more compositional — i.e. whether
+similar input contexts systematically produce similar output signals.
+
+Compositionality is measured with Topological Similarity (TopSim), the
+Spearman rank correlation between pairwise distances in the *meaning space*
+(inputs) and pairwise distances in the *signal space* (Retriever messages):
+
+  TopSim = Spearman ρ ( dist_meaning(i,j),  dist_signal(i,j) )
+
+  TopSim → +1 : perfectly compositional protocol
+  TopSim →  0 : random / holistic protocol
+  TopSim → −1 : anti-compositional (rarely observed)
+
+Two signal-distance metrics are computed in parallel:
+
+  Semantic TopSim (ρ_sem)
+      Signal distances are cosine distances between vLLM embeddings of the
+      Retriever outputs.  Captures high-level semantic similarity.
+
+  Lexical TopSim (ρ_lex)
+      Signal distances are normalised Levenshtein distances between the raw
+      output strings.  Captures surface-form / syntactic similarity.
+
+Meaning space
+-------------
+  prompt  +  concatenated titles & summaries of up to 5 papers (truncated to
+  12 000 characters to stay within vLLM token limits).
+
+Signal space
+------------
+  Concatenation of Retriever output_content from Turn 0 and Turn 2
+  (pre-noise intent, so TopSim reflects the *intended* signal, not noise).
+
+Data contract
+-------------
+  Reads traj_*.json files written by scientific_workflow.py (DEBUG=True).
+  Requires a running vLLM embedding server (Qwen/Qwen3-Embedding-4B by default).
+  Server is configured via environment variables EMBED_HOST / EMBED_PORT /
+  EMBED_MODEL, or via the argparse flags --embed_host / --embed_port.
+
+Output
+------
+  eval_results/experiment_2/
+    ├── exp2_topsim_evolution.csv          — ρ_sem and ρ_lex per window
+    ├── exp2_topsim_evolution.png          — line plot over training steps
+    └── exp2_topsim_scatter_final.png      — scatter of final-window distances
+
+Usage
+-----
+  # Ensure the vLLM server is running, then:
+  EMBED_HOST=<node> EMBED_PORT=8000 \\
+  python eval_semantics.py \\
+      --logs_dir    ./Agents/workflow_logs/<run_name> \\
+      --output_dir  ./Agents/eval_results/<run_name>/experiment_2 \\
+      --window_size 50
+"""
+
 import os
 import json
 import glob
@@ -278,6 +339,15 @@ async def run_hybrid_topsim_analysis(
 
 
 if __name__ == "__main__":
-    LOGS = "./Agents/workflow_logs"
-    OUT = "./Agents/eval_results/experiment_2"
-    asyncio.run(run_hybrid_topsim_analysis(LOGS, OUT))
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Experiment 2 — Semantics: TopSim compositionality"
+    )
+    parser.add_argument("--logs_dir",    default="./Agents/workflow_logs",
+                        help="Directory with traj_*.json debug logs")
+    parser.add_argument("--output_dir",  default="./Agents/eval_results/experiment_2")
+    parser.add_argument("--window_size", type=int, default=50)
+    args = parser.parse_args()
+
+    asyncio.run(run_hybrid_topsim_analysis(args.logs_dir, args.output_dir, window_size=args.window_size))

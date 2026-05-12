@@ -1,3 +1,49 @@
+"""
+Morphology Evaluation — Experiment 1
+======================================
+Tests the Information Bottleneck hypothesis: does adding a per-token length
+penalty (R = R_task − λ · length(message)) cause the Retriever to compress
+its messages over training, and does that compression correlate with task
+performance?
+
+Three windowed metrics are tracked over the course of training:
+
+  Average Message Length
+      Mean number of word tokens in Retriever outputs (Turn 0 + Turn 2).
+      A downward trend indicates the Retriever is learning to compress.
+
+  Active Vocabulary Size
+      Number of unique word types seen across all Retriever messages within
+      a window.  Shrinking vocabulary suggests pruning of low-information
+      tokens in favour of a more focused lexicon.
+
+  Unigram Entropy (raw + normalised)
+      Shannon entropy H over the unigram token distribution within a window.
+        H_norm = H / log₂(V)   (V = vocabulary size, window-independent)
+      A decrease in H_norm signals that the distribution is becoming more
+      peaked — the Retriever is reusing a smaller set of high-value tokens.
+
+Data contract
+-------------
+  Reads traj_*.json files written by scientific_workflow.py (DEBUG=True).
+  Each file must contain a "turns" list; Retriever turns are identified by
+  role key "role" == "retriever" (debug_entry format).
+
+Output
+------
+  eval_results/experiment_1/
+    ├── exp1_morphology_metrics.csv
+    ├── exp1_compression_vs_reward.png   — reward + length over time
+    └── exp1_entropy_and_vocab.png       — entropy (raw + norm) + vocab size
+
+Usage
+-----
+  python eval_morphology.py \\
+      --logs_dir    ./Agents/workflow_logs/<run_name> \\
+      --output_dir  ./Agents/eval_results/<run_name>/experiment_1 \\
+      --window_size 50
+"""
+
 import os
 import glob
 import json
@@ -235,7 +281,15 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
 
 
 if __name__ == "__main__":
-    LOG_DIR = "./Agents/workflow_logs"
-    OUT_DIR = "./Agents/eval_results/experiment_1"
+    import argparse
 
-    run_morphology_analysis(LOG_DIR, OUT_DIR, window_size=20)
+    parser = argparse.ArgumentParser(
+        description="Experiment 1 — Morphology: compression vs. usefulness"
+    )
+    parser.add_argument("--logs_dir",    default="./Agents/workflow_logs",
+                        help="Directory with traj_*.json debug logs")
+    parser.add_argument("--output_dir",  default="./Agents/eval_results/experiment_1")
+    parser.add_argument("--window_size", type=int, default=50)
+    args = parser.parse_args()
+
+    run_morphology_analysis(args.logs_dir, args.output_dir, window_size=args.window_size)
