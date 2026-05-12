@@ -286,49 +286,83 @@ async def run_hybrid_topsim_analysis(
     df.to_csv(csv_path, index=False)
     print(f"Saved TopSim evolution data to: {csv_path}")
 
+    plt.rcParams.update({
+        'font.family':       'serif',
+        'font.size':         10,
+        'axes.labelsize':    10,
+        'axes.titlesize':    11,
+        'legend.fontsize':    9,
+        'xtick.labelsize':    9,
+        'ytick.labelsize':    9,
+        'axes.spines.top':   False,
+        'axes.spines.right': False,
+        'axes.linewidth':    0.6,
+        'xtick.major.width': 0.6,
+        'ytick.major.width': 0.6,
+        'figure.facecolor':  'white',
+        'axes.facecolor':    'white',
+    })
+
+    ACCENT   = '#1a1a1a'
+    GREY_MID = '#666666'
+    GREY_REF = '#aaaaaa'
+
     # ------------------------------------------------------------------
-    # Plot 1: TopSim Evolution over Time
+    # Plot 1: TopSim evolution over time
     # ------------------------------------------------------------------
-    plt.figure(figsize=(10, 6))
-    plt.plot(df["Window_Index"], df["TopSim_Semantic_Rho"],
-             marker='o', label='Semantic TopSim (ρ cosine)', color='#d62728')
-    plt.plot(df["Window_Index"], df["TopSim_Lexical_Rho"],
-             marker='s', label='Lexical TopSim (ρ Levenshtein)', color='#1f77b4')
-    plt.axhline(y=0, color='black', linestyle='--', alpha=0.5)
-    plt.title('Emergence of Compositionality: TopSim Over Time')
-    plt.xlabel('Training Steps (Windows)')
-    plt.ylabel('TopSim (Spearman ρ)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig(os.path.join(output_dir, "exp2_topsim_evolution.png"), dpi=300, bbox_inches='tight')
+    fig, ax = plt.subplots(figsize=(7, 4))
+
+    ax.plot(df["Window_Index"], df["TopSim_Semantic_Rho"],
+            color=ACCENT,   linewidth=1.2, label='Semantic TopSim (ρ, cosine)')
+    ax.plot(df["Window_Index"], df["TopSim_Lexical_Rho"],
+            color=GREY_MID, linewidth=1.2, linestyle='--',
+            label='Lexical TopSim (ρ, Levenshtein)')
+    ax.axhline(0, linewidth=0.6, color=GREY_REF, linestyle=':')
+
+    ax.set_title('Experiment 2 — Emergence of compositionality: TopSim over training',
+                 pad=8)
+    ax.set_xlabel('Training window')
+    ax.set_ylabel('Spearman ρ')
+    ax.yaxis.set_label_coords(-0.08, 0.5)
+    ax.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
+    ax.legend(frameon=False)
+
+    fig.tight_layout()
+    plt.savefig(os.path.join(output_dir, "exp2_topsim_evolution.png"),
+                dpi=300, bbox_inches='tight')
     plt.close()
 
     # ------------------------------------------------------------------
-    # Plot 2: Scatter Plot — Final Training State (Semantic TopSim)
+    # Plot 2: Scatter — final training state (semantic TopSim)
     # ------------------------------------------------------------------
     if last_window_data:
         m_dist, s_sem_dist, _, rho_sem, _ = last_window_data
 
-        plt.figure(figsize=(8, 8))
+        fig, ax = plt.subplots(figsize=(5, 5))
 
-        # Sample up to 5 000 pairs for readability
         plot_idx = np.random.choice(len(m_dist), min(5000, len(m_dist)), replace=False)
         x_pts = m_dist[plot_idx]
         y_pts = s_sem_dist[plot_idx]
 
-        plt.scatter(x_pts, y_pts, alpha=0.15, s=15, c='#d62728')
+        ax.scatter(x_pts, y_pts, s=6, alpha=0.12, color=ACCENT, linewidths=0)
+
         sort_order = np.argsort(x_pts)
         x_sorted   = x_pts[sort_order]
         m_coef, b_coef = np.polyfit(x_pts, y_pts, 1)
-        plt.plot(x_sorted, m_coef * x_sorted + b_coef, color='black', linewidth=2)
+        ax.plot(x_sorted, m_coef * x_sorted + b_coef,
+                color=ACCENT, linewidth=1.2)
 
-        plt.title(
-            f'Final Training State (Semantic TopSim)\n'
-            f'Spearman ρ = {rho_sem:.3f}'
+        ax.set_title(
+            f'Experiment 2 — Semantic TopSim, final window\n'
+            f'Spearman ρ = {rho_sem:.3f}',
+            pad=8,
         )
-        plt.xlabel('Input Semantic Distance (Context)')
-        plt.ylabel('Signal Semantic Distance (Messages)')
-        plt.grid(True, alpha=0.3)
+        ax.set_xlabel('Meaning-space distance (context)')
+        ax.set_ylabel('Signal-space distance (messages)')
+        ax.yaxis.set_label_coords(-0.12, 0.5)
+        ax.grid(linewidth=0.4, color=GREY_REF, linestyle=':')
+
+        fig.tight_layout()
         plt.savefig(
             os.path.join(output_dir, "exp2_topsim_scatter_final.png"),
             dpi=300, bbox_inches='tight',

@@ -108,6 +108,11 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "Qwen/Qwen3-Embedding-4B")
 DBSCAN_EPS = 0.35       # cosine distance threshold (embeddings are L2-normalised → euclidean ≈ cosine)
 DBSCAN_MIN_SAMPLES = 3  # minimum points per cluster
 
+# Plot style — shared across all figures in this module
+ACCENT   = '#1a1a1a'   # near-black for primary series / bars
+GREY_MID = '#666666'   # secondary series
+GREY_REF = '#aaaaaa'   # reference lines and grid
+
 
 # ---------------------------------------------------------------------------
 # Embedding helpers
@@ -315,19 +320,44 @@ async def run_positive_signaling(
     df.to_csv(csv_path, index=False)
     print(f"  Saved ARI data → {csv_path}")
 
+    # ── Shared style ────────────────────────────────────────────────────────
+    plt.rcParams.update({
+        'font.family':       'serif',
+        'font.size':         10,
+        'axes.labelsize':    10,
+        'axes.titlesize':    11,
+        'legend.fontsize':    9,
+        'xtick.labelsize':    9,
+        'ytick.labelsize':    9,
+        'axes.spines.top':   False,
+        'axes.spines.right': False,
+        'axes.linewidth':    0.6,
+        'xtick.major.width': 0.6,
+        'ytick.major.width': 0.6,
+        'figure.facecolor':  'white',
+        'axes.facecolor':    'white',
+    })
+
     # ── Plot 1: ARI over time ───────────────────────────────────────────────
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(7, 4))
     ax.plot(df["Window_Index"], df["ARI"],
-            marker="o", color="#2ca02c", linewidth=2, markersize=6, label="ARI")
-    ax.axhline(0, color="black", linestyle="--", alpha=0.4, label="Chance (ARI=0)")
-    ax.set_title("Positive Signaling: ARI Between Meaning- and Signal-Space Clusters", pad=12)
-    ax.set_xlabel("Training Steps (Windows)")
-    ax.set_ylabel("Adjusted Rand Index")
-    ax.set_ylim(-0.1, 1.05)
-    ax.legend()
-    ax.grid(True, linestyle="--", alpha=0.4)
+            color=ACCENT, linewidth=1.2)
+    ax.fill_between(df["Window_Index"], df["ARI"], alpha=0.06, color=ACCENT)
+    ax.axhline(0, linewidth=0.6, color=GREY_REF, linestyle=':',
+               label='Chance (ARI = 0)')
+    ax.set_title(
+        'Experiment 3a — Positive signaling: ARI between meaning- and signal-space clusters',
+        pad=8,
+    )
+    ax.set_xlabel('Training window')
+    ax.set_ylabel('Adjusted Rand Index')
+    ax.yaxis.set_label_coords(-0.08, 0.5)
+    ax.set_ylim(-0.05, 1.05)
+    ax.legend(frameon=False)
+    ax.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
     fig.tight_layout()
-    plt.savefig(os.path.join(output_dir, "exp3_signaling_ari_over_time.png"), dpi=300, bbox_inches="tight")
+    plt.savefig(os.path.join(output_dir, "exp3_signaling_ari_over_time.png"),
+                dpi=300, bbox_inches="tight")
     plt.close()
 
     # ── Plot 2: t-SNE of final window, coloured by meaning cluster ──────────
@@ -345,36 +375,50 @@ async def run_positive_signaling(
             ).fit_transform(s_embs_final)
 
         unique_labels = sorted(set(m_labels_final))
-        cmap = plt.cm.get_cmap("tab20", len(unique_labels))
-        label_to_color = {lbl: cmap(i) for i, lbl in enumerate(unique_labels)}
+        n_clusters    = len(unique_labels)
 
-        fig2, ax2 = plt.subplots(figsize=(10, 8))
+        # Greyscale ramp for clusters; noise points get a light grey
+        greys = plt.cm.get_cmap("Greys", n_clusters + 2)
+        label_to_color = {
+            lbl: ("#cccccc" if lbl == -1 else greys(0.3 + 0.6 * i / max(n_clusters - 1, 1)))
+            for i, lbl in enumerate(l for l in unique_labels if l != -1)
+        }
+        if -1 in unique_labels:
+            label_to_color[-1] = "#cccccc"
+
+        fig2, ax2 = plt.subplots(figsize=(6, 6))
         for lbl in unique_labels:
-            mask = m_labels_final == lbl
-            color = label_to_color[lbl]
-            label_str = f"Noise" if lbl == -1 else f"Cluster {lbl}"
-            alpha = 0.25 if lbl == -1 else 0.7
-            size  = 15   if lbl == -1 else 30
+            mask      = m_labels_final == lbl
+            is_noise  = lbl == -1
             ax2.scatter(
                 tsne_coords[mask, 0], tsne_coords[mask, 1],
-                c=[color], alpha=alpha, s=size, label=label_str,
+                c=[label_to_color[lbl]],
+                s=10 if is_noise else 18,
+                alpha=0.3 if is_noise else 0.65,
+                linewidths=0,
+                label="Noise" if is_noise else f"Cluster {lbl}",
+                zorder=1 if is_noise else 2,
             )
 
         ax2.set_title(
-            f"t-SNE of Signal Space — Final Window (win {win_final})\n"
-            f"Colour = Meaning-Space Cluster  |  ARI = {ari_final:.4f}",
-            pad=12,
+            f"Experiment 3a — Signal space (t-SNE), final window\n"
+            f"Colour = meaning-space cluster  |  ARI = {ari_final:.4f}",
+            pad=8,
         )
         ax2.set_xlabel("t-SNE dim 1")
         ax2.set_ylabel("t-SNE dim 2")
+        ax2.yaxis.set_label_coords(-0.1, 0.5)
         ax2.legend(
             handles=[
-                mpatches.Patch(color=label_to_color[l], label=("Noise" if l == -1 else f"Cluster {l}"))
+                mpatches.Patch(
+                    color=label_to_color[l],
+                    label="Noise" if l == -1 else f"Cluster {l}",
+                )
                 for l in unique_labels
             ],
-            loc="best", fontsize=8, framealpha=0.8,
+            loc="best", fontsize=8, frameon=False,
         )
-        ax2.grid(True, linestyle="--", alpha=0.3)
+        ax2.grid(linewidth=0.4, color=GREY_REF, linestyle=":")
         fig2.tight_layout()
         plt.savefig(
             os.path.join(output_dir, "exp3_signaling_tsne_final.png"),
@@ -589,19 +633,20 @@ async def _cross_run_cic(
     print(f"  Proxy CIC = {mean_cic:.4f} (mean cosine distance of Generator outputs)")
 
     # ── Distribution plot ───────────────────────────────────────────────────
-    fig, ax = plt.subplots(figsize=(9, 5))
-    ax.hist(dists, bins=30, color="#d62728", alpha=0.75, edgecolor="black", linewidth=0.5)
-    ax.axvline(mean_cic, color="black", linestyle="--", linewidth=2,
-               label=f"Mean = {mean_cic:.4f}")
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.hist(dists, bins=30, color=ACCENT, alpha=0.75, linewidth=0)
+    ax.axvline(mean_cic, color=ACCENT, linestyle='--', linewidth=1.0,
+               label=f'Mean = {mean_cic:.4f}')
     ax.set_title(
-        "Positive Listening: Distribution of Generator Output Shift\n"
-        "(Cross-Run Proxy CIC — cosine distance clean vs. noisy signal)",
-        pad=12,
+        'Experiment 3b — Positive listening: generator output shift\n'
+        '(cross-run proxy CIC)',
+        pad=8,
     )
-    ax.set_xlabel("Cosine Distance (Generator Output: clean run vs. noisy run)")
-    ax.set_ylabel("Frequency")
-    ax.legend()
-    ax.grid(True, linestyle="--", alpha=0.4)
+    ax.set_xlabel('Cosine distance (generator output: clean vs. noisy run)')
+    ax.set_ylabel('Count')
+    ax.yaxis.set_label_coords(-0.08, 0.5)
+    ax.legend(frameon=False)
+    ax.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
     fig.tight_layout()
     plt.savefig(
         os.path.join(output_dir, "exp3_listening_cic_distribution.png"),
@@ -615,23 +660,26 @@ async def _cross_run_cic(
 
 def _plot_cic(df: pd.DataFrame, output_dir: str, title_suffix: str = "") -> None:
     """Line plot of mean signal distance over training windows."""
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(
-        df["Window_Index"], df["Mean_Signal_Dist"],
-        marker="s", color="#d62728", linewidth=2, markersize=6, label="Mean Cosine Dist",
-    )
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(df["Window_Index"], df["Mean_Signal_Dist"],
+            color=ACCENT, linewidth=1.2)
     ax.fill_between(
         df["Window_Index"],
         df["Mean_Signal_Dist"] - df["Std_Signal_Dist"],
         df["Mean_Signal_Dist"] + df["Std_Signal_Dist"],
-        color="#d62728", alpha=0.15, label="± 1 SD",
+        color=ACCENT, alpha=0.08, label="± 1 SD",
     )
-    ax.set_title(f"Positive Listening: Signal Sensitivity Over Time\n{title_suffix}", pad=12)
-    ax.set_xlabel("Training Steps (Windows)")
-    ax.set_ylabel("Mean Cosine Distance (Clean vs. Noisy Signal)")
+    ax.set_title(
+        f'Experiment 3b — Positive listening: signal sensitivity over training\n'
+        f'{title_suffix}',
+        pad=8,
+    )
+    ax.set_xlabel('Training window')
+    ax.set_ylabel('Mean cosine distance\n(clean vs. noisy signal)')
+    ax.yaxis.set_label_coords(-0.1, 0.5)
     ax.set_ylim(bottom=0)
-    ax.legend()
-    ax.grid(True, linestyle="--", alpha=0.4)
+    ax.legend(frameon=False)
+    ax.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
     fig.tight_layout()
     plt.savefig(
         os.path.join(output_dir, "exp3_listening_cic_over_time.png"),
