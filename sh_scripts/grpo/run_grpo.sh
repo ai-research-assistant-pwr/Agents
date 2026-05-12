@@ -22,7 +22,7 @@
 #SBATCH -c 8
 #SBATCH --mem=32gb
 #SBATCH --gres=gpu:hopper:1
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=2
 
 set -e 
 
@@ -35,7 +35,7 @@ MY_DISK="${MY_DISK:-/home/$USER/disk}"
 BASE_DIR="${BASE_DIR:-$MY_DISK/patryk/Agents}"
 TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-0.6B"}"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
-RERANK_MODEL="${RERANK_MODEL:-"Qwen/Qwen3-Reranker-4B"}"
+RERANK_MODEL="${RERANK_MODEL:-"Qwen/Qwen3-Reranker-0.6B"}"
 WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}" # Defaults to 'grpo_qwen'
 BATCH_SIZE="${TRAIN_BATCH_SIZE:-8}"
 ROLLOUT_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
@@ -95,12 +95,18 @@ echo "   Rerank Model: $RERANK_MODEL"
 # =================================================
 echo "=> Starting vLLM Embedding Server on $EMBED_NODE..."
 
-srun --het-group=1 \
+# =================================================
+# START vLLM EMBEDDING SERVER (On Het Group 1)
+# =================================================
+echo "=> Starting vLLM Embedding Server on $EMBED_NODE..."
+
+srun --het-group=1 --overlap \
     $VENV_PYTHON -m vllm.entrypoints.openai.api_server \
     --model "$EMBED_MODEL" \
     --host 0.0.0.0 \
     --port $EMBED_PORT \
-    --max-model-len 4096 &
+    --max-model-len 4096 \
+    --gpu-memory-utilization 0.4 &
 VLLM_EMBED_PID=$!
 
 echo "=> Waiting for vLLM embedding server to become ready..."
@@ -114,13 +120,18 @@ echo "=> vLLM embedding server is online at http://$EMBED_NODE:$EMBED_PORT/v1!"
 # =================================================
 echo "=> Starting vLLM Reranker Server on $EMBED_NODE..."
 
-srun --het-group=1 \
-    $VENV_PYTHON -m vllm.entrypoints.openai.api_server \
-    --model "$RERANK_MODEL" \
-    --host 0.0.0.0 \
-    --port $RERANK_PORT \
-    --task score \
-    --hf_overrides '{"architectures": ["Qwen3ForSequenceClassification"], "classifier_from_token": ["no", "yes"], "is_original_qwen3_reranker": true}' &
+# =================================================
+# START vLLM RERANKER SERVER (On Het Group 1)
+# =================================================
+echo "=> Starting vLLM Reranker Server on $EMBED_NODE..."
+
+srun --het-group=1 --overlap \
+    vllm serve \
+        "$RERANK_MODEL"  \
+        --host 0.0.0.0 \
+        --port $RERANK_PORT \
+        --gpu-memory-utilization 0.4 \
+        --hf_overrides '{"architectures": ["Qwen3ForSequenceClassification"],"classifier_from_token": ["no", "yes"],"is_original_qwen3_reranker": true}' &
 VLLM_RERANK_PID=$!
 
 echo "=> Waiting for vLLM reranker server to become ready..."
