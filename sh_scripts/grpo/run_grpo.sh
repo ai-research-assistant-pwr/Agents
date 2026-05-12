@@ -64,7 +64,7 @@ else
 fi
 
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
-OUTPUT_DIR="${OUTPUT_DIR:-$MY_DISK/models_output/${SLURM_JOB_NAME}_results}"
+OUTPUT_DIR="${OUTPUT_DIR:-$BASE_DIR/models_output/${SLURM_JOB_NAME}_results}"
 
 source /usr/local/sbin/modules.sh
 module load CUDA/12.8.0

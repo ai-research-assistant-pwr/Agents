@@ -132,7 +132,7 @@ ROLLOUT_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
 # Separate output and log dirs per run — critical for eval scripts
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_NAME="${RUN_SUFFIX}_${TIMESTAMP}"
-OUTPUT_DIR="$MY_DISK/models_output/${RUN_NAME}"
+OUTPUT_DIR="$BASE_DIR/models_output/${RUN_NAME}"
 WORKFLOW_LOGS_DIR="$BASE_DIR/workflow_logs/${RUN_NAME}"
 
 VENV_PATH="$BASE_DIR/venv"
