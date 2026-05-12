@@ -8,7 +8,7 @@ Generator turn 3     – numbered-list format score + count score (peak at 3 hyp
 
 import re
 import math
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
@@ -117,3 +117,149 @@ async def embedding_similarity_reward(
         hypotheses, label, server_host, server_port
     )
     return embedding_similarity_reward_from_embs(hyp_embs, label_emb)
+
+
+# ── reranker reward helpers ───────────────────────────────────────────────────
+
+# Qwen3-Reranker prompt templates (required for correct model behaviour)
+_RERANKER_PREFIX = (
+    "<|im_start|>system\n"
+    "Judge whether the Document meets the requirements based on the Query and the "
+    'Instruct provided. Note that the answer can only be "yes" or "no".'
+    "<|im_end|>\n<|im_start|>user\n"
+)
+_RERANKER_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+_RERANKER_QUERY_TEMPLATE = "{prefix}<Instruct>: {instruction}\n<Query>: {query}\n"
+_RERANKER_DOC_TEMPLATE = "<Document>: {doc}" + _RERANKER_SUFFIX
+
+
+async def _get_rerank_scores(
+    query: str,
+    instruction: str,
+    documents: List[str],
+    server_host: str,
+    server_port: int,
+    model: str = "Qwen/Qwen3-Reranker-4B",
+) -> List[float]:
+    """Call the vLLM /v1/rerank endpoint with Qwen3-Reranker prompt formatting.
+
+    Parameters
+    ----------
+    query       : The query or hypothesis string (already plain text).
+    instruction : Task-specific instruction for the reranker.
+    documents   : List of document strings to score against the query.
+    server_host : Hostname/IP of the vLLM reranker server.
+    server_port : Port of the vLLM reranker server.
+    model       : HuggingFace model name served by vLLM.
+
+    Returns
+    -------
+    List of relevance scores (floats) in the same order as ``documents``.
+    Returns a list of 0.0 values if the server call fails.
+    """
+    formatted_query = _RERANKER_QUERY_TEMPLATE.format(
+        prefix=_RERANKER_PREFIX,
+        instruction=instruction,
+        query=query,
+    )
+    formatted_docs = [_RERANKER_DOC_TEMPLATE.format(doc=doc) for doc in documents]
+    url = f"http://{server_host}:{server_port}/v1/rerank"
+    payload = {
+        "model": model,
+        "query": formatted_query,
+        "documents": formatted_docs,
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+        # Response: {"results": [{"index": int, "relevance_score": float}, ...]}
+        ordered = sorted(data["results"], key=lambda x: x["index"])
+        return [item["relevance_score"] for item in ordered]
+    except Exception:
+        return [0.0] * len(documents)
+
+
+# ── groundedness reward ───────────────────────────────────────────────────────
+
+_GROUNDEDNESS_INSTRUCTION = (
+    "Given a scientific hypothesis, retrieve scientific papers that provide "
+    "evidence supporting or grounding the hypothesis"
+)
+
+
+async def groundedness_reward(
+    hypotheses: List[str],
+    papers: List[Dict[str, Any]],
+    rerank_host: str,
+    rerank_port: int,
+    model: str = "Qwen/Qwen3-Reranker-4B",
+) -> float:
+    """Compute groundedness of hypotheses against retrieved papers.
+
+    For each hypothesis the reranker scores all papers; the mean score across
+    papers gives the groundedness for that hypothesis.  The final reward is the
+    mean groundedness across all hypotheses.
+
+    Returns 0.0 when there are no hypotheses or no papers.
+    """
+    if not hypotheses or not papers:
+        return 0.0
+
+    paper_texts = [
+        p.get("summary", p.get("abstract", p.get("title", ""))) for p in papers
+    ]
+    paper_texts = [t for t in paper_texts if t]
+    if not paper_texts:
+        return 0.0
+
+    scores_per_hyp: List[float] = []
+    for hyp in hypotheses:
+        scores = await _get_rerank_scores(
+            query=hyp,
+            instruction=_GROUNDEDNESS_INSTRUCTION,
+            documents=paper_texts,
+            server_host=rerank_host,
+            server_port=rerank_port,
+            model=model,
+        )
+        scores_per_hyp.append(sum(scores) / len(scores))
+
+    return round(sum(scores_per_hyp) / len(scores_per_hyp), 4)
+
+
+# ── relevancy reward ──────────────────────────────────────────────────────────
+
+_RELEVANCY_INSTRUCTION = (
+    "Given a research query, retrieve hypotheses that are relevant to and "
+    "directly address the query"
+)
+
+
+async def relevancy_reward(
+    hypotheses: List[str],
+    query: str,
+    rerank_host: str,
+    rerank_port: int,
+    model: str = "Qwen/Qwen3-Reranker-4B",
+) -> float:
+    """Compute relevancy of hypotheses to the original research query.
+
+    Each hypothesis is scored against the query by the reranker; the reward is
+    the mean score across all hypotheses.
+
+    Returns 0.0 when there are no hypotheses.
+    """
+    if not hypotheses:
+        return 0.0
+
+    scores = await _get_rerank_scores(
+        query=query,
+        instruction=_RELEVANCY_INSTRUCTION,
+        documents=hypotheses,
+        server_host=rerank_host,
+        server_port=rerank_port,
+        model=model,
+    )
+    return round(sum(scores) / len(scores), 4)

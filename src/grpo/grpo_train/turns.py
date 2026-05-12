@@ -20,7 +20,7 @@ All intermediate steps receive reward=0.0 in the trajectory record; the final
 reward from ``generator_generate`` is propagated to all records by the workflow.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from src.grpo.grpo_train.prompts import build_agent_prompt
 from src.grpo.grpo_train.records import (
@@ -47,6 +47,10 @@ async def execute_turn(
     weaviate_url: str,
     similarity_weight: float = 0.7,
     diversity_weight: float = 0.3,
+    rerank_host: Optional[str] = None,
+    rerank_port: Optional[int] = None,
+    groundedness_weight: float = 0.0,
+    relevancy_weight: float = 0.0,
 ) -> TrajectoryState:
     """
     Execute one trajectory step and return the next ``TrajectoryState``.
@@ -63,6 +67,10 @@ async def execute_turn(
     embed_port      : Port of the embedding server.
     weaviate_url    : Base URL of the Weaviate instance.
     similarity_weight, diversity_weight : Reward weighting coefficients.
+    rerank_host     : Hostname of the reranker server (optional).
+    rerank_port     : Port of the reranker server (optional).
+    groundedness_weight : Weight for groundedness reward (reranker-based).
+    relevancy_weight    : Weight for relevancy reward (reranker-based).
     """
     step = state.current_step
     prompt = build_agent_prompt(state)
@@ -97,13 +105,25 @@ async def execute_turn(
 
     elif step == "generator_generate":
         hypotheses = _parse_hypotheses(strip_thinking(output))
-        reward, sim_score, div_score = await compute_final_reward(
+        (
+            reward,
+            sim_score,
+            div_score,
+            ground_score,
+            relev_score,
+        ) = await compute_final_reward(
             hypotheses,
             label,
             embed_host,
             embed_port,
             similarity_weight,
             diversity_weight,
+            rerank_host=rerank_host,
+            rerank_port=rerank_port,
+            groundedness_weight=groundedness_weight,
+            relevancy_weight=relevancy_weight,
+            papers=state.papers,
+            query=state.query,
         )
         step_payload = {"hypotheses": hypotheses}
         extra_debug.update(
@@ -111,8 +131,12 @@ async def execute_turn(
                 "hypotheses": hypotheses,
                 "similarity_score": sim_score,
                 "diversity_score": div_score,
+                "groundedness_score": ground_score,
+                "relevancy_score": relev_score,
                 "similarity_weight": similarity_weight,
                 "diversity_weight": diversity_weight,
+                "groundedness_weight": groundedness_weight,
+                "relevancy_weight": relevancy_weight,
             }
         )
 

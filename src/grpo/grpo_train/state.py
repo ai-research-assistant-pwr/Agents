@@ -78,6 +78,7 @@ class TrajectoryState:
     generator_questions: List[str]
     paper_block: str
     query: str
+    papers: List[Dict[str, str]]
     hypotheses: Optional[List[str]]
     trajectory_records: List[Dict[str, Any]]
     debug_entries: List[Dict[str, Any]]
@@ -104,6 +105,7 @@ class TrajectoryState:
 def initial_state(
     query: str,
     paper_block: str,
+    papers: Optional[List[Dict[str, str]]] = None,
     ask_retriever_limit: int = 1,
     retriever_search_limit: int = 1,
 ) -> TrajectoryState:
@@ -116,6 +118,7 @@ def initial_state(
         generator_questions=[],
         paper_block=paper_block,
         query=query,
+        papers=papers or [],
         hypotheses=None,
         trajectory_records=[],
         debug_entries=[],

@@ -16,17 +16,21 @@ Finally:
 
 No tool-call formatting is required from the LLMs.  Each model is prompted
 to output only the relevant content for its step.  The final reward
-(embedding similarity + diversity) is computed on the parsed hypotheses and
-propagated back to all trajectory records.
+(embedding similarity + diversity + groundedness + relevancy) is computed on
+the parsed hypotheses and propagated back to all trajectory records.
 
 kwargs (via --workflow_args JSON)
 ---------------------------------
   embed_host             – hostname of the vLLM embedding server  (default: "localhost")
   embed_port             – port of the vLLM embedding server       (default: 8000)
+  rerank_host            – hostname of the vLLM reranker server   (default: same as embed_host)
+  rerank_port            – port of the vLLM reranker server       (default: 8001)
   debug_dir              – directory for per-trajectory JSON logs  (default: "./workflow_debug_logs")
   debug                  – write per-trajectory JSON logs          (default: true)
   similarity_weight      – weight for embedding similarity reward  (default: 0.7)
   diversity_weight       – weight for hypothesis diversity reward   (default: 0.3)
+  groundedness_weight    – weight for groundedness reward (reranker) (default: 0.0)
+  relevancy_weight       – weight for relevancy reward (reranker)    (default: 0.0)
   use_weaviate_context   – fetch papers live from Weaviate         (default: false)
   weaviate_top_n         – number of Weaviate results to fetch     (default: 6)
   weaviate_url           – Weaviate base URL
@@ -140,6 +144,8 @@ async def workflow(
 
     embed_host: str = _get("embed_host", "localhost")
     embed_port: int = int(_get("embed_port", 8000))
+    rerank_host: str = _get("rerank_host", embed_host)
+    rerank_port: int = int(_get("rerank_port", 8001))
     debug_dir: str = _get("debug_dir", "./workflow_debug_logs")
     debug: bool = str(_get("debug", "true")).lower() not in ("false", "0", "no")
     is_eval: bool = kwargs.get("is_eval", False)
@@ -148,6 +154,8 @@ async def workflow(
         debug_dir = os.path.join(debug_dir, split_name)
     similarity_weight: float = float(_get("similarity_weight", 0.7))
     diversity_weight: float = float(_get("diversity_weight", 0.3))
+    groundedness_weight: float = float(_get("groundedness_weight", 0.0))
+    relevancy_weight: float = float(_get("relevancy_weight", 0.0))
     use_weaviate_context: bool = str(
         _get("use_weaviate_context", "false")
     ).lower() not in ("false", "0", "no")
@@ -171,6 +179,7 @@ async def workflow(
     state: TrajectoryState = initial_state(
         prompt,
         paper_block,
+        papers=papers,
         ask_retriever_limit=ask_retriever_limit,
         retriever_search_limit=retriever_search_limit,
     )
@@ -188,6 +197,10 @@ async def workflow(
             weaviate_url=weaviate_url,
             similarity_weight=similarity_weight,
             diversity_weight=diversity_weight,
+            rerank_host=rerank_host,
+            rerank_port=rerank_port,
+            groundedness_weight=groundedness_weight,
+            relevancy_weight=relevancy_weight,
         )
 
     # ── assemble results ──────────────────────────────────────────────────────

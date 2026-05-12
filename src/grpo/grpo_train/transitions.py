@@ -7,8 +7,8 @@ State-transition function for the scientific hypothesis generation pipeline.
 returns the next state with turn_id incremented and the appropriate accumulator
 list updated.
 
-``compute_final_reward`` computes the weighted similarity + diversity reward
-using the embedding server.
+``compute_final_reward`` computes the weighted similarity + diversity +
+groundedness + relevancy reward using the embedding and reranker servers.
 
 Step transitions
 ----------------
@@ -19,12 +19,14 @@ Step transitions
                        when turn_id reaches len(step_sequence)
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.grpo.grpo_train.rewards import (
     embedding_similarity_reward_from_embs,
     get_hypothesis_and_label_embeddings,
+    groundedness_reward,
     hypothesis_diversity_reward,
+    relevancy_reward,
 )
 from src.grpo.grpo_train.state import TrajectoryState
 
@@ -39,22 +41,59 @@ async def compute_final_reward(
     embed_port: int,
     similarity_weight: float,
     diversity_weight: float,
-) -> Tuple[float, float, float]:
+    rerank_host: Optional[str] = None,
+    rerank_port: Optional[int] = None,
+    groundedness_weight: float = 0.0,
+    relevancy_weight: float = 0.0,
+    papers: Optional[List[Dict[str, Any]]] = None,
+    query: Optional[str] = None,
+) -> Tuple[float, float, float, float, float]:
     """
     Compute the weighted reward for a list of hypotheses.
 
-    Returns ``(reward, similarity_score, diversity_score)``.
-    All three values are 0.0 when the hypothesis list is empty.
+    Returns ``(reward, similarity_score, diversity_score, groundedness_score, relevancy_score)``.
+    All values are 0.0 when the hypothesis list is empty.
+
+    Groundedness and relevancy are only computed when ``rerank_host`` and
+    ``rerank_port`` are provided and the respective weights are non-zero.
     """
     if not hypotheses:
-        return 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+
     hyp_embs, label_emb = await get_hypothesis_and_label_embeddings(
         hypotheses, label, embed_host, embed_port
     )
     sim = embedding_similarity_reward_from_embs(hyp_embs, label_emb)
     div = hypothesis_diversity_reward(hyp_embs)
-    reward = round(similarity_weight * sim + diversity_weight * div, 4)
-    return reward, sim, div
+
+    ground = 0.0
+    relev = 0.0
+    use_reranker = rerank_host is not None and rerank_port is not None
+
+    if use_reranker and groundedness_weight > 0.0:
+        ground = await groundedness_reward(
+            hypotheses=hypotheses,
+            papers=papers or [],
+            rerank_host=rerank_host,
+            rerank_port=rerank_port,
+        )
+
+    if use_reranker and relevancy_weight > 0.0 and query:
+        relev = await relevancy_reward(
+            hypotheses=hypotheses,
+            query=query,
+            rerank_host=rerank_host,
+            rerank_port=rerank_port,
+        )
+
+    reward = round(
+        similarity_weight * sim
+        + diversity_weight * div
+        + groundedness_weight * ground
+        + relevancy_weight * relev,
+        4,
+    )
+    return reward, sim, div, ground, relev
 
 
 # ── state transition ──────────────────────────────────────────────────────────
@@ -94,6 +133,7 @@ def apply_step(
             generator_questions=state.generator_questions,
             paper_block=state.paper_block,
             query=state.query,
+            papers=state.papers,
             hypotheses=state.hypotheses,
             trajectory_records=new_records,
             debug_entries=new_debug,
@@ -108,6 +148,7 @@ def apply_step(
             generator_questions=state.generator_questions,
             paper_block=state.paper_block,
             query=state.query,
+            papers=state.papers,
             hypotheses=state.hypotheses,
             trajectory_records=new_records,
             debug_entries=new_debug,
@@ -122,6 +163,7 @@ def apply_step(
             generator_questions=state.generator_questions + [payload["question"]],
             paper_block=state.paper_block,
             query=state.query,
+            papers=state.papers,
             hypotheses=state.hypotheses,
             trajectory_records=new_records,
             debug_entries=new_debug,
@@ -136,6 +178,7 @@ def apply_step(
             generator_questions=state.generator_questions,
             paper_block=state.paper_block,
             query=state.query,
+            papers=state.papers,
             hypotheses=payload["hypotheses"],
             trajectory_records=new_records,
             debug_entries=new_debug,
