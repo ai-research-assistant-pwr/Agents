@@ -1,387 +1,303 @@
 """
-Semantics Evaluation — Experiment 2
+Morphology Evaluation — Experiment 1
 ======================================
-Tests whether channel noise (random token masking during training) causes the
-Retriever's emergent language to become more compositional — i.e. whether
-similar input contexts systematically produce similar output signals.
+Tests the Information Bottleneck hypothesis: does adding a per-token length
+penalty (R = R_task − λ · length(message)) cause the Retriever to compress
+its messages over training, and does that compression correlate with task
+performance?
 
-Compositionality is measured with Topological Similarity (TopSim), the
-Spearman rank correlation between pairwise distances in the *meaning space*
-(inputs) and pairwise distances in the *signal space* (Retriever messages):
+Three windowed metrics are tracked over the course of training:
 
-  TopSim = Spearman ρ ( dist_meaning(i,j),  dist_signal(i,j) )
+  Average Message Length
+      Mean number of word tokens in Retriever outputs (Turn 0 + Turn 2).
+      A downward trend indicates the Retriever is learning to compress.
 
-  TopSim → +1 : perfectly compositional protocol
-  TopSim →  0 : random / holistic protocol
-  TopSim → −1 : anti-compositional (rarely observed)
+  Active Vocabulary Size
+      Number of unique word types seen across all Retriever messages within
+      a window.  Shrinking vocabulary suggests pruning of low-information
+      tokens in favour of a more focused lexicon.
 
-Two signal-distance metrics are computed in parallel:
-
-  Semantic TopSim (ρ_sem)
-      Signal distances are cosine distances between vLLM embeddings of the
-      Retriever outputs.  Captures high-level semantic similarity.
-
-  Lexical TopSim (ρ_lex)
-      Signal distances are normalised Levenshtein distances between the raw
-      output strings.  Captures surface-form / syntactic similarity.
-
-Meaning space
--------------
-  prompt  +  concatenated titles & summaries of up to 5 papers (truncated to
-  12 000 characters to stay within vLLM token limits).
-
-Signal space
-------------
-  Concatenation of Retriever output_content from Turn 0 and Turn 2
-  (pre-noise intent, so TopSim reflects the *intended* signal, not noise).
+  Unigram Entropy (raw + normalised)
+      Shannon entropy H over the unigram token distribution within a window.
+        H_norm = H / log₂(V)   (V = vocabulary size, window-independent)
+      A decrease in H_norm signals that the distribution is becoming more
+      peaked — the Retriever is reusing a smaller set of high-value tokens.
 
 Data contract
 -------------
   Reads traj_*.json files written by scientific_workflow.py (DEBUG=True).
-  Requires a running vLLM embedding server (Qwen/Qwen3-Embedding-4B by default).
-  Server is configured via environment variables EMBED_HOST / EMBED_PORT /
-  EMBED_MODEL, or via the argparse flags --embed_host / --embed_port.
+  Each file must contain a "turns" list; Retriever turns are identified by
+  role key "role" == "retriever" (debug_entry format).
 
 Output
 ------
-  eval_results/experiment_2/
-    ├── exp2_topsim_evolution.csv          — ρ_sem and ρ_lex per window
-    ├── exp2_topsim_evolution.png          — line plot over training steps
-    └── exp2_topsim_scatter_final.png      — scatter of final-window distances
+  eval_results/experiment_1/
+    ├── exp1_morphology_metrics.csv
+    ├── exp1_compression_vs_reward.png   — reward + length over time
+    └── exp1_entropy_and_vocab.png       — entropy (raw + norm) + vocab size
 
 Usage
 -----
-  # Ensure the vLLM server is running, then:
-  EMBED_HOST=<node> EMBED_PORT=8000 \\
-  python eval_semantics.py \\
+  python eval_morphology.py \\
       --logs_dir    ./Agents/workflow_logs/<run_name> \\
-      --output_dir  ./Agents/eval_results/<run_name>/experiment_2 \\
+      --output_dir  ./Agents/eval_results/<run_name>/experiment_1 \\
       --window_size 50
 """
 
 import os
-import json
 import glob
-import asyncio
-import aiohttp
-import numpy as np
+import json
+import re
+from collections import Counter
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
-from itertools import combinations
-from scipy.stats import spearmanr
-from scipy.spatial.distance import pdist
+from scipy.stats import entropy
 
-try:
-    import Levenshtein
-except ImportError:
-    raise ImportError("Please install the Levenshtein package: pip install python-Levenshtein")
-
-# ==========================================
-# vLLM Server Configuration
-# ==========================================
-EMBED_HOST = os.getenv("EMBED_HOST", "localhost")
-EMBED_PORT = os.getenv("EMBED_PORT", "8000")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "Qwen/Qwen3-Embedding-4B")
-
-
-async def get_embeddings(texts: list, host: str, port: str, model: str) -> list:
-    """Fetch embeddings from the vLLM server asynchronously."""
-    if not texts:
+def tokenize(text: str) -> list:
+    """Simple tokenization on word level using regex."""
+    if not text:
         return []
-    url     = f"http://{host}:{port}/v1/embeddings"
-    payload = {"model": model, "input": texts}
+    return re.findall(r'\b\w+\b', text.lower())
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=payload) as resp:
-            if resp.status != 200:
-                error_msg = await resp.text()
-                print(f"\n[VLLM Error] Received status {resp.status}. Details: {error_msg}")
-            resp.raise_for_status()
-            data = await resp.json()
-
-    # Sort by index to maintain original order
-    ordered = sorted(data["data"], key=lambda x: x["index"])
-    return [item["embedding"] for item in ordered]
-
-
-def extract_channel_message(turn: dict) -> str:
+def _detect_role_key(turns: list) -> str:
     """
-    Use the pure intent generated by the Retriever to measure its linguistic
-    compositionality.  We read 'output_content' (before channel noise) so that
-    TopSim reflects the agent's intended signal, not noise artefacts.
+    Detects whether the role key in the turn records is 'agent_role' or 'role'.
     """
-    return turn.get("output_content", "")
+    if not turns:
+        return "role"
+    sample = turns[0]
+    if "agent_role" in sample:
+        return "agent_role"
+    if "role" in sample:
+        return "role"
+    raise KeyError(
+        f"Cannot find role key in turn record. Available keys: {list(sample.keys())}"
+    )
 
 
-def normalized_levenshtein(s1: str, s2: str) -> float:
-    """Compute the normalised Levenshtein distance between two strings."""
-    max_len = max(len(s1), len(s2))
-    if max_len == 0:
-        return 0.0
-    return Levenshtein.distance(s1, s2) / max_len
-
-
-def compute_lexical_distances(signals: list) -> np.ndarray:
-    """
-    Compute pairwise normalised-Levenshtein distances.
-    """
-    n = len(signals)
-    distances = np.array([
-        normalized_levenshtein(signals[i], signals[j])
-        for i, j in combinations(range(n), 2)
-    ])
-    return distances
-
-
-async def run_hybrid_topsim_analysis(
-    logs_dir: str,
-    output_dir: str,
-    window_size: int = 50,
-    max_samples_per_window: int = 150,
-):
-    """
-    Analyzes the emergence of compositionality using Topological Similarity
-    (TopSim).  Computes both Lexical (Edit Distance) and Semantic (Embedding
-    Distance) correlations between the meaning space and the signal space.
-
-    Meaning space:
-        prompt  +  full paper summaries (up to 5 papers, abstracts preferred).
-
-    Signal space:
-        Concatenation of Retriever outputs from Turn 0 and Turn 2
-        (output_content — pre-noise intent).
-    """
+def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 50):
     os.makedirs(output_dir, exist_ok=True)
 
     # Load and sort log files by timestamp
     log_files = glob.glob(os.path.join(logs_dir, "traj_*.json"))
-    parsed_files = []
 
+    parsed_files = []
     for f in log_files:
+        basename = os.path.basename(f)
         try:
-            ts = int(os.path.basename(f).split('_')[1])
+            # Extract timestamp from format: traj_{ts_ms}_{uid}.json
+            ts = int(basename.split('_')[1])
             parsed_files.append((ts, f))
-        except Exception:
+        except (IndexError, ValueError):
             continue
 
     parsed_files.sort(key=lambda x: x[0])
 
     if not parsed_files:
-        print(f"No log files found in: {logs_dir}")
+        print(f"No logs found in directory: {logs_dir}")
         return
 
-    print(f"Found {len(parsed_files)} trajectories. "
-          f"Starting asynchronous windowed analysis...")
+    print(f"Found {len(parsed_files)} trajectories. Analyzing in windows of {window_size}...")
+
+    # --- Diagnostic: detect role key from the first file ---
+    with open(parsed_files[0][1], 'r', encoding='utf-8') as f:
+        _sample_data = json.load(f)
+    _sample_turns = _sample_data.get("turns", [])
+    role_key = _detect_role_key(_sample_turns)
+    print(f"[Diagnostic] Using role key: '{role_key}'")
+
+    # --- Diagnostic: show how many retriever turns are found in first file ---
+    retriever_turns_in_sample = [t for t in _sample_turns if t.get(role_key) == "retriever"]
+    print(f"[Diagnostic] First file has {len(_sample_turns)} turns total, "
+          f"{len(retriever_turns_in_sample)} are retriever turns.")
+    if not retriever_turns_in_sample:
+        print(f"[WARNING] No retriever turns found! Check that '{role_key}' == 'retriever' "
+              f"matches actual values: {[t.get(role_key) for t in _sample_turns]}")
 
     results = []
-    last_window_data = None  # stored for the final scatter plot
 
+    # Process logs in windows to compute metrics over time
     for i in range(0, len(parsed_files), window_size):
         batch_files = parsed_files[i:i + window_size]
 
-        # Subsample within the window to prevent O(N²) complexity explosion
-        if len(batch_files) > max_samples_per_window:
-            np.random.seed(42 + i)
-            indices     = np.random.choice(len(batch_files), max_samples_per_window, replace=False)
-            batch_files = [batch_files[idx] for idx in indices]
+        # Skip incomplete windows to prevent entropy from dropping at the end of training due to smaller sample size, not compression.
+        if len(batch_files) < window_size:
+            print(f"  Window {i // window_size + 1}: Skipping incomplete window "
+                  f"({len(batch_files)}/{window_size} trajectories).")
+            continue
 
-        meanings: list[str] = []  # Meaning Space (inputs)
-        signals:  list[str] = []  # Signal Space  (emergent language)
+        window_rewards = []
+        window_message_lengths = []
+        window_vocab = Counter()
 
         for _, file_path in batch_files:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            try:
-                turn0 = data["turns"][0]
-                turn2 = data["turns"][2]
+            window_rewards.append(data.get("total_reward", 0.0))
+            traj_lengths = []
 
-                prompt = data.get("prompt", "")
+            for turn in data.get("turns", []):
+                if turn.get(role_key) == "retriever":
+                    text = turn.get("output_content", "")
+                    tokens = tokenize(text)
+                    traj_lengths.append(len(tokens))
+                    window_vocab.update(tokens)
 
-                paper_contexts: list[str] = []
-                for p in data.get("metadata", {}).get("papers", [])[:5]:
-                    title   = p.get("title",   "")
-                    summary = p.get("summary", p.get("abstract", ""))
-                    if title or summary:
-                        # Include both title and body for a complete representation
-                        paper_contexts.append(
-                            f"{title}\n{summary}".strip()
-                        )
+            # Average retriever message length for this specific trajectory
+            if traj_lengths:
+                window_message_lengths.append(sum(traj_lengths) / len(traj_lengths))
 
-                meaning_space = prompt + "\n\n" + "\n\n".join(paper_contexts)
-
-                # Truncate to avoid vLLM token-length limits
-                if meaning_space:
-                    meaning_space = meaning_space[:12_000]
-
-                # Signal: concatenated Retriever outputs from Turn 0 and Turn 2
-                signal_space = (
-                    extract_channel_message(turn0)
-                    + " "
-                    + extract_channel_message(turn2)
-                )
-                if signal_space:
-                    signal_space = signal_space[:12_000]
-
-                if meaning_space and signal_space:
-                    meanings.append(meaning_space)
-                    signals.append(signal_space)
-
-            except (KeyError, IndexError):
-                continue
-
-        if len(meanings) < 10:
-            print(f"  Window {i // window_size + 1}: Only {len(meanings)} samples — skipping.")
+        if not window_message_lengths:
+            print(f"  Window {i // window_size + 1}: No retriever messages found — skipping.")
             continue
 
-        print(f"  Window {i // window_size + 1}: "
-              f"Fetching embeddings for {len(meanings)} samples...")
+        # Calculate window metrics
+        avg_reward = np.mean(window_rewards)
+        avg_length = np.mean(window_message_lengths)
+        vocab_size = len(window_vocab)
 
-        # Asynchronous batch embedding
-        meaning_embeddings: list = []
-        signal_embeddings:  list = []
-        batch_size = 50
-
-        for b in range(0, len(meanings), batch_size):
-            m_batch = meanings[b:b + batch_size]
-            s_batch = signals [b:b + batch_size]
-
-            m_embs = await get_embeddings(m_batch, EMBED_HOST, EMBED_PORT, EMBED_MODEL)
-            s_embs = await get_embeddings(s_batch, EMBED_HOST, EMBED_PORT, EMBED_MODEL)
-
-            meaning_embeddings.extend(m_embs)
-            signal_embeddings.extend(s_embs)
-
-        # Pairwise distance matrices (condensed form, compatible with spearmanr)
-        meaning_distances = pdist(meaning_embeddings, metric='cosine')
-        signal_semantic_distances = pdist(signal_embeddings, metric='cosine')
-        signal_lexical_distances = compute_lexical_distances(signals)
-
-        # TopSim = Spearman ρ between meaning-space distances and signal-space distances
-        rho_sem, _ = spearmanr(meaning_distances, signal_semantic_distances)
-        rho_lex, _ = spearmanr(meaning_distances, signal_lexical_distances)
+        # Calculate Token Distribution Entropy for the window.
+        counts = list(window_vocab.values())
+        if counts:
+            probs = np.array(counts) / sum(counts)
+            h = entropy(probs, base=2)
+            # Normalised entropy: 1.0 = perfectly uniform, 0.0 = single token
+            h_norm = h / np.log2(vocab_size) if vocab_size > 1 else 0.0
+        else:
+            h = 0.0
+            h_norm = 0.0
 
         results.append({
             "Window_Index": i // window_size + 1,
-            "Trajectories": len(meanings),
-            "TopSim_Semantic_Rho": round(rho_sem, 4),
-            "TopSim_Lexical_Rho": round(rho_lex, 4),
+            "Trajectories_Count": len(batch_files),
+            "Avg_Reward": round(avg_reward, 4),
+            "Avg_Message_Length": round(avg_length, 2),
+            "Active_Vocab_Size": vocab_size,
+            "Unigram_Entropy": round(h, 4),
+            "Unigram_Entropy_Norm": round(h_norm, 4),
         })
 
-        last_window_data = (
-            meaning_distances,
-            signal_semantic_distances,
-            signal_lexical_distances,
-            rho_sem,
-            rho_lex,
-        )
-
     if not results:
-        print("No windows produced results. Check log files.")
+        print("No complete windows produced results. Check log files and role key.")
         return
 
-    # Save metrics to CSV
+    # Save metrics to CSV for further analysis
     df = pd.DataFrame(results)
-    csv_path = os.path.join(output_dir, "exp2_topsim_evolution.csv")
+    csv_path = os.path.join(output_dir, "exp1_morphology_metrics.csv")
     df.to_csv(csv_path, index=False)
-    print(f"Saved TopSim evolution data to: {csv_path}")
+    print(f"Saved raw windowed data to: {csv_path}")
+
+    # ==========================================
+    # Plot Generation
+    # ==========================================
 
     plt.rcParams.update({
-        'font.family':       'serif',
-        'font.size':         10,
-        'axes.labelsize':    10,
-        'axes.titlesize':    11,
-        'legend.fontsize':    9,
-        'xtick.labelsize':    9,
-        'ytick.labelsize':    9,
-        'axes.spines.top':   False,
+        'font.family':      'serif',
+        'font.size':        10,
+        'axes.labelsize':   10,
+        'axes.titlesize':   11,
+        'legend.fontsize':   9,
+        'xtick.labelsize':   9,
+        'ytick.labelsize':   9,
+        'axes.spines.top':  False,
         'axes.spines.right': False,
-        'axes.linewidth':    0.6,
+        'axes.linewidth':   0.6,
         'xtick.major.width': 0.6,
         'ytick.major.width': 0.6,
-        'figure.facecolor':  'white',
-        'axes.facecolor':    'white',
+        'figure.facecolor': 'white',
+        'axes.facecolor':   'white',
     })
 
-    ACCENT   = '#1a1a1a'
-    GREY_MID = '#666666'
-    GREY_REF = '#aaaaaa'
+    # Single accent colour; all other series in neutral greys
+    ACCENT   = '#1a1a1a'   # near-black for the primary series
+    GREY_MID = '#666666'   # secondary series
+    GREY_REF = '#aaaaaa'   # reference / zero lines
+    FILL_A   = '#1a1a1a'   # fill matching accent, low alpha below
+
+    x_axis = df["Window_Index"]
 
     # ------------------------------------------------------------------
-    # Plot 1: TopSim evolution over time
+    # Plot 1: Compression vs. Task Reward  (2 rows, shared x-axis)
     # ------------------------------------------------------------------
-    fig, ax = plt.subplots(figsize=(7, 4))
+    fig1, (ax_r, ax_l) = plt.subplots(
+        2, 1, figsize=(7, 5), sharex=True,
+        gridspec_kw={'hspace': 0.12},
+    )
 
-    ax.plot(df["Window_Index"], df["TopSim_Semantic_Rho"],
-            color=ACCENT,   linewidth=1.2, label='Semantic TopSim (ρ, cosine)')
-    ax.plot(df["Window_Index"], df["TopSim_Lexical_Rho"],
-            color=GREY_MID, linewidth=1.2, linestyle='--',
-            label='Lexical TopSim (ρ, Levenshtein)')
-    ax.axhline(0, linewidth=0.6, color=GREY_REF, linestyle=':')
+    ax_r.plot(x_axis, df["Avg_Reward"], color=ACCENT, linewidth=1.2)
+    ax_r.fill_between(x_axis, df["Avg_Reward"], alpha=0.06, color=ACCENT)
+    ax_r.set_ylabel('Task reward')
+    ax_r.yaxis.set_label_coords(-0.08, 0.5)
+    ax_r.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
+    ax_r.set_title('Experiment 1 — Information Bottleneck: compression vs. task reward',
+                   pad=8, fontsize=11)
 
-    ax.set_title('Experiment 2 — Emergence of compositionality: TopSim over training',
-                 pad=8)
-    ax.set_xlabel('Training window')
-    ax.set_ylabel('Spearman ρ')
-    ax.yaxis.set_label_coords(-0.08, 0.5)
-    ax.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
-    ax.legend(frameon=False)
+    ax_l.plot(x_axis, df["Avg_Message_Length"], color=ACCENT, linewidth=1.2)
+    ax_l.fill_between(x_axis, df["Avg_Message_Length"], alpha=0.06, color=ACCENT)
+    ax_l.set_ylabel('Retriever tokens')
+    ax_l.yaxis.set_label_coords(-0.08, 0.5)
+    ax_l.set_xlabel('Training window')
+    ax_l.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
 
-    fig.tight_layout()
-    plt.savefig(os.path.join(output_dir, "exp2_topsim_evolution.png"),
+    fig1.tight_layout()
+    plt.savefig(os.path.join(output_dir, "exp1_compression_vs_reward.png"),
                 dpi=300, bbox_inches='tight')
     plt.close()
 
     # ------------------------------------------------------------------
-    # Plot 2: Scatter — final training state (semantic TopSim)
+    # Plot 2: Entropy (raw + normalised) and Vocabulary Size  (3 rows)
     # ------------------------------------------------------------------
-    if last_window_data:
-        m_dist, s_sem_dist, _, rho_sem, _ = last_window_data
+    fig2, (ax_e, ax_en, ax_v) = plt.subplots(
+        3, 1, figsize=(7, 7), sharex=True,
+        gridspec_kw={'hspace': 0.12},
+    )
 
-        fig, ax = plt.subplots(figsize=(5, 5))
+    ax_e.plot(x_axis, df["Unigram_Entropy"], color=ACCENT, linewidth=1.2)
+    ax_e.fill_between(x_axis, df["Unigram_Entropy"], alpha=0.06, color=ACCENT)
+    ax_e.set_ylabel('Entropy (bits)')
+    ax_e.yaxis.set_label_coords(-0.08, 0.5)
+    ax_e.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
+    ax_e.set_title(
+        f'Experiment 1 — Token distribution entropy and vocabulary size\n'
+        f'(window = {window_size} trajectories)',
+        pad=8, fontsize=11,
+    )
 
-        plot_idx = np.random.choice(len(m_dist), min(5000, len(m_dist)), replace=False)
-        x_pts = m_dist[plot_idx]
-        y_pts = s_sem_dist[plot_idx]
+    ax_en.plot(x_axis, df["Unigram_Entropy_Norm"], color=ACCENT, linewidth=1.2)
+    ax_en.fill_between(x_axis, df["Unigram_Entropy_Norm"], alpha=0.06, color=ACCENT)
+    ax_en.set_ylabel('H / log₂(V)')
+    ax_en.yaxis.set_label_coords(-0.08, 0.5)
+    ax_en.set_ylim(0, 1.05)
+    ax_en.axhline(1.0, linewidth=0.5, color=GREY_REF, linestyle=':')
+    ax_en.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
 
-        ax.scatter(x_pts, y_pts, s=6, alpha=0.12, color=ACCENT, linewidths=0)
+    ax_v.plot(x_axis, df["Active_Vocab_Size"], color=ACCENT, linewidth=1.2)
+    ax_v.fill_between(x_axis, df["Active_Vocab_Size"], alpha=0.06, color=ACCENT)
+    ax_v.set_ylabel('Vocabulary size')
+    ax_v.yaxis.set_label_coords(-0.08, 0.5)
+    ax_v.set_xlabel('Training window')
+    ax_v.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
 
-        sort_order = np.argsort(x_pts)
-        x_sorted   = x_pts[sort_order]
-        m_coef, b_coef = np.polyfit(x_pts, y_pts, 1)
-        ax.plot(x_sorted, m_coef * x_sorted + b_coef,
-                color=ACCENT, linewidth=1.2)
+    fig2.tight_layout()
+    plt.savefig(os.path.join(output_dir, "exp1_entropy_and_vocab.png"),
+                dpi=300, bbox_inches='tight')
+    plt.close()
 
-        ax.set_title(
-            f'Experiment 2 — Semantic TopSim, final window\n'
-            f'Spearman ρ = {rho_sem:.3f}',
-            pad=8,
-        )
-        ax.set_xlabel('Meaning-space distance (context)')
-        ax.set_ylabel('Signal-space distance (messages)')
-        ax.yaxis.set_label_coords(-0.12, 0.5)
-        ax.grid(linewidth=0.4, color=GREY_REF, linestyle=':')
-
-        fig.tight_layout()
-        plt.savefig(
-            os.path.join(output_dir, "exp2_topsim_scatter_final.png"),
-            dpi=300, bbox_inches='tight',
-        )
-        plt.close()
-
-    print(f"Analysis completed successfully! Results saved to {output_dir}")
+    print(f"Completed analysis. High-resolution plots saved to: {output_dir}")
 
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Experiment 2 — Semantics: TopSim compositionality"
+        description="Experiment 1 — Morphology: compression vs. usefulness"
     )
     parser.add_argument("--logs_dir",    default="./Agents/workflow_logs",
                         help="Directory with traj_*.json debug logs")
-    parser.add_argument("--output_dir",  default="./Agents/eval_results/experiment_2")
+    parser.add_argument("--output_dir",  default="./Agents/eval_results/experiment_1")
     parser.add_argument("--window_size", type=int, default=50)
     args = parser.parse_args()
 
-    asyncio.run(run_hybrid_topsim_analysis(args.logs_dir, args.output_dir, window_size=args.window_size))
+    run_morphology_analysis(args.logs_dir, args.output_dir, window_size=args.window_size)
