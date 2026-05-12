@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.config import PROJECT_ROOT, load_config
-from app.explorer.base import BaseExplorer
+from app.explorer.base import BaseExplorer, BaseSearchExplorer
 from app.generator.base import BaseGenerator
 from app.models import GeneratorResult
 from app.retriever.base import BaseRetriever
@@ -14,17 +14,19 @@ class App:
     """Orchestrator for the scientific hypothesis generation pipeline.
 
     Reads configuration from a YAML file and runs the full pipeline:
-    explorer -> retriever -> (optional refinement loop) -> generator.
+    search -> explorer -> retriever -> (optional refinement loop) -> generator.
     """
 
     def __init__(
         self,
+        search_explorer: BaseSearchExplorer,
         explorer: BaseExplorer,
         retriever: BaseRetriever,
         generator: BaseGenerator,
         config_path: str = "config/app/config.yaml",
     ) -> None:
         self.config = load_config(config_path)
+        self.search_explorer = search_explorer
         self.explorer = explorer
         self.retriever = retriever
         self.generator = generator
@@ -42,17 +44,22 @@ class App:
         save_steps = pipeline_cfg.get("save_steps", False)
         save_dir = self._prepare_save_dir() if save_steps else None
 
-        # Step 1: Explorer
-        explorer_output = self.explorer.explore(prompt)
+        # Step 1: Search (get paper IDs)
+        paper_ids = self.search_explorer.search(prompt)
         if save_dir:
-            self._save_step(save_dir, "01_explorer", asdict(explorer_output))
+            self._save_step(save_dir, "01_search", {"paper_ids": paper_ids})
 
-        # Step 2: Retriever (initial pass)
+        # Step 2: Explorer (expand paper set via graph)
+        explorer_output = self.explorer.explore(prompt, paper_ids)
+        if save_dir:
+            self._save_step(save_dir, "02_explorer", asdict(explorer_output))
+
+        # Step 3: Retriever (initial pass)
         retriever_output = self.retriever.retrieve(prompt, explorer_output)
         if save_dir:
-            self._save_step(save_dir, "02_retriever", asdict(retriever_output))
+            self._save_step(save_dir, "03_retriever", asdict(retriever_output))
 
-        # Step 3: Refinement loop
+        # Step 4: Refinement loop
         refinement_turns = pipeline_cfg.get("refinement_turns", 0)
 
         for i in range(refinement_turns):
@@ -60,7 +67,7 @@ class App:
             if save_dir:
                 self._save_step(
                     save_dir,
-                    f"03_feedback_turn_{i + 1}",
+                    f"04_feedback_turn_{i + 1}",
                     {"feedback": feedback},
                 )
 
@@ -68,14 +75,14 @@ class App:
             if save_dir:
                 self._save_step(
                     save_dir,
-                    f"03_retriever_refinement_turn_{i + 1}",
+                    f"04_retriever_refinement_turn_{i + 1}",
                     asdict(retriever_output),
                 )
 
-        # Step 4: Generator
+        # Step 5: Generator
         result = self.generator.generate(prompt, retriever_output)
         if save_dir:
-            self._save_step(save_dir, "04_generator", asdict(result))
+            self._save_step(save_dir, "05_generator", asdict(result))
 
         return result
 

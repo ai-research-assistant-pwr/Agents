@@ -5,9 +5,16 @@ Usage:
     python scripts/app/run_pipeline.py --query "Your research question" --save-steps
     python scripts/app/run_pipeline.py  # uses default query
 
+Search is selected from config (search.type):
+    - "weaviate"  WeaviateSearchExplorer  (Qwen3 embedding + reranking)
+
 Explorer is selected from config (explorer.type):
-    - "weaviate"  WeaviateExplorer  (Qwen3-Embedding-8B + Weaviate vector DB)
-    - "const"     ConstExplorer     (placeholder, for testing without a DB)
+    - "weaviate"        WeaviateExplorer       (direct vector search to content)
+    - "neo4j_bfs"       Neo4jBFSExplorer       (BFS traversal from paper IDs)
+    - "neo4j_random_walk"  Neo4jRandomWalkExplorer (Random walk traversal)
+    - "neo4j_pagerank"  Neo4jPageRankExplorer  (Personalized PageRank)
+    - "agentic"         AgenticExplorer        (LLM-driven tool selection)
+    - "const"           ConstExplorer          (placeholder, for testing without a DB)
 
 A model is randomly selected once at startup from the MODELS list below,
 weighted by the 'weight' field. The matching API client is then instantiated
@@ -40,8 +47,13 @@ from app.api_client.cerebras_client import CerebrasAPIClient
 from app.api_client.google_client import GoogleAPIClient
 from app.api_client.openai_client import OpenAIAPIClient
 from app.config import load_config
+from app.explorer.agentic_explorer import AgenticExplorer
 from app.explorer.const_explorer import ConstExplorer
+from app.explorer.neo4j_bfs_explorer import Neo4jBFSExplorer
+from app.explorer.neo4j_pagerank_explorer import Neo4jPageRankExplorer
+from app.explorer.neo4j_random_walk_explorer import Neo4jRandomWalkExplorer
 from app.explorer.weaviate_explorer import WeaviateExplorer
+from app.explorer.weaviate_search_explorer import WeaviateSearchExplorer
 from app.generator.api_llm_generator import APILLMGenerator
 from app.retriever.api_llm_retriever import APILLMRetriever
 
@@ -60,7 +72,7 @@ PROVIDERS: dict[str, type[BaseAPIClient]] = {
 MODELS: list[dict] = [
     {"name": "gemini-3-flash-preview", "provider": "google", "weight": 1},
     {"name": "gemini-3.1-flash-lite-preview", "provider": "google", "weight": 1},
-    {"name": "gpt-5.4-mini", "provider": "openai", "weight": 1},
+    # {"name": "gpt-5.4-mini", "provider": "openai", "weight": 1},
 ]
 
 
@@ -76,11 +88,27 @@ def build_api_client(model_cfg: dict) -> BaseAPIClient:
     return client_cls(model=model_cfg["name"])
 
 
+def build_search(config: dict):
+    """Instantiate the search explorer specified by config[search][type]."""
+    search_type = config.get("search", {}).get("type")
+    if search_type == "weaviate":
+        return WeaviateSearchExplorer(config)
+    raise ValueError(f"Unknown search type: {search_type!r}")
+
+
 def build_explorer(config: dict):
     """Instantiate the explorer specified by config[explorer][type]."""
     explorer_type = config.get("explorer", {}).get("type", "const")
     if explorer_type == "weaviate":
         return WeaviateExplorer(config)
+    if explorer_type == "neo4j_bfs":
+        return Neo4jBFSExplorer(config)
+    if explorer_type == "neo4j_random_walk":
+        return Neo4jRandomWalkExplorer(config)
+    if explorer_type == "neo4j_pagerank":
+        return Neo4jPageRankExplorer(config)
+    if explorer_type == "agentic":
+        return AgenticExplorer(config)
     if explorer_type == "const":
         const_text = config.get("explorer", {}).get("const_text")
         return ConstExplorer(text=const_text)
@@ -115,6 +143,7 @@ def main() -> None:
     args = parse_args()
 
     config = load_config(CONFIG_PATH)
+    search_type = config.get("search", {}).get("type", "weaviate")
     explorer_type = config.get("explorer", {}).get("type", "const")
 
     # Select a model once for this run.
@@ -122,20 +151,23 @@ def main() -> None:
     model_name = model_cfg["name"]
     provider = model_cfg["provider"]
 
-    print(f"Explorer     : {explorer_type}")
-    print(f"Model        : {model_name}  (provider={provider})")
-    print(f"Refinements  : {args.refinement_turns}")
-    print(f"Save steps   : {args.save_steps}")
-    print(f"Query        : {args.query}")
+    print(f"Search        : {search_type}")
+    print(f"Explorer      : {explorer_type}")
+    print(f"Model         : {model_name}  (provider={provider})")
+    print(f"Refinements   : {args.refinement_turns}")
+    print(f"Save steps    : {args.save_steps}")
+    print(f"Query         : {args.query}")
     print()
 
     # Instantiate the client (raises ValueError if the API key is missing).
     api_client = build_api_client(model_cfg)
+    search_explorer = build_search(config)
     explorer = build_explorer(config)
     retriever = APILLMRetriever(api_client=api_client)
     generator = APILLMGenerator(api_client=api_client)
 
     app = App(
+        search_explorer=search_explorer,
         explorer=explorer,
         retriever=retriever,
         generator=generator,
