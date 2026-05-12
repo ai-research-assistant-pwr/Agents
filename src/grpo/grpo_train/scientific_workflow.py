@@ -1,43 +1,41 @@
 """
 Scientific Hypothesis Generation Workflow
 ==========================================
-Fixed 4-turn pipeline – each turn is an independent trajectory record:
+Fixed-length pipeline: every trajectory runs exactly
+``(ASK_RETRIEVER_LIMIT + 1) * (RETRIEVER_SEARCH_LIMIT + 2)`` steps.
 
-  Turn 0  [RETRIEVER]  query + up-to-5 paper summaries  →  initial synthesis
-  Turn 1  [GENERATOR]  query + retriever synthesis       →  follow-up question
-  Turn 2  [RETRIEVER]  generator question + same papers  →  focused clarification
-  Turn 3  [GENERATOR]  query + both retriever outputs    →  numbered hypothesis list
+Step sequence (K=ASK_RETRIEVER_LIMIT, S=RETRIEVER_SEARCH_LIMIT)
+----------------------------------------------------------------
+For each of the (K+1) retriever episodes:
+  S x retriever_search   – retriever outputs a search query; Weaviate is called
+  1 x retriever_message  – retriever outputs synthesis text for the generator
+  (between episodes, K times)
+  1 x generator_ask      – generator outputs a follow-up question
+Finally:
+  1 x generator_generate – generator outputs a numbered hypothesis list
 
-Each turn is independent: it receives its own fresh prompt and its trajectory
-record carries only that turn's ``sequence_ids`` (input_ids + output_ids) and
-``output_ids``.  Prior turns' outputs are injected as plain text (thinking
-tokens stripped) inside the next turn's user message.
+No tool-call formatting is required from the LLMs.  Each model is prompted
+to output only the relevant content for its step.  The final reward
+(embedding similarity + diversity + groundedness + relevancy) is computed on
+the parsed hypotheses and propagated back to all trajectory records.
 
-Reward
-------
-  Turns 0–2 : 0.0  (no per-turn signal)
-  Turn 3    : mean cosine similarity between each generated hypothesis and the
-              ground-truth label, computed via the vLLM embedding server.
-              Returns 0.0 if the output is not in the expected numbered-list format.
-
-Data contract
--------------
-  prompt   – raw user query string
-  label    – ground-truth hypothesis (used in Turn 3 reward)
-  metadata – dict with key "papers": list of {"id", "title", "summary"} dicts
-
-kwargs (via workflow_args JSON or top-level)
---------------------------------------------
-  embed_host        – hostname of the vLLM embedding server  (default: "localhost")
-  embed_port        – port of the vLLM embedding server       (default: 8000)
-  debug_dir         – directory for per-trajectory JSON logs  (default: "./workflow_debug_logs")
-  similarity_weight – weight for the embedding similarity reward (default: 0.7)
-  diversity_weight  – weight for the hypothesis diversity reward  (default: 0.3)
-
-Debug logging
--------------
-  Set DEBUG = True to write one JSON file per trajectory into ``debug_dir``.
-  Files are written atomically (temp file + rename).
+kwargs (via --workflow_args JSON)
+---------------------------------
+  embed_host             – hostname of the vLLM embedding server  (default: "localhost")
+  embed_port             – port of the vLLM embedding server       (default: 8000)
+  rerank_host            – hostname of the vLLM reranker server   (default: same as embed_host)
+  rerank_port            – port of the vLLM reranker server       (default: 8001)
+  debug_dir              – directory for per-trajectory JSON logs  (default: "./workflow_debug_logs")
+  debug                  – write per-trajectory JSON logs          (default: true)
+  similarity_weight      – weight for embedding similarity reward  (default: 0.7)
+  diversity_weight       – weight for hypothesis diversity reward   (default: 0.3)
+  groundedness_weight    – weight for groundedness reward (reranker) (default: 0.0)
+  relevancy_weight       – weight for relevancy reward (reranker)    (default: 0.0)
+  use_weaviate_context   – fetch papers live from Weaviate         (default: false)
+  weaviate_top_n         – number of Weaviate results to fetch     (default: 6)
+  weaviate_url           – Weaviate base URL
+  ask_retriever_limit    – K: generator→retriever rounds           (default: 1)
+  retriever_search_limit – S: Weaviate searches per episode        (default: 1)
 """
 
 import json
@@ -47,17 +45,13 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from marti.utils.logging_utils import init_logger
-from src.grpo.grpo_train.turns import (
-    turn_0_retriever_synthesize,
-    turn_1_generator_ask,
-    turn_2_retriever_refine,
-    turn_3_generator_hypothesize,
-)
+from src.grpo.grpo_train.tools import search_weaviate
+from src.grpo.grpo_train.state import TrajectoryState, initial_state
+from src.grpo.grpo_train.turns import execute_turn
 
 logger = init_logger(__name__)
 logger.setLevel("WARN")
 
-DEBUG: bool = True
 
 # ── paper-context helper ──────────────────────────────────────────────────────
 
@@ -116,16 +110,16 @@ async def workflow(
     **kwargs,
 ) -> Dict[str, Any]:
     """
-    Fixed 4-turn scientific hypothesis generation pipeline.
+    Fixed-length scientific hypothesis generation pipeline.
 
     Parameters
     ----------
     prompt   : The user research query.
-    label    : Ground-truth hypothesis (used in Turn 3 reward).
+    label    : Ground-truth hypothesis (used in terminal reward).
     agents   : List with at least one agent dict containing 'llm', 'tokenizer',
                'sampling_params'.  A single model plays both roles.
     metadata : Must include key 'papers': list of dicts with 'id', 'title',
-               'summary' fields.
+               'summary' fields (used when use_weaviate_context is false).
     """
     t_start = time.time()
 
@@ -142,80 +136,97 @@ async def workflow(
     elif isinstance(sp, dict):
         sp["stop"] = stop_tokens
 
-    metadata = json.loads(json.loads(metadata))
-    papers: List[Dict[str, str]] = (metadata or {}).get("papers", [])
-    paper_block = _format_papers(papers, max_papers=6)
-
     # ── kwargs unpacking ──────────────────────────────────────────────────────
-    # MARTI passes --workflow_args JSON as a single kwarg named "workflow_args",
-    # not spread into **kwargs. Read from there first, fall back to top-level.
     _wargs: Dict[str, Any] = kwargs.get("workflow_args") or {}
-    embed_host: str = _wargs.get("embed_host", kwargs.get("embed_host", "localhost"))
-    embed_port: int = int(_wargs.get("embed_port", kwargs.get("embed_port", 8000)))
-    debug_dir: str = _wargs.get(
-        "debug_dir", kwargs.get("debug_dir", "./workflow_debug_logs")
-    )
-    similarity_weight: float = float(
-        _wargs.get("similarity_weight", kwargs.get("similarity_weight", 0.7))
-    )
-    diversity_weight: float = float(
-        _wargs.get("diversity_weight", kwargs.get("diversity_weight", 0.3))
-    )
+
+    def _get(key: str, default: Any) -> Any:
+        return _wargs.get(key, kwargs.get(key, default))
+
+    embed_host: str = _get("embed_host", "localhost")
+    embed_port: int = int(_get("embed_port", 8000))
+    rerank_host: str = _get("rerank_host", embed_host)
+    rerank_port: int = int(_get("rerank_port", 8001))
+    debug_dir: str = _get("debug_dir", "./workflow_debug_logs")
+    debug: bool = str(_get("debug", "true")).lower() not in ("false", "0", "no")
+    is_eval: bool = kwargs.get("is_eval", False)
+    if debug:
+        split_name = "eval" if is_eval else "train"
+        debug_dir = os.path.join(debug_dir, split_name)
+    similarity_weight: float = float(_get("similarity_weight", 0.7))
+    diversity_weight: float = float(_get("diversity_weight", 0.3))
+    groundedness_weight: float = float(_get("groundedness_weight", 0.0))
+    relevancy_weight: float = float(_get("relevancy_weight", 0.0))
+    use_weaviate_context: bool = str(
+        _get("use_weaviate_context", "false")
+    ).lower() not in ("false", "0", "no")
+    weaviate_top_n: int = int(_get("weaviate_top_n", 6))
+    ask_retriever_limit: int = int(_get("ask_retriever_limit", 1))
+    retriever_search_limit: int = int(_get("retriever_search_limit", 1))
+    weaviate_url: str = _get("weaviate_url", "http://localhost:8080")
     prompt_id: int = kwargs.get("prompt_id", 0)
 
-    # ── execute turns ─────────────────────────────────────────────────────────
-    t0 = await turn_0_retriever_synthesize(
-        llm, tokenizer, sp, agent_name, prompt, paper_block
-    )
-    t1 = await turn_1_generator_ask(
-        llm, tokenizer, sp, agent_name, prompt, t0.output_content
-    )
-    t2 = await turn_2_retriever_refine(
-        llm, tokenizer, sp, agent_name, t1.output_content, paper_block
-    )
-    t3 = await turn_3_generator_hypothesize(
-        llm,
-        tokenizer,
-        sp,
-        agent_name,
+    if use_weaviate_context:
+        papers = search_weaviate(
+            prompt, weaviate_top_n, weaviate_url, embed_host, embed_port
+        )
+        paper_block = _format_papers(papers, max_papers=weaviate_top_n)
+    else:
+        metadata = json.loads(json.loads(metadata))
+        papers = (metadata or {}).get("papers", [])
+        paper_block = _format_papers(papers, max_papers=weaviate_top_n)
+
+    # ── trajectory loop ───────────────────────────────────────────────────────
+    state: TrajectoryState = initial_state(
         prompt,
-        t0.output_content,
-        t2.output_content,
-        label,
-        embed_host,
-        embed_port,
-        similarity_weight=similarity_weight,
-        diversity_weight=diversity_weight,
+        paper_block,
+        papers=papers,
+        ask_retriever_limit=ask_retriever_limit,
+        retriever_search_limit=retriever_search_limit,
     )
+
+    while not state.is_terminal:
+        state = await execute_turn(
+            state=state,
+            llm=llm,
+            tokenizer=tokenizer,
+            sampling_params=sp,
+            agent_name=agent_name,
+            label=label,
+            embed_host=embed_host,
+            embed_port=embed_port,
+            weaviate_url=weaviate_url,
+            similarity_weight=similarity_weight,
+            diversity_weight=diversity_weight,
+            rerank_host=rerank_host,
+            rerank_port=rerank_port,
+            groundedness_weight=groundedness_weight,
+            relevancy_weight=relevancy_weight,
+        )
 
     # ── assemble results ──────────────────────────────────────────────────────
-    total_reward = t3.reward
-    trajectory = [
-        t0.trajectory_record,
-        t1.trajectory_record,
-        t2.trajectory_record,
-        t3.trajectory_record,
-    ]
-    reward_matrix = [t0.reward, t1.reward, t2.reward, t3.reward]
+    trajectory = list(state.trajectory_records)
 
-    # propagate final reward to all trajectory records
+    # The reward from generator_generate is propagated to all trajectory records
+    final_reward = trajectory[-1].get("reward", 0.0) if trajectory else 0.0
     for record in trajectory:
-        record["reward"] = total_reward
+        record["reward"] = final_reward
+
+    reward_matrix = [r.get("reward", 0.0) for r in trajectory]
 
     elapsed = time.time() - t_start
     logger.warning(
-        f"workflow done | turns=4 | reward={total_reward:.3f} | time={elapsed:.1f}s"
+        f"workflow done | turns={state.turn_id} | reward={final_reward:.3f} | time={elapsed:.1f}s"
     )
 
-    if DEBUG:
+    if debug:
         _write_debug_log(
             debug_dir=debug_dir,
             prompt_id=prompt_id,
             prompt=prompt,
             label=label,
-            total_reward=total_reward,
+            total_reward=final_reward,
             elapsed_s=round(elapsed, 2),
-            turns=[t0.debug_entry, t1.debug_entry, t2.debug_entry, t3.debug_entry],
+            turns=list(state.debug_entries),
         )
 
     return {
@@ -223,5 +234,5 @@ async def workflow(
         "label": label,
         "trajectory": trajectory,
         "reward_matrix": reward_matrix,
-        "final_reward": total_reward,
+        "final_reward": final_reward,
     }

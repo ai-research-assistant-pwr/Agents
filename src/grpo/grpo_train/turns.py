@@ -1,360 +1,168 @@
 """
-Turn functions for the scientific hypothesis generation pipeline.
-=================================================================
+Turn execution for the scientific hypothesis generation pipeline.
+================================================================
 
-Each function executes one turn of the 4-turn pipeline, handles generation,
-thinking-token stripping, reward calculation, and returns a ``TurnResult``
-containing everything the workflow needs: the trajectory record (for MARTI),
-the debug entry (for JSON logging), the stripped output text (fed into the
-next turn's prompt), and the scalar reward.
+``execute_turn`` orchestrates one step of the fixed-length trajectory:
 
-Turn layout
------------
-  turn_0_retriever_synthesize  – query + papers  →  initial synthesis
-  turn_1_generator_ask         – query + synthesis  →  follow-up question
-  turn_2_retriever_refine      – question + papers  →  focused clarification
-  turn_3_generator_hypothesize – query + both retrievals  →  hypothesis list
+  1. Build the ChatML prompt for the current step type.
+  2. Call the LLM and collect the raw output text + token ids.
+  3. Extract the relevant content from the output based on step type:
+       retriever_search   → strip the output → use as search query
+       retriever_message  → strip the output → use as synthesis message
+       generator_ask      → strip the output → use as follow-up question
+       generator_generate → _parse_hypotheses(output) → compute final reward
+  4. For ``retriever_search``: execute the Weaviate search and store the result.
+  5. For ``generator_generate``: compute embedding-based reward (0.0 if no
+     valid hypotheses were parsed).
+  6. Delegate to ``apply_step`` in transitions.py and return the next state.
+
+All intermediate steps receive reward=0.0 in the trajectory record; the final
+reward from ``generator_generate`` is propagated to all records by the workflow.
 """
 
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from src.grpo.grpo_train.agents import AgentPrompts
-from src.grpo.grpo_train.rewards import (
-    _parse_hypotheses,
-    get_hypothesis_and_label_embeddings,
-    embedding_similarity_reward_from_embs,
-    hypothesis_diversity_reward,
+from src.grpo.grpo_train.prompts import build_agent_prompt
+from src.grpo.grpo_train.records import (
+    make_debug_entry,
+    make_turn_record,
+    tokenize,
+    strip_thinking,
 )
+from src.grpo.grpo_train.rewards import _parse_hypotheses
+from src.grpo.grpo_train.state import TrajectoryState
+from src.grpo.grpo_train.tools import search_papers_tool
+from src.grpo.grpo_train.transitions import apply_step, compute_final_reward
 
 
-# ── shared helpers (imported by workflow too) ─────────────────────────────────
-
-
-def _fmt(role: str, content: str) -> str:
-    return f"<|im_start|>{role}\n{content}\n<|im_end|>\n"
-
-
-def build_prompt(system: str, user: str) -> str:
-    """Full ChatML prompt ready for generation (ends at <|im_start|>assistant)."""
-    return _fmt("system", system) + _fmt("user", user) + "<|im_start|>assistant\n"
-
-
-def tokenize(tokenizer, text: str) -> List[int]:
-    return tokenizer(text, add_special_tokens=False, return_tensors="pt")["input_ids"][
-        0
-    ].tolist()
-
-
-def extract_rollout_log_probs(
-    response_output,
-    input_ids: List[int],
-    output_ids: List[int],
-    sampling_params,
-) -> Optional[List[float]]:
-    if getattr(sampling_params, "logprobs", None) is None:
-        return None
-    log_probs: List[float] = [0.0] * len(input_ids)
-    if hasattr(response_output, "logprobs") and response_output.logprobs is not None:
-        for i, logprob_dict in enumerate(response_output.logprobs):
-            if i < len(output_ids) and output_ids[i] in logprob_dict:
-                log_probs.append(logprob_dict[output_ids[i]].logprob)
-            else:
-                log_probs.append(0.0)
-    else:
-        log_probs.extend([0.0] * len(output_ids))
-    return log_probs
-
-
-import re as _re
-
-
-def strip_thinking(text: str) -> str:
-    """Remove <think>…</think> blocks from model output."""
-    return _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL).strip()
-
-
-# ── result container ──────────────────────────────────────────────────────────
-
-
-@dataclass
-class TurnResult:
-    """Everything produced by a single pipeline turn."""
-
-    trajectory_record: Dict[str, Any]  # appended to trajectory list
-    debug_entry: Dict[str, Any]  # appended to debug log
-    output_content: str  # thinking-stripped output for next turn
-    reward: float  # scalar reward for this turn
-
-
-# ── turn functions ────────────────────────────────────────────────────────────
-
-
-async def turn_0_retriever_synthesize(
+async def execute_turn(
+    state: TrajectoryState,
     llm,
     tokenizer,
     sampling_params,
     agent_name: str,
-    query: str,
-    paper_block: str,
-) -> TurnResult:
-    """Turn 0 – Retriever: synthesise paper summaries into initial evidence block."""
-    prompt = build_prompt(
-        system=AgentPrompts.retriever_system(),
-        user=f"Research query:\n{query}\n\nAvailable papers:\n{paper_block}",
-    )
-    input_ids = tokenize(tokenizer, prompt)
-    resp = await llm.generate_async.remote(
-        prompt_ids=input_ids, sampling_params=sampling_params
-    )
-    output: str = resp.outputs[0].text
-    output_ids: List[int] = list(resp.outputs[0].token_ids)
-    sequence_ids = input_ids + output_ids
-    output_content = strip_thinking(output)
-    reward = 0.0
-
-    trajectory_record = {
-        "turn_id": 0,
-        "agent_index": 0,
-        "agent_id": agent_name,
-        "agent_name": agent_name,
-        "agent_role": "retriever",
-        "agent_input": prompt,
-        "agent_output": output,
-        "output_ids": output_ids,
-        "sequence_ids": sequence_ids,
-        "rollout_log_prob": extract_rollout_log_probs(
-            resp.outputs[0], input_ids, output_ids, sampling_params
-        ),
-        "reward": reward,
-        "metadata": {},
-    }
-    debug_entry = {
-        "turn_id": 0,
-        "role": "retriever",
-        "input": prompt,
-        "output": output,
-        "output_content": output_content,
-        "reward": reward,
-        "n_input_tokens": len(input_ids),
-        "n_output_tokens": len(output_ids),
-    }
-    return TurnResult(
-        trajectory_record=trajectory_record,
-        debug_entry=debug_entry,
-        output_content=output_content,
-        reward=reward,
-    )
-
-
-async def turn_1_generator_ask(
-    llm,
-    tokenizer,
-    sampling_params,
-    agent_name: str,
-    query: str,
-    retriever_synthesis: str,
-) -> TurnResult:
-    """Turn 1 – Generator: formulate a focused follow-up question for the Retriever."""
-    prompt = build_prompt(
-        system=AgentPrompts.generator_ask_system(),
-        user=f"Research query:\n{query}\n\nRetriever synthesis:\n{retriever_synthesis}",
-    )
-    input_ids = tokenize(tokenizer, prompt)
-    resp = await llm.generate_async.remote(
-        prompt_ids=input_ids, sampling_params=sampling_params
-    )
-    output: str = resp.outputs[0].text
-    output_ids: List[int] = list(resp.outputs[0].token_ids)
-    sequence_ids = input_ids + output_ids
-    output_content = strip_thinking(output)
-    reward = 0.0
-
-    trajectory_record = {
-        "turn_id": 1,
-        "agent_index": 0,
-        "agent_id": agent_name,
-        "agent_name": agent_name,
-        "agent_role": "generator",
-        "agent_input": prompt,
-        "agent_output": output,
-        "output_ids": output_ids,
-        "sequence_ids": sequence_ids,
-        "rollout_log_prob": extract_rollout_log_probs(
-            resp.outputs[0], input_ids, output_ids, sampling_params
-        ),
-        "reward": reward,
-        "metadata": {},
-    }
-    debug_entry = {
-        "turn_id": 1,
-        "role": "generator",
-        "input": prompt,
-        "output": output,
-        "output_content": output_content,
-        "reward": reward,
-        "n_input_tokens": len(input_ids),
-        "n_output_tokens": len(output_ids),
-    }
-    return TurnResult(
-        trajectory_record=trajectory_record,
-        debug_entry=debug_entry,
-        output_content=output_content,
-        reward=reward,
-    )
-
-
-async def turn_2_retriever_refine(
-    llm,
-    tokenizer,
-    sampling_params,
-    agent_name: str,
-    generator_question: str,
-    paper_block: str,
-) -> TurnResult:
-    """Turn 2 – Retriever: answer the generator's follow-up question from the papers."""
-    prompt = build_prompt(
-        system=AgentPrompts.retriever_refine_system(),
-        user=(
-            f"The generator is asking:\n{generator_question}\n\n"
-            f"Available papers (same pool):\n{paper_block}"
-        ),
-    )
-    input_ids = tokenize(tokenizer, prompt)
-    resp = await llm.generate_async.remote(
-        prompt_ids=input_ids, sampling_params=sampling_params
-    )
-    output: str = resp.outputs[0].text
-    output_ids: List[int] = list(resp.outputs[0].token_ids)
-    sequence_ids = input_ids + output_ids
-    output_content = strip_thinking(output)
-    reward = 0.0
-
-    trajectory_record = {
-        "turn_id": 2,
-        "agent_index": 0,
-        "agent_id": agent_name,
-        "agent_name": agent_name,
-        "agent_role": "retriever",
-        "agent_input": prompt,
-        "agent_output": output,
-        "output_ids": output_ids,
-        "sequence_ids": sequence_ids,
-        "rollout_log_prob": extract_rollout_log_probs(
-            resp.outputs[0], input_ids, output_ids, sampling_params
-        ),
-        "reward": reward,
-        "metadata": {},
-    }
-    debug_entry = {
-        "turn_id": 2,
-        "role": "retriever",
-        "input": prompt,
-        "output": output,
-        "output_content": output_content,
-        "reward": reward,
-        "n_input_tokens": len(input_ids),
-        "n_output_tokens": len(output_ids),
-    }
-    return TurnResult(
-        trajectory_record=trajectory_record,
-        debug_entry=debug_entry,
-        output_content=output_content,
-        reward=reward,
-    )
-
-
-async def turn_3_generator_hypothesize(
-    llm,
-    tokenizer,
-    sampling_params,
-    agent_name: str,
-    query: str,
-    retriever_synthesis: str,
-    retriever_refinement: str,
     label: str,
     embed_host: str,
     embed_port: int,
+    weaviate_url: str,
     similarity_weight: float = 0.7,
     diversity_weight: float = 0.3,
-) -> TurnResult:
-    """Turn 3 – Generator: produce the final numbered hypothesis list.
-
-    Reward is a weighted combination of:
-      - ``similarity_weight`` × mean cosine similarity between each hypothesis
-        and the ground-truth label embedding.
-      - ``diversity_weight`` × diversity score (1 − mean pairwise similarity
-        among hypotheses; requires ≥ 3 hypotheses, else 0).
-
-    Both scores share a single embedding call.
-    Returns reward=0.0 if the output is not in the expected numbered-list format.
+    rerank_host: Optional[str] = None,
+    rerank_port: Optional[int] = None,
+    groundedness_weight: float = 0.0,
+    relevancy_weight: float = 0.0,
+) -> TrajectoryState:
     """
-    prompt = build_prompt(
-        system=AgentPrompts.generator_hypothesize_system(),
-        user=(
-            f"Research query:\n{query}\n\n"
-            f"Retriever synthesis:\n{retriever_synthesis}\n\n"
-            f"Additional retriever context:\n{retriever_refinement}"
-        ),
-    )
+    Execute one trajectory step and return the next ``TrajectoryState``.
+
+    Parameters
+    ----------
+    state           : Current trajectory state.
+    llm             : vLLM actor (Ray remote).
+    tokenizer       : HuggingFace tokenizer.
+    sampling_params : vLLM SamplingParams (or compatible dict).
+    agent_name      : Human-readable agent identifier stored in records.
+    label           : Ground-truth hypothesis string (used for terminal reward).
+    embed_host      : Hostname of the embedding server.
+    embed_port      : Port of the embedding server.
+    weaviate_url    : Base URL of the Weaviate instance.
+    similarity_weight, diversity_weight : Reward weighting coefficients.
+    rerank_host     : Hostname of the reranker server (optional).
+    rerank_port     : Port of the reranker server (optional).
+    groundedness_weight : Weight for groundedness reward (reranker-based).
+    relevancy_weight    : Weight for relevancy reward (reranker-based).
+    """
+    step = state.current_step
+    prompt = build_agent_prompt(state)
+
     input_ids = tokenize(tokenizer, prompt)
     resp = await llm.generate_async.remote(
         prompt_ids=input_ids, sampling_params=sampling_params
     )
     output: str = resp.outputs[0].text
     output_ids: List[int] = list(resp.outputs[0].token_ids)
-    sequence_ids = input_ids + output_ids
-    output_content = strip_thinking(output)
 
-    hypotheses = _parse_hypotheses(output_content)
-    if hypotheses:
-        hyp_embs, label_emb = await get_hypothesis_and_label_embeddings(
-            hypotheses, label, embed_host, embed_port
-        )
-        similarity_score = embedding_similarity_reward_from_embs(hyp_embs, label_emb)
-        diversity_score = hypothesis_diversity_reward(hyp_embs)
-        reward = round(
-            similarity_weight * similarity_score + diversity_weight * diversity_score,
-            4,
-        )
-    else:
-        similarity_score = 0.0
-        diversity_score = 0.0
-        reward = 0.0
+    # ── step-specific extraction and side-effects ─────────────────────────────
+    reward: float = 0.0
+    extra_debug: Dict[str, Any] = {"step": step}
+    step_payload: Dict[str, Any] = {}  # passed to apply_step
 
-    trajectory_record = {
-        "turn_id": 3,
-        "agent_index": 0,
-        "agent_id": agent_name,
-        "agent_name": agent_name,
-        "agent_role": "generator",
-        "agent_input": prompt,
-        "agent_output": output,
-        "output_ids": output_ids,
-        "sequence_ids": sequence_ids,
-        "rollout_log_prob": extract_rollout_log_probs(
-            resp.outputs[0], input_ids, output_ids, sampling_params
-        ),
-        "reward": reward,
-        "metadata": {"label": label},
-    }
-    debug_entry = {
-        "turn_id": 3,
-        "role": "generator",
-        "input": prompt,
-        "output": output,
-        "output_content": output_content,
-        "reward": reward,
-        "similarity_score": similarity_score,
-        "diversity_score": diversity_score,
-        "similarity_weight": similarity_weight,
-        "diversity_weight": diversity_weight,
-        "n_input_tokens": len(input_ids),
-        "n_output_tokens": len(output_ids),
-    }
-    return TurnResult(
-        trajectory_record=trajectory_record,
-        debug_entry=debug_entry,
-        output_content=output_content,
+    if step == "retriever_search":
+        query = strip_thinking(output)
+        search_result = search_papers_tool(query, weaviate_url, embed_host, embed_port)
+        step_payload = {"query": query, "search_result": search_result}
+        extra_debug.update({"search_query": query, "search_result": search_result})
+
+    elif step == "retriever_message":
+        message = strip_thinking(output)
+        step_payload = {"message": message}
+        extra_debug.update({"message": message})
+
+    elif step == "generator_ask":
+        question = strip_thinking(output)
+        step_payload = {"question": question}
+        extra_debug.update({"question": question})
+
+    elif step == "generator_generate":
+        hypotheses = _parse_hypotheses(strip_thinking(output))
+        (
+            reward,
+            sim_score,
+            div_score,
+            ground_score,
+            relev_score,
+        ) = await compute_final_reward(
+            hypotheses,
+            label,
+            embed_host,
+            embed_port,
+            similarity_weight,
+            diversity_weight,
+            rerank_host=rerank_host,
+            rerank_port=rerank_port,
+            groundedness_weight=groundedness_weight,
+            relevancy_weight=relevancy_weight,
+            papers=state.papers,
+            query=state.query,
+        )
+        step_payload = {"hypotheses": hypotheses}
+        extra_debug.update(
+            {
+                "hypotheses": hypotheses,
+                "similarity_score": sim_score,
+                "diversity_score": div_score,
+                "groundedness_score": ground_score,
+                "relevancy_score": relev_score,
+                "similarity_weight": similarity_weight,
+                "diversity_weight": diversity_weight,
+                "groundedness_weight": groundedness_weight,
+                "relevancy_weight": relevancy_weight,
+            }
+        )
+
+    turn_record = make_turn_record(
+        turn_id=state.turn_id,
+        agent_name=agent_name,
+        role=state.current_agent,
+        prompt=prompt,
+        output=output,
+        input_ids=input_ids,
+        output_ids=output_ids,
+        sampling_params=sampling_params,
+        resp_output=resp.outputs[0],
         reward=reward,
+        metadata={"label": label} if step == "generator_generate" else {},
     )
+    debug_entry = make_debug_entry(
+        turn_id=state.turn_id,
+        role=state.current_agent,
+        prompt=prompt,
+        output=output,
+        reward=reward,
+        input_ids=input_ids,
+        output_ids=output_ids,
+        tool_name=step,
+        extra=extra_debug,
+    )
+
+    return apply_step(state, step, step_payload, turn_record, debug_entry)
