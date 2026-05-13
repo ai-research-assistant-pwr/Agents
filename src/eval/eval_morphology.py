@@ -63,6 +63,12 @@ def tokenize(text: str) -> list:
 def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 50):
     os.makedirs(output_dir, exist_ok=True)
 
+    # Auto-detect 'train' subfolder to ensure we analyze training dynamics
+    train_logs_dir = os.path.join(logs_dir, "train")
+    if os.path.isdir(train_logs_dir):
+        print(f"Auto-detected 'train' subfolder. Reading trajectories from: {train_logs_dir}")
+        logs_dir = train_logs_dir
+
     # Load and sort log files by timestamp
     log_files = glob.glob(os.path.join(logs_dir, "traj_*.json"))
 
@@ -124,7 +130,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
                 if turn.get("turn_type") == "retriever_message":
                     text = turn.get("output_content", "")
                     tokens = tokenize(text)
-                    traj_lengths.append(len(tokens))
+                    traj_lengths.append(len(text))
                     window_vocab.update(tokens)
 
             # Average retriever message length for this specific trajectory
@@ -218,7 +224,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
 
     ax_l.plot(x_axis, df["Avg_Message_Length"], color=ACCENT, linewidth=1.2)
     ax_l.fill_between(x_axis, df["Avg_Message_Length"], alpha=0.06, color=ACCENT)
-    ax_l.set_ylabel('Retriever tokens')
+    ax_l.set_ylabel('Message length (chars)')
     ax_l.yaxis.set_label_coords(-0.08, 0.5)
     ax_l.set_xlabel('Training window')
     ax_l.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')

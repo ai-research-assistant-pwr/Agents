@@ -116,6 +116,22 @@ GREY_REF = '#aaaaaa'   # reference lines and grid
 
 
 # ---------------------------------------------------------------------------
+# Helper: safe access to turn fields (extra vs. top-level)
+# ---------------------------------------------------------------------------
+
+def _get_turn_field(turn: dict, field: str, default=None):
+    """
+    Retrieves a field from a turn dictionary, looking first in 'extra'
+    (where debug entries store step-specific metadata) and then in the
+    top-level turn dict.  This avoids brittle assumptions about data layout.
+    """
+    extra = turn.get("extra", {})
+    if field in extra:
+        return extra[field]
+    return turn.get(field, default)
+
+
+# ---------------------------------------------------------------------------
 # Embedding helpers
 # ---------------------------------------------------------------------------
 
@@ -186,8 +202,9 @@ def _extract_meaning(data: dict) -> str:
             
     # Gather new context from Weaviate searches
     for turn in data.get("turns", []):
-        if turn.get("turn_type") == "retriever_search":
-            for p in turn.get("search_result", [])[:5]:
+        if _get_turn_field(turn, "turn_type") == "retriever_search":
+            search_result = _get_turn_field(turn, "search_result", [])
+            for p in search_result[:5]:
                 title   = p.get("title", "")
                 summary = p.get("summary", p.get("abstract", ""))
                 if title or summary:
@@ -213,8 +230,10 @@ def _extract_signal(data: dict) -> str:
     turns = data.get("turns", [])
     parts = []
     for turn in turns:
-        if turn.get("turn_type") == "retriever_message":
-            parts.append(turn.get("output_content", ""))
+        if _get_turn_field(turn, "turn_type") == "retriever_message":
+            content = _get_turn_field(turn, "output_content", "")
+            if content:
+                parts.append(content)
     return " ".join(parts)[:12_000]
 
 
@@ -226,19 +245,22 @@ def _extract_noisy_signal(data: dict) -> str | None:
     turns = data.get("turns", [])
     parts = []
     for turn in turns:
-        if turn.get("turn_type") == "retriever_message" and "noisy_output_content" in turn:
-            parts.append(turn["noisy_output_content"])
+        if _get_turn_field(turn, "turn_type") == "retriever_message":
+            noisy = _get_turn_field(turn, "noisy_output_content")
+            if noisy:
+                parts.append(noisy)
     if not parts:
         return None
     return " ".join(parts)[:12_000]
 
 
 def _extract_generator_output(data: dict) -> str:
-    """Extract output from the final hypothesis generation turn."""
+    """Extract raw output from the final hypothesis generation turn."""
     turns = data.get("turns", [])
     for turn in turns:
-        if turn.get("turn_type") == "generator_generate":
-            return turn.get("output_content", "")
+        if _get_turn_field(turn, "turn_type") == "generator_generate":
+            # Raw model output is always stored in turn["output"] (or in extra)
+            return _get_turn_field(turn, "output", "")
     return ""
 
 
@@ -770,15 +792,28 @@ async def main() -> None:
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    # ── Auto-detect 'train' subfolder ───────────────────────────────────────
+    def _use_train_if_exists(directory: str) -> str:
+        train_dir = os.path.join(directory, "train")
+        if os.path.isdir(train_dir):
+            print(f"Auto-detected 'train' subfolder: {train_dir}")
+            return train_dir
+        return directory
+
+    logs_dir = _use_train_if_exists(args.logs_dir)
+    noisy_logs_dir = _use_train_if_exists(args.noisy_logs_dir) if args.noisy_logs_dir else None
+
     print("=" * 60)
     print("Experiment 3 — Pragmatics Evaluation")
-    print(f"  logs_dir    : {args.logs_dir}")
+    print(f"  logs_dir    : {logs_dir}")
+    if noisy_logs_dir:
+        print(f"  noisy_dir   : {noisy_logs_dir}")
     print(f"  output_dir  : {args.output_dir}")
     print(f"  embed_server: {args.embed_host}:{args.embed_port}")
     print("=" * 60)
 
     sig_df = await run_positive_signaling(
-        logs_dir   = args.logs_dir,
+        logs_dir   = logs_dir,
         output_dir = args.output_dir,
         embed_host = args.embed_host,
         embed_port = args.embed_port,
@@ -786,12 +821,12 @@ async def main() -> None:
     )
 
     lis_df = await run_positive_listening(
-        logs_dir       = args.logs_dir,
+        logs_dir       = logs_dir,
         output_dir     = args.output_dir,
         embed_host     = args.embed_host,
         embed_port     = args.embed_port,
         window_size    = args.window_size,
-        noisy_logs_dir = args.noisy_logs_dir,
+        noisy_logs_dir = noisy_logs_dir,
     )
 
     _write_summary(args.output_dir, sig_df, lis_df)
