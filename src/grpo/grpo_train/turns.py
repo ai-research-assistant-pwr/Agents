@@ -20,6 +20,8 @@ All intermediate steps receive reward=0.0 in the trajectory record; the final
 reward from ``generator_generate`` is propagated to all records by the workflow.
 """
 
+import re
+import random
 from typing import Any, Dict, List, Optional
 
 from src.grpo.grpo_train.prompts import build_agent_prompt
@@ -34,6 +36,52 @@ from src.grpo.grpo_train.state import TrajectoryState
 from src.grpo.grpo_train.tools import search_papers_tool
 from src.grpo.grpo_train.transitions import apply_step, compute_final_reward
 
+# ── emergent communication helpers ───────────────────────────────────────────
+
+_MASK_PATTERN = re.compile(r"\b[a-zA-Z][a-zA-Z\-]{2,}\b")
+
+def _inject_noise(
+    text: str,
+    noise_prob: float,
+    mask_token: str = "[MASK]",
+    span_probability: float = 0.15,
+    max_span_length: int = 3,
+) -> str:
+    """Randomly masks word-tokens to force redundant, compositional communication."""
+    if noise_prob <= 0.0:
+        return text
+
+    matches = list(_MASK_PATTERN.finditer(text))
+    if not matches:
+        return text
+
+    output = []
+    last_end = 0
+    i = 0
+
+    while i < len(matches):
+        match = matches[i]
+        output.append(text[last_end:match.start()])
+
+        if random.random() < noise_prob:
+            span_len = 1
+            if random.random() < span_probability:
+                span_len = random.randint(1, max_span_length)
+
+            output.append(mask_token)
+            end_idx = min(i + span_len - 1, len(matches) - 1)
+            last_end = matches[end_idx].end()
+            i = end_idx + 1
+        else:
+            output.append(match.group(0))
+            last_end = match.end()
+            i += 1
+
+    output.append(text[last_end:])
+    return "".join(output)
+
+
+# ── turn execution ────────────────────────────────────────────────────────────
 
 async def execute_turn(
     state: TrajectoryState,
@@ -51,26 +99,11 @@ async def execute_turn(
     rerank_port: Optional[int] = None,
     groundedness_weight: float = 0.0,
     relevancy_weight: float = 0.0,
+    apply_channel_noise: bool = False,
+    noise_probability: float = 0.1,
 ) -> TrajectoryState:
     """
     Execute one trajectory step and return the next ``TrajectoryState``.
-
-    Parameters
-    ----------
-    state           : Current trajectory state.
-    llm             : vLLM actor (Ray remote).
-    tokenizer       : HuggingFace tokenizer.
-    sampling_params : vLLM SamplingParams (or compatible dict).
-    agent_name      : Human-readable agent identifier stored in records.
-    label           : Ground-truth hypothesis string (used for terminal reward).
-    embed_host      : Hostname of the embedding server.
-    embed_port      : Port of the embedding server.
-    weaviate_url    : Base URL of the Weaviate instance.
-    similarity_weight, diversity_weight : Reward weighting coefficients.
-    rerank_host     : Hostname of the reranker server (optional).
-    rerank_port     : Port of the reranker server (optional).
-    groundedness_weight : Weight for groundedness reward (reranker-based).
-    relevancy_weight    : Weight for relevancy reward (reranker-based).
     """
     step = state.current_step
     prompt = build_agent_prompt(state)
@@ -84,8 +117,12 @@ async def execute_turn(
 
     # ── step-specific extraction and side-effects ─────────────────────────────
     reward: float = 0.0
-    extra_debug: Dict[str, Any] = {"step": step}
-    step_payload: Dict[str, Any] = {}  # passed to apply_step
+    extra_debug: Dict[str, Any] = {
+        "step": step,
+        "turn_type": step,
+        "agent_role": state.current_agent,
+    }
+    step_payload: Dict[str, Any] = {} 
 
     if step == "retriever_search":
         query = strip_thinking(output)
@@ -94,9 +131,25 @@ async def execute_turn(
         extra_debug.update({"search_query": query, "search_result": search_result})
 
     elif step == "retriever_message":
-        message = strip_thinking(output)
-        step_payload = {"message": message}
-        extra_debug.update({"message": message})
+        clean_message = strip_thinking(output)
+        
+        # ── Technique 2: Noise injection ──
+        if apply_channel_noise:
+            noisy_message = _inject_noise(clean_message, noise_probability)
+            message_for_payload = noisy_message
+            extra_debug.update({
+                "output_content": clean_message,        # Czysty tekst dla Techniki 1 (kara za długość)
+                "noisy_output_content": noisy_message,  # Zaszumiony tekst dla logów / CIC
+                "message": clean_message
+            })
+        else:
+            message_for_payload = clean_message
+            extra_debug.update({
+                "output_content": clean_message,
+                "message": clean_message
+            })
+
+        step_payload = {"message": message_for_payload}
 
     elif step == "generator_ask":
         question = strip_thinking(output)

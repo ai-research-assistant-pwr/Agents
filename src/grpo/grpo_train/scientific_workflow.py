@@ -36,6 +36,10 @@ kwargs (via --workflow_args JSON)
   weaviate_url           – Weaviate base URL
   ask_retriever_limit    – K: generator→retriever rounds           (default: 1)
   retriever_search_limit – S: Weaviate searches per episode        (default: 1)
+  apply_length_penalty   – enable Information Bottleneck penalty   (default: false)
+  length_penalty_lambda  – λ for length penalty                    (default: 0.001)
+  apply_channel_noise    – enable channel noise injection          (default: false)
+  noise_probability      – probability of masking each word token  (default: 0.1)
 """
 
 import json
@@ -109,18 +113,6 @@ async def workflow(
     metadata: Optional[Dict] = None,
     **kwargs,
 ) -> Dict[str, Any]:
-    """
-    Fixed-length scientific hypothesis generation pipeline.
-
-    Parameters
-    ----------
-    prompt   : The user research query.
-    label    : Ground-truth hypothesis (used in terminal reward).
-    agents   : List with at least one agent dict containing 'llm', 'tokenizer',
-               'sampling_params'.  A single model plays both roles.
-    metadata : Must include key 'papers': list of dicts with 'id', 'title',
-               'summary' fields (used when use_weaviate_context is false).
-    """
     t_start = time.time()
 
     # ── agent setup ──────────────────────────────────────────────────────────
@@ -165,6 +157,18 @@ async def workflow(
     weaviate_url: str = _get("weaviate_url", "http://localhost:8080")
     prompt_id: int = kwargs.get("prompt_id", 0)
 
+    # ── emergent communication parameters ─────────────────────────────────────
+    apply_length_penalty: bool = str(
+        _get("apply_length_penalty", "false")
+    ).lower() not in ("false", "0", "no")
+    length_penalty_lambda: float = float(_get("length_penalty_lambda", 0.001))
+
+    apply_channel_noise: bool = str(
+        _get("apply_channel_noise", "false")
+    ).lower() not in ("false", "0", "no")
+    noise_probability: float = float(_get("noise_probability", 0.1))
+
+    # ── paper context ─────────────────────────────────────────────────────────
     if use_weaviate_context:
         papers = search_weaviate(
             prompt, weaviate_top_n, weaviate_url, embed_host, embed_port
@@ -201,21 +205,60 @@ async def workflow(
             rerank_port=rerank_port,
             groundedness_weight=groundedness_weight,
             relevancy_weight=relevancy_weight,
+            apply_channel_noise=apply_channel_noise,
+            noise_probability=noise_probability,
         )
 
-    # ── assemble results ──────────────────────────────────────────────────────
+    # ── assemble results & apply length penalty (Technique 1) ─────────────────
     trajectory = list(state.trajectory_records)
+    debug_entries = list(state.debug_entries)
 
-    # The reward from generator_generate is propagated to all trajectory records
     final_reward = trajectory[-1].get("reward", 0.0) if trajectory else 0.0
-    for record in trajectory:
-        record["reward"] = final_reward
+    total_length_penalty = 0.0
+
+    for i, (record, entry) in enumerate(zip(trajectory, debug_entries)):
+        extra_dict = entry.get("extra", {})
+        
+        agent_role = entry.get("agent_role") or extra_dict.get("agent_role")
+        turn_type = entry.get("turn_type") or extra_dict.get("turn_type")
+        
+        if agent_role == "retriever" and turn_type == "retriever_message":
+            if apply_length_penalty:
+                clean_content = entry.get("output_content") or extra_dict.get("output_content", "")
+                
+                tokens = tokenizer.encode(clean_content, add_special_tokens=False)
+                token_count = len(tokens)
+                
+                penalty = length_penalty_lambda * token_count
+                total_length_penalty += penalty
+
+                if "extra" in entry:
+                    entry["extra"]["length_penalty"] = round(penalty, 4)
+                    entry["extra"]["n_channel_tokens"] = token_count
+                else:
+                    entry["length_penalty"] = round(penalty, 4)
+                    entry["n_channel_tokens"] = token_count
+
+    # Final reward after applying the length penalty
+    penalised_reward = final_reward - total_length_penalty
+
+    # Propagate the final reward (after length penalty) back to all trajectory records
+    for i, (record, entry) in enumerate(zip(trajectory, debug_entries)):
+        record["reward"] = penalised_reward
+        entry["reward"] = penalised_reward
+
+    if apply_length_penalty and total_length_penalty > 0.0:
+        logger.warning(
+            f"[EC] length_penalty={total_length_penalty:.4f} | "
+            f"final_reward={final_reward:.3f} | "
+            f"penalised_reward={penalised_reward:.3f}"
+        )
 
     reward_matrix = [r.get("reward", 0.0) for r in trajectory]
 
     elapsed = time.time() - t_start
     logger.warning(
-        f"workflow done | turns={state.turn_id} | reward={final_reward:.3f} | time={elapsed:.1f}s"
+        f"workflow done | turns={state.turn_id} | reward={penalised_reward:.3f} | time={elapsed:.1f}s"
     )
 
     if debug:
@@ -224,9 +267,9 @@ async def workflow(
             prompt_id=prompt_id,
             prompt=prompt,
             label=label,
-            total_reward=final_reward,
+            total_reward=penalised_reward,
             elapsed_s=round(elapsed, 2),
-            turns=list(state.debug_entries),
+            turns=debug_entries,
         )
 
     return {
@@ -234,5 +277,5 @@ async def workflow(
         "label": label,
         "trajectory": trajectory,
         "reward_matrix": reward_matrix,
-        "final_reward": final_reward,
+        "final_reward": penalised_reward,
     }

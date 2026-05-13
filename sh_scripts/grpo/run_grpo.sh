@@ -36,9 +36,10 @@ BASE_DIR="${BASE_DIR:-$MY_DISK/patryk/Agents}"
 TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-0.6B"}"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
 RERANK_MODEL="${RERANK_MODEL:-"Qwen/Qwen3-Reranker-0.6B"}"
-WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}" # Defaults to 'grpo_qwen'
+WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}"
 BATCH_SIZE="${TRAIN_BATCH_SIZE:-8}"
 ROLLOUT_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
+
 SIMILARITY_WEIGHT="${SIMILARITY_WEIGHT:-1.0}"
 DIVERSITY_WEIGHT="${DIVERSITY_WEIGHT:-1.0}"
 GROUNDEDNESS_WEIGHT="${GROUNDEDNESS_WEIGHT:-1.0}"
@@ -48,6 +49,14 @@ USE_WEAVIATE_CONTEXT="${USE_WEAVIATE_CONTEXT:-false}"
 WEAVIATE_TOP_N="${WEAVIATE_TOP_N:-5}"
 ASK_RETRIEVER_LIMIT="${ASK_RETRIEVER_LIMIT:-0}"
 RETRIEVER_SEARCH_LIMIT="${RETRIEVER_SEARCH_LIMIT:-0}"
+
+# =================================================
+# EMERGENT COMMUNCATION TECHNIQUES CONFIG
+# =================================================
+APPLY_LENGTH_PENALTY="${APPLY_LENGTH_PENALTY:-true}"
+LENGTH_PENALTY_LAMBDA="${LENGTH_PENALTY_LAMBDA:-0.001}"
+APPLY_CHANNEL_NOISE="${APPLY_CHANNEL_NOISE:-true}"
+NOISE_PROBABILITY="${NOISE_PROBABILITY:-0.15}"
 
 # 3. Derived Paths
 VENV_PATH="$BASE_DIR/venv"
@@ -95,11 +104,6 @@ echo "   Rerank Model: $RERANK_MODEL"
 # =================================================
 echo "=> Starting vLLM Embedding Server on $EMBED_NODE..."
 
-# =================================================
-# START vLLM EMBEDDING SERVER (On Het Group 1)
-# =================================================
-echo "=> Starting vLLM Embedding Server on $EMBED_NODE..."
-
 srun --het-group=1 --overlap \
     $VENV_PYTHON -m vllm.entrypoints.openai.api_server \
     --model "$EMBED_MODEL" \
@@ -114,11 +118,6 @@ while ! curl -s http://$EMBED_NODE:$EMBED_PORT/v1/models > /dev/null; do
     sleep 5
 done
 echo "=> vLLM embedding server is online at http://$EMBED_NODE:$EMBED_PORT/v1!"
-
-# =================================================
-# START vLLM RERANKER SERVER (On Het Group 1, same node as embedder)
-# =================================================
-echo "=> Starting vLLM Reranker Server on $EMBED_NODE..."
 
 # =================================================
 # START vLLM RERANKER SERVER (On Het Group 1)
@@ -156,7 +155,6 @@ DEFAULT_AGENT="{
     \"is_reasoning_model\": true
 }"
 
-# Dynamically injected the training model variable
 AGENT0="{
     \"0\": {
         \"agent_id\": \"shared_agent\",
@@ -182,7 +180,7 @@ srun --het-group=0 \
     --eval_steps "$EVAL_STEPS" \
     --eval_before_training \
     --eval_n_samples_per_prompt 1 \
-    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs/$SLURM_JOB_ID\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"rerank_host\": \"$EMBED_NODE\", \"rerank_port\": $RERANK_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"groundedness_weight\": $GROUNDEDNESS_WEIGHT, \"relevancy_weight\": $RELEVANCY_WEIGHT, \"weaviate_url\": \"http://$WEAVIATE_NODE_ID:8080\", \"debug\": \"$DEBUG_WORKFLOW\", \"use_weaviate_context\": \"$USE_WEAVIATE_CONTEXT\", \"weaviate_top_n\": $WEAVIATE_TOP_N, \"ask_retriever_limit\": $ASK_RETRIEVER_LIMIT, \"retriever_search_limit\": $RETRIEVER_SEARCH_LIMIT}" \
+    --workflow_args "{\"debug_dir\": \"$BASE_DIR/workflow_logs/$SLURM_JOB_ID\", \"embed_host\": \"$EMBED_NODE\", \"embed_port\": $EMBED_PORT, \"rerank_host\": \"$EMBED_NODE\", \"rerank_port\": $RERANK_PORT, \"similarity_weight\": $SIMILARITY_WEIGHT, \"diversity_weight\": $DIVERSITY_WEIGHT, \"groundedness_weight\": $GROUNDEDNESS_WEIGHT, \"relevancy_weight\": $RELEVANCY_WEIGHT, \"weaviate_url\": \"http://$WEAVIATE_NODE_ID:8080\", \"debug\": \"$DEBUG_WORKFLOW\", \"use_weaviate_context\": \"$USE_WEAVIATE_CONTEXT\", \"weaviate_top_n\": $WEAVIATE_TOP_N, \"ask_retriever_limit\": $ASK_RETRIEVER_LIMIT, \"retriever_search_limit\": $RETRIEVER_SEARCH_LIMIT, \"apply_length_penalty\": \"$APPLY_LENGTH_PENALTY\", \"length_penalty_lambda\": $LENGTH_PENALTY_LAMBDA, \"apply_channel_noise\": \"$APPLY_CHANNEL_NOISE\", \"noise_probability\": $NOISE_PROBABILITY}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
     --metadata_key "metadata" \
