@@ -125,12 +125,13 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
             traj_lengths = []
 
             for turn in data.get("turns", []):
-                # In the new environment, we strictly analyze the communication channel
-                # (retriever_message), ignoring Weaviate search queries (retriever_search).
                 if turn.get("turn_type") == "retriever_message":
                     text = turn.get("output_content", "")
-                    tokens = tokenize(text)
-                    traj_lengths.append(len(text))
+                    tokens = tokenize(text) 
+                    n_tokens = turn.get("n_channel_tokens") or turn.get("extra", {}).get("n_channel_tokens", 0)
+                    if n_tokens == 0 and text:
+                        n_tokens = len(tokens)
+                    traj_lengths.append(n_tokens)
                     window_vocab.update(tokens)
 
             # Average retriever message length for this specific trajectory
@@ -224,7 +225,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
 
     ax_l.plot(x_axis, df["Avg_Message_Length"], color=ACCENT, linewidth=1.2)
     ax_l.fill_between(x_axis, df["Avg_Message_Length"], alpha=0.06, color=ACCENT)
-    ax_l.set_ylabel('Message length (chars)')
+    ax_l.set_ylabel('Message length (tokens)')
     ax_l.yaxis.set_label_coords(-0.08, 0.5)
     ax_l.set_xlabel('Training window')
     ax_l.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')

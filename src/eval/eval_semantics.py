@@ -211,7 +211,8 @@ async def run_hybrid_topsim_analysis(
                 for turn in data.get("turns", []):
                     # Gather new context from Weaviate searches
                     if turn.get("turn_type") == "retriever_search":
-                        for p in turn.get("search_result", [])[:5]:
+                        search_results = turn.get("search_result") or turn.get("extra", {}).get("search_result", [])
+                        for p in search_results[:5]:
                             title   = p.get("title",   "")
                             summary = p.get("summary", p.get("abstract", ""))
                             if title or summary:
@@ -219,8 +220,9 @@ async def run_hybrid_topsim_analysis(
 
                     # Gather both clean and noisy Retriever outputs
                     elif turn.get("turn_type") == "retriever_message":
-                        clean_text = turn.get("output_content", "")
-                        noisy_text = turn.get("noisy_output_content", "")
+                        clean_text = turn.get("output_content") or turn.get("extra", {}).get("output_content", "")
+                        noisy_text = turn.get("noisy_output_content") or turn.get("extra", {}).get("noisy_output_content", "")
+                        
                         if clean_text:
                             clean_parts.append(clean_text)
                         if noisy_text:

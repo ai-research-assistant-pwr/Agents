@@ -128,7 +128,8 @@ async def execute_turn(
     resp = await llm.generate_async.remote(
         prompt_ids=input_ids, sampling_params=sampling_params
     )
-    output: str = resp.outputs[0].text
+    raw_text = resp.outputs[0].text
+    output: str = raw_text.replace("<|im_end|>", "").replace("<|endoftext|>", "").strip()
     output_ids: List[int] = list(resp.outputs[0].token_ids)
 
     # ── step-specific extraction and side-effects ─────────────────────────────
