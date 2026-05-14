@@ -190,7 +190,7 @@ srun --het-group=0 \
     --advantage_estimator "group_norm" \
     --vllm_num_engines 2 \
     --vllm_tensor_parallel_size 1 \
-    --vllm_gpu_memory_utilization 0.6 \
+    --vllm_gpu_memory_utilization 0.7 \
     --colocate_all_models \
     --vllm_sync_backend nccl \
     --enforce_eager \
@@ -205,13 +205,13 @@ srun --het-group=0 \
     --use_kl_loss \
     --init_kl_coef 0.05 \
     --train_batch_size "$BATCH_SIZE" \
-    --micro_train_batch_size 1 \
+    --micro_train_batch_size 4 \
     --rollout_batch_size "$ROLLOUT_SIZE" \
-    --n_samples_per_prompt 16 \
+    --n_samples_per_prompt 8 \
     --num_episodes 1 \
     --max_epochs 1 \
-    --prompt_max_len 8096 \
-    --generate_max_len 2048 \
+    --prompt_max_len 4096 \
+    --generate_max_len 1024 \
     --zero_stage 2 \
     --bf16 \
     --gradient_checkpointing \
