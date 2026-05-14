@@ -103,6 +103,9 @@ module load Python/3.12.3-GCCcore-13.3.0
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
+echo "=> Sprawdzanie i instalacja scikit-learn..."
+pip install -q scikit-learn
+
 export PYTHONPATH="$BASE_DIR:$PYTHONPATH"
 
 MY_NEW_TMP="$MY_DISK/tmp"
