@@ -47,6 +47,12 @@ import os
 import time
 import uuid
 from typing import Any, Dict, List, Optional
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+agents_dir = os.path.abspath(os.path.join(current_dir, "../../.."))
+if agents_dir not in sys.path:
+    sys.path.insert(0, agents_dir)
 
 from marti.utils.logging_utils import init_logger
 from src.grpo.grpo_train.tools import search_weaviate
