@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -p bem2-cpu-short
 #SBATCH --job-name=weaviate_test
-#SBATCH --output=out/weaviate_%j.log
+#SBATCH --output=Agents/out/weaviate_%j.log
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --time=00:30:00
