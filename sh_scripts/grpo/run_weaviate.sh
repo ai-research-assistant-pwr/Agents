@@ -11,17 +11,19 @@
 MY_DISK="$SLURM_SUBMIT_DIR"
 BASE_DIR="$MY_DISK/Agents"
 
+mkdir -p "$BASE_DIR/data/weaviate_runtime"
+
 SHARED_DATA_DIR="/lustre/pd03/hpc-patswi3426-1763133915/patryk/Agents/data"
 
 BACKUP_ID="research-paper-embed-qwen-4b"
 
 echo "Uruchamianie Weaviate..."
-echo "Katalog projektu: $BASE_DIR"
-echo "Katalog współdzielonych danych: $SHARED_DATA_DIR"
+echo "Lokalny Runtime: $BASE_DIR/data/weaviate_runtime"
+echo "Backup od Patryka: $SHARED_DATA_DIR/weaviate_backup"
 
 apptainer run --contain \
     --no-home \
-    --bind "$SHARED_DATA_DIR/weaviate_runtime:/var/lib/weaviate" \
+    --bind "$BASE_DIR/data/weaviate_runtime:/var/lib/weaviate" \
     --bind "$SHARED_DATA_DIR/weaviate_backup:/var/backups" \
     --env "AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true" \
     --env "PERSISTENCE_DATA_PATH=/var/lib/weaviate" \
@@ -39,7 +41,7 @@ echo "Testowanie połączenia lokalnie na węźle..."
 curl -s http://localhost:8080/v1/meta
 echo ""
 
-if [ ! -d "$SHARED_DATA_DIR/weaviate_runtime/researchpapers" ]; then
+if [ ! -d "$BASE_DIR/data/weaviate_runtime/researchpapers" ]; then
     echo "Pierwszy start - przywracanie backupu: $BACKUP_ID ..."
     curl -s -X POST "http://localhost:8080/v1/backups/filesystem/$BACKUP_ID/restore" \
         -H "Content-Type: application/json" \
@@ -53,7 +55,7 @@ if [ ! -d "$SHARED_DATA_DIR/weaviate_runtime/researchpapers" ]; then
     curl -s "http://localhost:8080/v1/backups/filesystem/$BACKUP_ID/restore"
     echo ""
 else
-    echo "Dane juz istnieja w weaviate_runtime/ - pomijam restore."
+    echo "Dane juz istnieja w Twoim lokalnym weaviate_runtime/ - pomijam restore."
 fi
 
 echo "Sprawdzanie schematu..."
