@@ -8,7 +8,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 
-BASE_DIR=$(pwd -P)
+MY_DISK="$SLURM_SUBMIT_DIR"
+BASE_DIR="$MY_DISK/Agents"
 
 # Fresh directory for Weaviate's runtime data (must be empty/new)
 mkdir -p "$BASE_DIR/data/weaviate_runtime"
@@ -29,7 +30,7 @@ apptainer run --contain \
     --env "CLUSTER_HOSTNAME=node1" \
     --env "BACKUP_FILESYSTEM_PATH=/var/backups" \
     --env "ENABLE_MODULES=backup-filesystem" \
-    data/weaviate.sif &
+    "$BASE_DIR/data/weaviate.sif" &
 
 WEAVIATE_PID=$!
 
