@@ -8,23 +8,28 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 
+# Ustalamy bazowy katalog projektu na Agents
 MY_DISK="$SLURM_SUBMIT_DIR"
 BASE_DIR="$MY_DISK/Agents"
 
-mkdir -p "$BASE_DIR/data/weaviate_runtime"
+# Katalog na dane bazy (runtime) i backup znajdują się u Ciebie w Agents/data/
+RUNTIME_DIR="$BASE_DIR/data/weaviate_runtime"
+BACKUP_DIR="$BASE_DIR/data/weaviate_backup"
 
-SHARED_DATA_DIR="/lustre/pd03/hpc-patswi3426-1763133915/patryk/Agents/data"
+# Tworzymy folder na runtime, jeśli go nie ma
+mkdir -p "$RUNTIME_DIR"
 
+# ID backupu musi zgadzać się z nazwą folderu wewnątrz weaviate_backup
 BACKUP_ID="research-paper-embed-qwen-4b"
 
 echo "Uruchamianie Weaviate..."
-echo "Lokalny Runtime: $BASE_DIR/data/weaviate_runtime"
-echo "Backup od Patryka: $SHARED_DATA_DIR/weaviate_backup"
+echo "Lokalny Runtime: $RUNTIME_DIR"
+echo "Lokalny Backup: $BACKUP_DIR"
 
 apptainer run --contain \
     --no-home \
-    --bind "$BASE_DIR/data/weaviate_runtime:/var/lib/weaviate" \
-    --bind "$SHARED_DATA_DIR/weaviate_backup:/var/backups" \
+    --bind "$RUNTIME_DIR:/var/lib/weaviate" \
+    --bind "$BACKUP_DIR:/var/backups" \
     --env "AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true" \
     --env "PERSISTENCE_DATA_PATH=/var/lib/weaviate" \
     --env "CLUSTER_HOSTNAME=node1" \
@@ -41,7 +46,8 @@ echo "Testowanie połączenia lokalnie na węźle..."
 curl -s http://localhost:8080/v1/meta
 echo ""
 
-if [ ! -d "$BASE_DIR/data/weaviate_runtime/researchpapers" ]; then
+# Jeśli kolekcja nie istnieje w runtime, wykonujemy restore z lokalnego backupu
+if [ ! -d "$RUNTIME_DIR/researchpapers" ]; then
     echo "Pierwszy start - przywracanie backupu: $BACKUP_ID ..."
     curl -s -X POST "http://localhost:8080/v1/backups/filesystem/$BACKUP_ID/restore" \
         -H "Content-Type: application/json" \
@@ -55,7 +61,7 @@ if [ ! -d "$BASE_DIR/data/weaviate_runtime/researchpapers" ]; then
     curl -s "http://localhost:8080/v1/backups/filesystem/$BACKUP_ID/restore"
     echo ""
 else
-    echo "Dane juz istnieja w Twoim lokalnym weaviate_runtime/ - pomijam restore."
+    echo "Dane juz istnieja w Twoim weaviate_runtime/ - pomijam restore."
 fi
 
 echo "Sprawdzanie schematu..."
