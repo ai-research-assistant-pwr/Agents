@@ -141,43 +141,34 @@ async def _get_rerank_scores(
     server_port: int,
     model: str = "Qwen/Qwen3-Reranker-4B",
 ) -> List[float]:
-    """Call the vLLM /v1/rerank endpoint with Qwen3-Reranker prompt formatting.
-
-    Parameters
-    ----------
-    query       : The query or hypothesis string (already plain text).
-    instruction : Task-specific instruction for the reranker.
-    documents   : List of document strings to score against the query.
-    server_host : Hostname/IP of the vLLM reranker server.
-    server_port : Port of the vLLM reranker server.
-    model       : HuggingFace model name served by vLLM.
-
-    Returns
-    -------
-    List of relevance scores (floats) in the same order as ``documents``.
-    Returns a list of 0.0 values if the server call fails.
-    """
+    """Call the vLLM /v1/score endpoint with Qwen3-Reranker prompt formatting."""
     formatted_query = _RERANKER_QUERY_TEMPLATE.format(
         prefix=_RERANKER_PREFIX,
         instruction=instruction,
         query=query,
     )
     formatted_docs = [_RERANKER_DOC_TEMPLATE.format(doc=doc) for doc in documents]
-    url = f"http://{server_host}:{server_port}/v1/rerank"
+    
+    url = f"http://{server_host}:{server_port}/v1/score"
+    
     payload = {
         "model": model,
-        "query": formatted_query,
-        "documents": formatted_docs,
+        "text_1": formatted_query,
+        "text_2": formatted_docs,
     }
+    
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
-        # Response: {"results": [{"index": int, "relevance_score": float}, ...]}
-        ordered = sorted(data["results"], key=lambda x: x["index"])
-        return [item["relevance_score"] for item in ordered]
-    except Exception:
+                
+        # Response: {"id": "...", "data": [{"index": int, "score": float}, ...]}
+        ordered = sorted(data["data"], key=lambda x: x["index"])
+        return [item["score"] for item in ordered]
+        
+    except Exception as e:
+        print(f"[Reranker Error] {e}")
         return [0.0] * len(documents)
 
 
