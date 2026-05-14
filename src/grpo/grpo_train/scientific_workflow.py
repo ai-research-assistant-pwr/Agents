@@ -234,7 +234,7 @@ async def workflow(
         turn_type = entry.get("turn_type") or extra_dict.get("turn_type")
 
         if agent_role == "retriever" and turn_type == "retriever_message":
-            n_tokens = extra_dict.get("n_channel_tokens", 0)
+            n_tokens = entry.get("n_channel_tokens", 0) or extra_dict.get("n_channel_tokens", 0)
             channel_token_counts.append(n_tokens)
 
             if apply_length_penalty and not is_eval:
