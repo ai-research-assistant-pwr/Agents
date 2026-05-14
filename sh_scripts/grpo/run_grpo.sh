@@ -130,7 +130,6 @@ echo "=> Starting vLLM Reranker Server on $EMBED_NODE..."
 srun --het-group=1 --overlap \
     vllm serve \
         "$RERANK_MODEL"  \
-        --task score
         --host 0.0.0.0 \
         --port $RERANK_PORT \
         --gpu-memory-utilization 0.4 \

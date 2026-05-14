@@ -139,37 +139,51 @@ async def _get_rerank_scores(
     documents: List[str],
     server_host: str,
     server_port: int,
-    model: str = "Qwen/Qwen3-Reranker-4B",
+    model: str = "Qwen/Qwen3-Reranker-0.6B",
 ) -> List[float]:
-    """Call the vLLM /v1/score endpoint with Qwen3-Reranker prompt formatting."""
+    """Call the vLLM /v1/rerank endpoint with Qwen3-Reranker prompt formatting.
+
+    Parameters
+    ----------
+    query       : The query or hypothesis string (already plain text).
+    instruction : Task-specific instruction for the reranker.
+    documents   : List of document strings to score against the query.
+    server_host : Hostname/IP of the vLLM reranker server.
+    server_port : Port of the vLLM reranker server.
+    model       : HuggingFace model name served by vLLM.
+
+    Returns
+    -------
+    List of relevance scores (floats) in the same order as ``documents``.
+    Returns a list of 0.0 values if the server call fails.
+    """
+
     formatted_query = _RERANKER_QUERY_TEMPLATE.format(
         prefix=_RERANKER_PREFIX,
         instruction=instruction,
         query=query,
     )
     formatted_docs = [_RERANKER_DOC_TEMPLATE.format(doc=doc) for doc in documents]
-    
-    url = f"http://{server_host}:{server_port}/score"
-    
+
+    url = f"http://{server_host}:{server_port}/v1/rerank"
+
     payload = {
         "model": model,
-        "text_1": formatted_query,
-        "text_2": formatted_docs,
+        "query": formatted_query,
+        "documents": formatted_docs,
     }
-    
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
-                
-        # Response: {"id": "...", "data": [{"index": int, "score": float}, ...]}
-        ordered = sorted(data["data"], key=lambda x: x["index"])
-        return [item["score"] for item in ordered]
-        
-    except Exception as e:
-        print(f"[Reranker Error] {e}")
-        return [0.0] * len(documents)
+
+        # Response: {"results": [{"index": int, "relevance_score": float}, ...]}
+        ordered = sorted(data["results"], key=lambda x: x["index"])
+        return [item["relevance_score"] for item in ordered]
+    except Exception:
+        return [0.0] * len(documents) 
 
 
 # ── groundedness reward ───────────────────────────────────────────────────────
@@ -185,7 +199,7 @@ async def groundedness_reward(
     papers: List[Dict[str, Any]],
     rerank_host: str,
     rerank_port: int,
-    model: str = "Qwen/Qwen3-Reranker-4B",
+    model: str = "Qwen/Qwen3-Reranker-0.6B",
 ) -> float:
     """Compute groundedness of hypotheses against retrieved papers.
 
@@ -233,7 +247,7 @@ async def relevancy_reward(
     query: str,
     rerank_host: str,
     rerank_port: int,
-    model: str = "Qwen/Qwen3-Reranker-4B",
+    model: str = "Qwen/Qwen3-Reranker-0.6B",
 ) -> float:
     """Compute relevancy of hypotheses to the original research query.
 
