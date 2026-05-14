@@ -149,7 +149,7 @@ async def _get_rerank_scores(
     )
     formatted_docs = [_RERANKER_DOC_TEMPLATE.format(doc=doc) for doc in documents]
     
-    url = f"http://{server_host}:{server_port}/v1/score"
+    url = f"http://{server_host}:{server_port}/score"
     
     payload = {
         "model": model,
