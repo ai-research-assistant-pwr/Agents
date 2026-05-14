@@ -1,4 +1,12 @@
 #!/bin/bash
+#SBATCH -N 1
+#SBATCH -c 8
+#SBATCH --mem=64gb
+#SBATCH --time=0-00:30:00
+#SBATCH --job-name=create_dfs
+#SBATCH --output=/home/tymrom7227/disk/Agents/out/create_dfs.out
+#SBATCH -p lem-gpu-short
+#SBATCH --gres=gpu:hopper:1
 
 # Konfiguracja ścieżek (relatywne do miejsca uruchomienia)
 DATA_DIR="Agents/data/datasets"
