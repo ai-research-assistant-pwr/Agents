@@ -1,35 +1,28 @@
 #!/bin/bash
+#SBATCH --job-name=data_subsetting
+#SBATCH --output=Agents/out/test_df.out
+#SBATCH --time=0-00:10:00        # 10 minut to aż nadto
+#SBATCH -p lem-cpu-short         # Używamy partycji CPU (szybciej wystartuje)
 #SBATCH -N 1
-#SBATCH -c 8
-#SBATCH --mem=64gb
-#SBATCH --time=0-00:30:00
-#SBATCH --job-name=create_dfs
-#SBATCH --output=/home/tymrom7227/disk/Agents/out/create_dfs.out
-#SBATCH -p lem-gpu-short
-#SBATCH --gres=gpu:hopper:1
+#SBATCH -c 4                     # 4 rdzenie wystarczą do Pandasa
+#SBATCH --mem=16gb
 
-# Konfiguracja ścieżek (relatywne do miejsca uruchomienia)
-DATA_DIR="Agents/data/datasets"
-ORIG_TRAIN="$DATA_DIR/rl_grounded_dataset_train.csv"
-ORIG_EVAL="$DATA_DIR/rl_grounded_dataset_test.csv"
+set -e
 
-NEW_TRAIN="$DATA_DIR/rl_grounded_dataset_train_80.csv"
-NEW_EVAL="$DATA_DIR/rl_grounded_dataset_test_20.csv"
+# 1. Ścieżki
+MY_DISK="$SLURM_SUBMIT_DIR"
+BASE_DIR="$MY_DISK/Agents"
+VENV_PATH="$BASE_DIR/venv"
 
-echo "=> Tworzenie małych zbiorów danych (Train: 80, Eval: 20)..."
+# 2. Ładowanie modułów (tak samo jak w Twoim głównym skrypcie)
+source /usr/local/sbin/modules.sh
+module load Python/3.12.3-GCCcore-13.3.0
 
-# 1. Tworzenie zbioru TRAIN
-# Pobieramy nagłówek
-head -n 1 "$ORIG_TRAIN" > "$NEW_TRAIN"
-# Pomijamy nagłówek (tail +2), mieszamy (shuf) i bierzemy 80 wierszy
-tail -n +2 "$ORIG_TRAIN" | shuf -n 80 >> "$NEW_TRAIN"
+# 3. Aktywacja środowiska
+source $VENV_PATH/bin/activate
 
-# 2. Tworzenie zbioru EVAL
-# Pobieramy nagłówek
-head -n 1 "$ORIG_EVAL" > "$NEW_EVAL"
-# Pomijamy nagłówek, mieszamy i bierzemy 20 wierszy
-tail -n +2 "$ORIG_EVAL" | shuf -n 20 >> "$NEW_EVAL"
+# 4. Uruchomienie skryptu Pythona
+echo "=> Startowanie procesu podziału danych..."
+python "$BASE_DIR/create_test_dfs.py"
 
-echo "=> Gotowe!"
-echo "   Nowy Train: $NEW_TRAIN"
-echo "   Nowy Eval:  $NEW_EVAL"
+echo "=> Sukces! Pliki CSV zostały wygenerowane."
