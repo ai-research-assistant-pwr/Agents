@@ -37,7 +37,7 @@ kwargs (via --workflow_args JSON)
   ask_retriever_limit    – K: generator→retriever rounds           (default: 1)
   retriever_search_limit – S: Weaviate searches per episode        (default: 1)
   apply_length_penalty   – enable Information Bottleneck penalty   (default: false)
-  length_penalty_lambda  – λ for length penalty                    (default: 0.001)
+  length_penalty_lambda  – λ for length penalty                    (default: 0.005)
   apply_channel_noise    – enable channel noise injection          (default: false)
   noise_probability      – probability of masking each word token  (default: 0.1)
 """
@@ -87,6 +87,7 @@ def _write_debug_log(
     total_reward: float,
     elapsed_s: float,
     turns: List[Dict[str, Any]],
+    ec_stats: Dict[str, Any],
 ) -> None:
     os.makedirs(debug_dir, exist_ok=True)
     ts_ms = int(time.time() * 1000)
@@ -99,6 +100,7 @@ def _write_debug_log(
         "label": label,
         "total_reward": total_reward,
         "elapsed_s": elapsed_s,
+        "ec_stats": ec_stats,
         "turns": turns,
     }
     with open(tmp_path, "w", encoding="utf-8") as f:
@@ -167,7 +169,7 @@ async def workflow(
     apply_length_penalty: bool = str(
         _get("apply_length_penalty", "false")
     ).lower() not in ("false", "0", "no")
-    length_penalty_lambda: float = float(_get("length_penalty_lambda", 0.001))
+    length_penalty_lambda: float = float(_get("length_penalty_lambda", 0.005))
 
     apply_channel_noise: bool = str(
         _get("apply_channel_noise", "false")
@@ -213,6 +215,7 @@ async def workflow(
             relevancy_weight=relevancy_weight,
             apply_channel_noise=apply_channel_noise,
             noise_probability=noise_probability,
+            is_eval=is_eval,
         )
 
     # ── assemble results & apply length penalty (Technique 1) ─────────────────
@@ -222,34 +225,28 @@ async def workflow(
     final_reward = trajectory[-1].get("reward", 0.0) if trajectory else 0.0
     total_length_penalty = 0.0
 
+    channel_token_counts: List[int] = []
+
     for i, (record, entry) in enumerate(zip(trajectory, debug_entries)):
         extra_dict = entry.get("extra", {})
-        
+
         agent_role = entry.get("agent_role") or extra_dict.get("agent_role")
         turn_type = entry.get("turn_type") or extra_dict.get("turn_type")
-        
+
         if agent_role == "retriever" and turn_type == "retriever_message":
-            if apply_length_penalty:
-                clean_content = entry.get("output_content") or extra_dict.get("output_content", "")
-                
-                tokens = tokenizer.encode(clean_content, add_special_tokens=False)
-                token_count = len(tokens)
-                
-                penalty = length_penalty_lambda * token_count
+            n_tokens = extra_dict.get("n_channel_tokens", 0)
+            channel_token_counts.append(n_tokens)
+
+            if apply_length_penalty and not is_eval:
+                penalty = length_penalty_lambda * n_tokens
                 total_length_penalty += penalty
 
-                if "extra" in entry:
-                    entry["extra"]["length_penalty"] = round(penalty, 4)
-                    entry["extra"]["n_channel_tokens"] = token_count
-                else:
-                    entry["length_penalty"] = round(penalty, 4)
-                    entry["n_channel_tokens"] = token_count
+                extra_dict["length_penalty"] = round(penalty, 4)
+                extra_dict["n_channel_tokens"] = n_tokens
 
-    # Final reward after applying the length penalty
     penalised_reward = final_reward - total_length_penalty
 
-    # Propagate the final reward (after length penalty) back to all trajectory records
-    for i, (record, entry) in enumerate(zip(trajectory, debug_entries)):
+    for record, entry in zip(trajectory, debug_entries):
         record["reward"] = penalised_reward
         entry["reward"] = penalised_reward
 
@@ -267,6 +264,21 @@ async def workflow(
         f"workflow done | turns={state.turn_id} | reward={penalised_reward:.3f} | time={elapsed:.1f}s"
     )
 
+    ec_stats: Dict[str, Any] = {
+        "n_retriever_messages": len(channel_token_counts),
+        "channel_token_counts": channel_token_counts,
+        "mean_channel_tokens": (
+            round(sum(channel_token_counts) / len(channel_token_counts), 2)
+            if channel_token_counts
+            else 0.0
+        ),
+        "total_length_penalty": round(total_length_penalty, 4),
+        "task_reward_before_penalty": round(final_reward, 4),
+        "apply_length_penalty": apply_length_penalty,
+        "apply_channel_noise": apply_channel_noise,
+        "is_eval": is_eval,
+    }
+
     if debug:
         _write_debug_log(
             debug_dir=debug_dir,
@@ -276,6 +288,7 @@ async def workflow(
             total_reward=penalised_reward,
             elapsed_s=round(elapsed, 2),
             turns=debug_entries,
+            ec_stats=ec_stats,
         )
 
     return {
@@ -284,4 +297,5 @@ async def workflow(
         "trajectory": trajectory,
         "reward_matrix": reward_matrix,
         "final_reward": penalised_reward,
+        "ec_stats": ec_stats,
     }

@@ -47,7 +47,22 @@ def _inject_noise(
     span_probability: float = 0.15,
     max_span_length: int = 3,
 ) -> str:
-    """Randomly masks word-tokens to force redundant, compositional communication."""
+    """Randomly masks word-tokens to force redundant, compositional communication.
+
+    Only word tokens matching ``_MASK_PATTERN`` (alphabetic, length ≥ 3) are
+    candidates for masking.  Numbers, punctuation, and special tokens are left
+    intact so the channel does not become completely unreadable at high noise
+    levels.
+
+    Parameters
+    ----------
+    text            : Clean retriever message text (post strip_thinking).
+    noise_prob      : Per-token probability of masking (Technique 2 λ_noise).
+    mask_token      : Replacement string for masked tokens.
+    span_probability: Probability that a masked position starts a multi-token
+                      span (default 15 %).
+    max_span_length : Maximum number of consecutive tokens in a masked span.
+    """
     if noise_prob <= 0.0:
         return text
 
@@ -61,7 +76,7 @@ def _inject_noise(
 
     while i < len(matches):
         match = matches[i]
-        output.append(text[last_end:match.start()])
+        output.append(text[last_end : match.start()])
 
         if random.random() < noise_prob:
             span_len = 1
@@ -101,6 +116,7 @@ async def execute_turn(
     relevancy_weight: float = 0.0,
     apply_channel_noise: bool = False,
     noise_probability: float = 0.1,
+    is_eval: bool = False,
 ) -> TrajectoryState:
     """
     Execute one trajectory step and return the next ``TrajectoryState``.
@@ -122,7 +138,7 @@ async def execute_turn(
         "turn_type": step,
         "agent_role": state.current_agent,
     }
-    step_payload: Dict[str, Any] = {} 
+    step_payload: Dict[str, Any] = {}
 
     if step == "retriever_search":
         query = strip_thinking(output)
@@ -132,22 +148,37 @@ async def execute_turn(
 
     elif step == "retriever_message":
         clean_message = strip_thinking(output)
-        
-        # ── Technique 2: Noise injection ──
-        if apply_channel_noise:
+
+        n_channel_tokens: int = len(
+            tokenizer.encode(clean_message, add_special_tokens=False)
+        )
+
+        apply_noise_this_step = apply_channel_noise and not is_eval
+
+        if apply_noise_this_step:
             noisy_message = _inject_noise(clean_message, noise_probability)
             message_for_payload = noisy_message
-            extra_debug.update({
-                "output_content": clean_message,        # Czysty tekst dla Techniki 1 (kara za długość)
-                "noisy_output_content": noisy_message,  # Zaszumiony tekst dla logów / CIC
-                "message": clean_message
-            })
+            extra_debug.update(
+                {
+                    # ``output_content`` → clean text used by Technique 1 (length penalty)
+                    "output_content": clean_message,
+                    # ``noisy_output_content`` → what Generator actually sees (for CIC analysis)
+                    "noisy_output_content": noisy_message,
+                    "message": clean_message,
+                    "n_channel_tokens": n_channel_tokens,
+                    "noise_applied": True,
+                }
+            )
         else:
             message_for_payload = clean_message
-            extra_debug.update({
-                "output_content": clean_message,
-                "message": clean_message
-            })
+            extra_debug.update(
+                {
+                    "output_content": clean_message,
+                    "message": clean_message,
+                    "n_channel_tokens": n_channel_tokens,
+                    "noise_applied": False,
+                }
+            )
 
         step_payload = {"message": message_for_payload}
 
