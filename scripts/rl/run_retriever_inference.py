@@ -42,7 +42,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 csv.field_size_limit(10_000_000)
 
-PAPERS_CSV = ROOT / "data/graph/11_neo4j_papers.csv"
+PAPERS_CSV = ROOT / "data/11_neo4j_papers.csv"
 
 # ---------------------------------------------------------------------------
 # Prompt (copied from src/grpo/grpo_train/agents.py – AgentPrompts.retriever_message_system)
@@ -137,10 +137,10 @@ def call_model(
         max_tokens=max_tokens,
         temperature=0.6,
         top_p=0.95,
-        extra_body={"top_k": 20},
+        extra_body={"top_k": 20, "chat_template_kwargs": {"enable_thinking": True}},
     )
     choice = response.choices[0].message
-    reasoning = getattr(choice, "reasoning_content", "") or ""
+    reasoning = getattr(choice, "reasoning", "") or ""
     content = choice.content or ""
     return reasoning.strip(), content.strip()
 
@@ -187,7 +187,7 @@ def main() -> None:
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=8192,
+        default=4096,
         help="Maximum tokens to generate (default: 8192).",
     )
     parser.add_argument(
