@@ -1,17 +1,16 @@
 """
-Run the retriever-message agent (Qwen3.6-35B via vLLM) over pre-generated queries.
+Run the retriever-message agent (Qwen3-32B via vLLM) over pre-generated queries.
 
 For each query the script:
   1. Looks up the referenced neighbour papers (capped at --max-papers, default 8).
-  2. Builds a ChatML prompt using the retriever_message_system prompt and formats
-     the neighbour papers as search results.
-  3. Calls Qwen/Qwen3.6-35B-A3B hosted locally via vLLM (OpenAI-compatible API).
+  2. Builds a messages list (system + user) using the retriever_message_system prompt
+     and formats the neighbour papers as search results.
+  3. Calls Qwen/Qwen3-32B hosted locally via vLLM (OpenAI-compatible API).
   4. Saves the query, reasoning trace, and synthesised message to a CSV.
 
 Prerequisites – start the vLLM server first:
-    vllm serve Qwen/Qwen3.6-35B-A3B \\
-      --tensor-parallel-size 8 \\
-      --max-model-len 262144 \\
+    vllm serve Qwen/Qwen3-32B \\
+      --tensor-parallel-size 4 \\
       --reasoning-parser qwen3
 
 Usage:
@@ -23,9 +22,10 @@ Usage:
         --queries data/rl_queries.csv \\
         --out data/rl_retriever_outputs.csv \\
         --base-url http://localhost:8000/v1 \\
-        --model Qwen/Qwen3.6-35B-A3B \\
+        --model Qwen/Qwen3-32B \\
         --max-papers 8 \\
-        --workers 8
+        --workers 8 \\
+        --n 100
 """
 
 import argparse
@@ -71,16 +71,8 @@ RETRIEVER_MESSAGE_SYSTEM = (
 )
 
 # ---------------------------------------------------------------------------
-# ChatML helpers (mirroring src/grpo/grpo_train/prompts.py)
+# Prompt building
 # ---------------------------------------------------------------------------
-
-
-def _fmt(role: str, content: str) -> str:
-    return f"<|im_start|>{role}\n{content}\n<|im_end|>\n"
-
-
-def _build_prompt(system: str, user: str) -> str:
-    return _fmt("system", system) + _fmt("user", user) + "<|im_start|>assistant\n"
 
 
 def _format_search_results(papers: list[dict]) -> str:
@@ -92,10 +84,13 @@ def _format_search_results(papers: list[dict]) -> str:
     return "\n\n".join(parts) if parts else "(No search results available.)"
 
 
-def build_retriever_message_prompt(query: str, neighbour_papers: list[dict]) -> str:
+def build_messages(query: str, neighbour_papers: list[dict]) -> list[dict]:
     result_block = _format_search_results(neighbour_papers)
-    user = f"Research query:\n{query}\n\nSearch results:\n{result_block}"
-    return _build_prompt(RETRIEVER_MESSAGE_SYSTEM, user)
+    user_content = f"Research query:\n{query}\n\nSearch results:\n{result_block}"
+    return [
+        {"role": "system", "content": RETRIEVER_MESSAGE_SYSTEM},
+        {"role": "user", "content": user_content},
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -132,16 +127,17 @@ def load_queries(path: Path) -> list[dict]:
 def call_model(
     client: OpenAI,
     model: str,
-    prompt: str,
+    messages: list[dict],
     max_tokens: int,
 ) -> tuple[str, str]:
     """Return (reasoning, message) from the model."""
     response = client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
         max_tokens=max_tokens,
         temperature=0.6,
-        extra_body={"skip_special_tokens": False},
+        top_p=0.95,
+        extra_body={"top_k": 20},
     )
     choice = response.choices[0].message
     reasoning = getattr(choice, "reasoning_content", "") or ""
@@ -156,7 +152,7 @@ def call_model(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run retriever-message inference with Qwen3.6 over pre-generated queries."
+        description="Run retriever-message inference with Qwen3-32B over pre-generated queries."
     )
     parser.add_argument(
         "--queries",
@@ -179,8 +175,8 @@ def main() -> None:
     parser.add_argument(
         "--model",
         type=str,
-        default="Qwen/Qwen3.6-35B-A3B",
-        help="Model name as registered in vLLM (default: Qwen/Qwen3.6-35B-A3B).",
+        default="Qwen/Qwen3-32B",
+        help="Model name as registered in vLLM (default: Qwen/Qwen3-32B).",
     )
     parser.add_argument(
         "--max-papers",
@@ -254,7 +250,6 @@ def main() -> None:
 
         ref_ids = [r for r in ref_ids_raw.split("|") if r] if ref_ids_raw else []
 
-        # Collect neighbour paper data
         neighbour_papers = [papers[rid] for rid in ref_ids if rid in papers]
         if len(neighbour_papers) > args.max_papers:
             neighbour_papers = rng.sample(neighbour_papers, args.max_papers)
@@ -264,10 +259,12 @@ def main() -> None:
             f"({len(neighbour_papers)} neighbour papers)"
         )
 
-        prompt = build_retriever_message_prompt(user_query, neighbour_papers)
+        messages = build_messages(user_query, neighbour_papers)
 
         try:
-            reasoning, message = call_model(client, args.model, prompt, args.max_tokens)
+            reasoning, message = call_model(
+                client, args.model, messages, args.max_tokens
+            )
             print(
                 f"  reasoning: {len(reasoning)} chars | message: {len(message)} chars"
             )
