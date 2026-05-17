@@ -1,55 +1,38 @@
-from app.api_client.base import BaseAPIClient, Message
+from concurrent.futures import ThreadPoolExecutor
+from statistics import median
 
-from .base import BaseJudge, JudgeResponse, JudgeResult
+from openai import OpenAI
+
+from .base import BaseJudge, JudgeResult
 from .prompts import RELEVANCY_SYSTEM_PROMPT, RELEVANCY_USER_TEMPLATE
+
+NUM_JUDGES = 1
 
 
 class RelevancyJudge(BaseJudge):
-    """LLM judge that scores how relevant a hypothesis is to the user's query.
-
-    The judge checks how many of the concepts and inquiries expressed in
-    the original user query are addressed by the hypothesis.  It returns
-    a score on a 0–4 integer scale:
-
-        0 — hypothesis is not related at all to the user query
-        1 — hypothesis addresses some of the query's concepts/inquiries
-        2 — hypothesis addresses about half of the query's concepts/inquiries
-        3 — hypothesis addresses most of the query's concepts/inquiries
-        4 — hypothesis addresses all of the query's concepts/inquiries
-
-    Args:
-        api_client: Any :class:`BaseAPIClient` implementation (e.g.
-            ``GoogleAPIClient`` or ``RandomAPIClient``).
-    """
-
-    def __init__(self, api_client: BaseAPIClient) -> None:
-        super().__init__(api_client)
+    def __init__(
+        self, 
+        client: OpenAI, 
+        model: str = "gpt-5.4-mini", 
+        reasoning: dict = {"effort": "low"}, 
+        num_judges: int = NUM_JUDGES
+    ) -> None:
+        super().__init__(client, model, reasoning)
+        self.num_judges = num_judges
 
     def judge(self, hypothesis: str, query: str) -> JudgeResult:
-        """Evaluate the relevancy of *hypothesis* with respect to *query*.
+        user = RELEVANCY_USER_TEMPLATE.format(hypothesis=hypothesis, query=query)
 
-        Args:
-            hypothesis: A single hypothesis string to evaluate.
-            query: The original user query that initiated the pipeline run.
+        def _single_call(_: int) -> JudgeResult:
+            return self._call(system=RELEVANCY_SYSTEM_PROMPT, user=user)
 
-        Returns:
-            A :class:`JudgeResult` with ``score`` in ``[0, 4]``, a
-            ``reasoning`` string, and the ``model`` that produced the
-            judgment.
-        """
-        messages = [
-            Message(role="system", content=RELEVANCY_SYSTEM_PROMPT),
-            Message(
-                role="user",
-                content=RELEVANCY_USER_TEMPLATE.format(
-                    hypothesis=hypothesis,
-                    query=query,
-                ),
-            ),
-        ]
-        result = self.api_client.call(messages, response_schema=JudgeResponse)
+        with ThreadPoolExecutor(max_workers=self.num_judges) as executor:
+            results = list(executor.map(_single_call, range(self.num_judges)))
+
+        scores = [r.score for r in results]
+        final_score = int(median(scores))
+
         return JudgeResult(
-            score=result.content.score,
-            reasoning=result.content.reasoning,
-            model=result.model,
+            score=final_score,
+            model=self.model,
         )
