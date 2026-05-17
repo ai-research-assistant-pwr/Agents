@@ -1,15 +1,15 @@
 #!/bin/bash
 # =================================================
-# HET GROUP 0: Primary Training Node (2 GPUs)
+# HET GROUP 0: Primary Training Node (4 GPUs)
 # =================================================
 #SBATCH --job-name=grpo_qwen
 #SBATCH --output=/home/%u/disk/patryk/Agents/out/%x_%j.out
-#SBATCH --time=0-00:10:00
+#SBATCH --time=0-00:15:00
 #SBATCH -p lem-gpu-short
 #SBATCH -N 1
 #SBATCH -c 32
 #SBATCH --mem=128gb
-#SBATCH --gres=gpu:hopper:2
+#SBATCH --gres=gpu:hopper:4
 #SBATCH --ntasks-per-node=1
 
 #SBATCH hetjob
@@ -33,7 +33,7 @@ WEAVIATE_NODE_ID=$2
 # 2. Flexible Bash Variables (Defaults applied if not provided)
 MY_DISK="${MY_DISK:-/home/$USER/disk}"
 BASE_DIR="${BASE_DIR:-$MY_DISK/patryk/Agents}"
-TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-0.6B"}"
+TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-4B"}"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
 RERANK_MODEL="${RERANK_MODEL:-"Qwen/Qwen3-Reranker-0.6B"}"
 WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}" # Defaults to 'grpo_qwen'
@@ -84,7 +84,7 @@ EMBED_PORT=8000
 RERANK_PORT=8001
 
 echo "=> Job distributed across heterogeneous nodes:"
-echo "   Trainer Node (2 GPUs): $TRAIN_NODE"
+echo "   Trainer Node (4 GPUs): $TRAIN_NODE"
 echo "   Embedding Node (1 GPU): $EMBED_NODE"
 echo "   Train Model: $TRAIN_MODEL"
 echo "   Embed Model: $EMBED_MODEL"
@@ -187,18 +187,18 @@ srun --het-group=0 \
     --label_key "hypothesis" \
     --metadata_key "metadata" \
     --advantage_estimator "group_norm" \
-    --vllm_num_engines 2 \
+    --vllm_num_engines 4 \
     --vllm_tensor_parallel_size 1 \
-    --vllm_gpu_memory_utilization 0.6 \
+    --vllm_gpu_memory_utilization 0.4 \
     --colocate_all_models \
     --vllm_sync_backend nccl \
     --enforce_eager \
     --vllm_enable_sleep \
     --deepspeed_enable_sleep \
     --actor_num_nodes 1 \
-    --actor_num_gpus_per_node 2 \
+    --actor_num_gpus_per_node 4 \
     --ref_num_nodes 1 \
-    --ref_num_gpus_per_node 2 \
+    --ref_num_gpus_per_node 4 \
     --lr_scheduler constant \
     --actor_learning_rate 5e-7 \
     --use_kl_loss \
@@ -209,9 +209,10 @@ srun --het-group=0 \
     --n_samples_per_prompt 16 \
     --num_episodes 1 \
     --max_epochs 1 \
-    --prompt_max_len 8096 \
-    --generate_max_len 2048 \
-    --zero_stage 2 \
+    --prompt_max_len 4000 \
+    --generate_max_len 3000 \
+    --eval_generate_max_len 3000 \
+    --zero_stage 3 \
     --bf16 \
     --gradient_checkpointing \
     --packing_samples \
