@@ -139,7 +139,7 @@ async def _get_rerank_scores(
     documents: List[str],
     server_host: str,
     server_port: int,
-    model: str = "Qwen/Qwen3-Reranker-4B",
+    model: str = "Qwen/Qwen3-Reranker-0.6B",
 ) -> List[float]:
     """Call the vLLM /v1/rerank endpoint with Qwen3-Reranker prompt formatting.
 
@@ -194,7 +194,7 @@ async def groundedness_reward(
     papers: List[Dict[str, Any]],
     rerank_host: str,
     rerank_port: int,
-    model: str = "Qwen/Qwen3-Reranker-4B",
+    model: str = "Qwen/Qwen3-Reranker-0.6B",
 ) -> float:
     """Compute groundedness of hypotheses against retrieved papers.
 
@@ -242,7 +242,7 @@ async def relevancy_reward(
     query: str,
     rerank_host: str,
     rerank_port: int,
-    model: str = "Qwen/Qwen3-Reranker-4B",
+    model: str = "Qwen/Qwen3-Reranker-0.6B",
 ) -> float:
     """Compute relevancy of hypotheses to the original research query.
 
