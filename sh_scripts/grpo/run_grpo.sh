@@ -131,7 +131,7 @@ srun --het-group=1 --overlap \
         --host 0.0.0.0 \
         --port $RERANK_PORT \
         --gpu-memory-utilization 0.4 \
-        --hf_overrides '{"architectures": ["Qwen3ForSequenceClassification"],"classifier_from_token": ["no", "yes"],"is_original_qwen3_reranker": true}' &
+        --hf-overrides '{"architectures": ["Qwen3ForSequenceClassification"],"classifier_from_token": ["no", "yes"],"is_original_qwen3_reranker": true}' &
 VLLM_RERANK_PID=$!
 
 echo "=> Waiting for vLLM reranker server to become ready..."
