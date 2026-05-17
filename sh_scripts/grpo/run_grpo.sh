@@ -210,8 +210,8 @@ srun --het-group=0 \
     --num_episodes 1 \
     --max_epochs 1 \
     --prompt_max_len 4000 \
-    --generate_max_len 2048 \
-    --eval_generate_max_len 2048 \
+    --generate_max_len 3000 \
+    --eval_generate_max_len 3000 \
     --zero_stage 3 \
     --bf16 \
     --gradient_checkpointing \
