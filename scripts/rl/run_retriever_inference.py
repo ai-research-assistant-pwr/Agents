@@ -188,12 +188,12 @@ def main() -> None:
         "--max-tokens",
         type=int,
         default=4096,
-        help="Maximum tokens to generate (default: 8192).",
+        help="Maximum tokens to generate (default: 4096).",
     )
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
+        default=8,
         help="Number of parallel inference threads (default: 8).",
     )
     parser.add_argument(
