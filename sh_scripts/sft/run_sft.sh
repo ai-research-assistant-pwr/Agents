@@ -33,6 +33,8 @@ module load Python/3.12.3-GCCcore-13.3.0
 source "$VENV_PATH/bin/activate"
 VENV_PYTHON="$VENV_PATH/bin/python"
 
+$VENV_PYTHON -m pip install trl peft datasets pandas
+
 export WANDB_DIR="$AGENTS_DIR/wandb"
 mkdir -p "$WANDB_DIR"
 
