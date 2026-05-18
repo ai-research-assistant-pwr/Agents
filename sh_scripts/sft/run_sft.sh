@@ -5,9 +5,14 @@
 #SBATCH --mem=64gb
 #SBATCH --time=0-04:00:00
 #SBATCH --job-name=sft_shared
-#SBATCH --output=Agents/out/sft_shared.out
+#SBATCH --output=Agents/out/%x_%j.out
 #SBATCH -p lem-gpu-short
 #SBATCH --gres=gpu:hopper:1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Usage:
+#   sbatch run_sft.sh YOUR_WANDB_API_KEY
+# ─────────────────────────────────────────────────────────────────────────────
 
 WANDB_API_KEY=$1
 
@@ -17,38 +22,28 @@ if [ -z "$WANDB_API_KEY" ]; then
     exit 1
 fi
 
-source /usr/local/sbin/modules.sh
-module load Python/3.12.3-GCCcore-13.3.0
-source /home/tymrom7227/disk/venvs/pnw-2/bin/activate
-VENV_PYTHON="/home/tymrom7227/disk/venvs/pnw-2/bin/python"
-
-echo "================================================="
-echo "APPLYING TEMPORARY ENVIRONMENT FIXES (pnw-2)"
-echo "================================================="
-# 1. Usuwamy zepsute torchao, żeby transformers o nie nie "haczyło"
-$VENV_PYTHON -m pip uninstall -y torchao
-
-# 2. Wymuszamy stabilną wersję PyTorch 2.5.1 zamiast wadliwego 2.6.0
-$VENV_PYTHON -m pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
-
-# 3. Aktualizujemy główne pakiety do modelowania
-$VENV_PYTHON -m pip install --upgrade transformers peft trl accelerate
-echo "================================================="
-
-MY_DISK="/home/tymrom7227/disk"
+MY_DISK="$SLURM_SUBMIT_DIR"
 AGENTS_DIR="$MY_DISK/Agents"
+VENV_PATH="$AGENTS_DIR/venv"
+
+source /usr/local/sbin/modules.sh
+module load CUDA/12.8.0
+module load Python/3.12.3-GCCcore-13.3.0
+
+source "$VENV_PATH/bin/activate"
+VENV_PYTHON="$VENV_PATH/bin/python"
 
 export WANDB_DIR="$AGENTS_DIR/wandb"
 mkdir -p "$WANDB_DIR"
 
 export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
 
-GET_CONFIG="$VENV_PYTHON $AGENTS_DIR/src/sft/utils/config.py"
-MY_DISK=$($GET_CONFIG paths.base_path)
-
-export XDG_CACHE_HOME=$MY_DISK/.cache
-export HF_HOME=$MY_DISK/.cache/hf
-export TORCHINDUCTOR_CACHE_DIR=$MY_DISK/.cache/torch_inductor
+export MY_NEW_TMP="$MY_DISK/tmp"
+export XDG_CACHE_HOME="$MY_NEW_TMP/xdg_cache"
+export HF_HOME="$MY_NEW_TMP/hf_cache"
+export TRITON_CACHE_DIR="$MY_NEW_TMP/triton_cache"
+export TORCHINDUCTOR_CACHE_DIR="$MY_NEW_TMP/torchinductor_cache"
+mkdir -p "$MY_NEW_TMP" "$XDG_CACHE_HOME" "$HF_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 
 export WANDB_API_KEY=$WANDB_API_KEY
 export WANDB_MODE="online"
@@ -58,20 +53,47 @@ echo "================================================="
 echo "VERIFYING PATHS FOR SHARED AGENT TRAINING"
 echo "================================================="
 
-SHARED_DATASET="$AGENTS_DIR/data/datasets/sft3/shared_agent_train.jsonl"
+# Dataset directory
+SFTMOD_DIR="$AGENTS_DIR/data/datasets/sft_mod"
+TRAIN_DATASET="$SFTMOD_DIR/shared_agent_train.jsonl"
+EVAL_DATASET="$SFTMOD_DIR/shared_agent_eval.jsonl"
 
-if [ ! -f "$SHARED_DATASET" ]; then
-    echo "CRITICAL ERROR: Shared dataset not found at $SHARED_DATASET"
-    echo "Please run 'python prepare_dataset.py' first."
+if [ ! -f "$TRAIN_DATASET" ]; then
+    echo "CRITICAL ERROR: Training dataset not found at $TRAIN_DATASET"
+    echo ""
+    echo "Run prepare_dataset.py first:"
+    echo "  python $AGENTS_DIR/src/sft/sft_train/prepare_dataset.py"
+    echo ""
+    echo "Input CSVs expected at:"
+    echo "  $AGENTS_DIR/data/datasets/rl_retriever_outputs.csv"
+    echo "  $AGENTS_DIR/data/datasets/rl_generator_outputs_no_mask.csv"
+    echo "  $AGENTS_DIR/data/datasets/rl_generator_outputs_mask.csv  (optional)"
     exit 1
 fi
 
+echo "Train dataset:  $TRAIN_DATASET  [FOUND]"
+
+if [ -f "$EVAL_DATASET" ]; then
+    echo "Eval dataset:   $EVAL_DATASET  [FOUND]"
+else
+    echo "Eval dataset:   $EVAL_DATASET  [NOT FOUND — training without eval]"
+fi
+
 echo "================================================="
-echo "Starting UNIFIED SFT training (Shared Model)..."
+echo "Starting UNIFIED SFT training (Shared LoRA) ..."
 echo "================================================="
 
-$VENV_PYTHON $AGENTS_DIR/src/sft/sft_train/run_sft.py --task shared_agent
+$VENV_PYTHON "$AGENTS_DIR/src/sft/sft_train/run_sft.py" --task shared_agent
 
-echo "====================================="
-echo "Unified SFT Training completed successfully!"
-echo "====================================="
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "====================================="
+    echo "SFT Training completed successfully."
+    echo "====================================="
+else
+    echo "====================================="
+    echo "SFT Training FAILED (exit code $EXIT_CODE)."
+    echo "====================================="
+    exit $EXIT_CODE
+fi
