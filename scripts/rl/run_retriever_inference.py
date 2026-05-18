@@ -193,8 +193,8 @@ def main() -> None:
     parser.add_argument(
         "--workers",
         type=int,
-        default=8,
-        help="Number of parallel inference threads (default: 8).",
+        default=64,
+        help="Number of parallel inference threads (default: 64).",
     )
     parser.add_argument(
         "--n",
