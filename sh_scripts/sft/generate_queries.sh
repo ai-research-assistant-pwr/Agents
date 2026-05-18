@@ -3,9 +3,9 @@
 #SBATCH -N 1    # CPU nodes
 #SBATCH -c 4    # number of CPU cores
 #SBATCH --mem=64gb
-#SBATCH --time=0-00:10:00    # format dd-hh:mm:ss np. 1-12:30:15
-#SBATCH --job-name=gen_hypotheses
-#SBATCH --output=out/gen_hypotheses.out
+#SBATCH --time=0-00:15:00    # format dd-hh:mm:ss np. 1-12:30:15
+#SBATCH --job-name=gen_queries
+#SBATCH --output=out/gen_queries.out
 #SBATCH -p lem-gpu-normal    # partition
 #SBATCH --gres=gpu:hopper:2 
 
@@ -22,7 +22,7 @@ export TORCHINDUCTOR_CACHE_DIR="$MY_NEW_TMP/torchinductor_cache"
 vllm serve Qwen/Qwen3-32B \
     --port 8000 \
     --tensor-parallel-size 2 \
-    --max-model-len 8192 \
+    --max-model-len 11000 \
     --reasoning-parser qwen3 \
     --host 0.0.0.0 &
 
@@ -36,6 +36,6 @@ done
 echo "vLLM is ready!"
 
 echo "Running retriever inference..."
-python scripts/rl/run_retriever_inference.py --n 5
+python scripts/rl/run_retriever_inference.py --n 10
 
 kill $VLLM_PID
