@@ -30,6 +30,7 @@ Usage:
 
 import argparse
 import csv
+import json
 import random
 import sys
 import threading
@@ -234,6 +235,7 @@ def main() -> None:
         "paper_title",
         "user_query",
         "referenced_paper_ids",
+        "input_messages",
         "reasoning",
         "retriever_message",
     ]
@@ -277,6 +279,7 @@ def main() -> None:
             "paper_title": paper_title,
             "user_query": user_query,
             "referenced_paper_ids": ref_ids_raw,
+            "input_messages": json.dumps(messages, ensure_ascii=False),
             "reasoning": reasoning,
             "retriever_message": message,
         }
