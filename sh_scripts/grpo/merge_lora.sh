@@ -17,8 +17,6 @@ MY_DISK="$SLURM_SUBMIT_DIR"
 AGENTS_DIR="$MY_DISK/Agents"
 VENV_PATH="$AGENTS_DIR/venv"
 
-PYTHON_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/merge_lora.py"
-
 if [ ! -f "$PYTHON_SCRIPT" ]; then
     echo "CRITICAL ERROR: Python script not found at $PYTHON_SCRIPT"
     exit 1
