@@ -19,6 +19,8 @@ VENV_PATH="$AGENTS_DIR/venv"
 
 PYTHON_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/merge_lora.py"
 
+$VENV_PYTHON -m pip kernels
+
 if [ ! -f "$PYTHON_SCRIPT" ]; then
     echo "CRITICAL ERROR: Python script not found at $PYTHON_SCRIPT"
     exit 1
