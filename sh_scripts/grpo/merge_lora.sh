@@ -1,47 +1,61 @@
 #!/bin/bash
-# =================================================
-# Fuzja wag SFT LoRA z modelem bazowym Qwen3-4B
-# =================================================
-#SBATCH --job-name=merge_sft_lora
-#SBATCH --output=Agents/out/merge_lora_%j.out
-#SBATCH --time=0-00:20:00
-#SBATCH -p lem-cpu-short
+
 #SBATCH -N 1
 #SBATCH -c 8
 #SBATCH --mem=64gb
+#SBATCH --time=0-00:20:00
+#SBATCH --job-name=merge_lora
+#SBATCH --output=Agents/out/%x_%j.out
+#SBATCH -p lem-cpu-short
 
-set -e
+# ─────────────────────────────────────────────────────────────────────────────
+# Usage:
+#   sbatch merge_lora.sh
+# ─────────────────────────────────────────────────────────────────────────────
 
-# 1. Ścieżki - BASE_DIR to główny folder projektu
 MY_DISK="$SLURM_SUBMIT_DIR"
-BASE_DIR="$MY_DISK/Agents"
-VENV_PATH="$BASE_DIR/venv"
+AGENTS_DIR="$MY_DISK/Agents"
+VENV_PATH="$AGENTS_DIR/venv"
 
-# Ścieżka do skryptu pythonowego (załóżmy, że zapiszesz merge_lora.py bezpośrednio w folderze Agents)
-PYTHON_SCRIPT="$BASE_DIR/merge_lora.py"
+PYTHON_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/merge_lora.py"
 
-# 2. Ładowanie modułów
+if [ ! -f "$PYTHON_SCRIPT" ]; then
+    echo "CRITICAL ERROR: Python script not found at $PYTHON_SCRIPT"
+    exit 1
+fi
+
 source /usr/local/sbin/modules.sh
 module load CUDA/12.8.0
 module load Python/3.12.3-GCCcore-13.3.0
 
-# 3. Aktywacja środowiska
 source "$VENV_PATH/bin/activate"
+VENV_PYTHON="$VENV_PATH/bin/python"
 
-# Zabezpieczenie ścieżek cache dla HuggingFace (ochrona przed limitami na /home)
+export PYTHONPATH="$AGENTS_DIR:$PYTHONPATH"
+
 export MY_NEW_TMP="$MY_DISK/tmp"
+export XDG_CACHE_HOME="$MY_NEW_TMP/xdg_cache"
 export HF_HOME="$MY_NEW_TMP/hf_cache"
-mkdir -p "$HF_HOME"
-
-# 4. Uruchomienie skryptu
-echo "================================================="
-echo "=> Startowanie procesu fuzji wag (Merge LoRA)..."
-echo "=> Skrypt Pythona: $PYTHON_SCRIPT"
-echo "================================================="
-
-python "$PYTHON_SCRIPT"
+export TRITON_CACHE_DIR="$MY_NEW_TMP/triton_cache"
+export TORCHINDUCTOR_CACHE_DIR="$MY_NEW_TMP/torchinductor_cache"
+mkdir -p "$MY_NEW_TMP" "$XDG_CACHE_HOME" "$HF_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 
 echo "================================================="
-echo "=> Sukces! Adapter SFT został wtopiony w model bazowy."
-echo "=> Nowy model czeka pod ścieżką zdefiniowaną w output_path."
+echo "Starting LoRA Merge (SFT -> Base Model) ..."
+echo "Executing: $PYTHON_SCRIPT"
 echo "================================================="
+
+$VENV_PYTHON "$PYTHON_SCRIPT"
+
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "====================================="
+    echo "LoRA Merge completed successfully."
+    echo "====================================="
+else
+    echo "====================================="
+    echo "LoRA Merge FAILED (exit code $EXIT_CODE)."
+    echo "====================================="
+    exit $EXIT_CODE
+fi
