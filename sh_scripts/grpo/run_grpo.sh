@@ -158,22 +158,35 @@ DEFAULT_AGENT="{
     \"is_reasoning_model\": true
 }"
 
-AGENTS_CONFIG="{
-    \"0\": {
-        \"agent_id\": \"retriever_agent\",
-        \"role\": \"retriever\",
-        \"pretrain\": \"$TRAIN_MODEL\",
-        \"is_tuning\": true,
-        \"is_reasoning_model\": true
-    },
-    \"1\": {
-        \"agent_id\": \"generator_agent\",
-        \"role\": \"generator\",
-        \"pretrain\": \"$TRAIN_MODEL\",
-        \"is_tuning\": true,
-        \"is_reasoning_model\": true
+# For the shared-model baseline (Baseline B) swap AGENTS_CONFIG for:
+AGENTS_CONFIG='{
+    "0": {
+        "agent_id": "shared_agent",
+        "role": "generator",
+        "pretrain": "'"$TRAIN_MODEL"'",
+        "is_tuning": true,
+        "is_reasoning_model": true
     }
-}"
+}'
+# and add a second entry with role "generator" pointing to the same pretrain.
+# Both will share weights — equivalent to the previous single-agent setup. 
+
+# AGENTS_CONFIG="{
+#     \"0\": {
+#         \"agent_id\": \"retriever_agent\",
+#         \"role\": \"retriever\",
+#         \"pretrain\": \"$TRAIN_MODEL\",
+#         \"is_tuning\": true,
+#         \"is_reasoning_model\": true
+#     },
+#     \"1\": {
+#         \"agent_id\": \"generator_agent\",
+#         \"role\": \"generator\",
+#         \"pretrain\": \"$TRAIN_MODEL\",
+#         \"is_tuning\": true,
+#         \"is_reasoning_model\": true
+#     }
+# }"
 
 echo "=> Running MARTI GRPO training (Workflow Mode)..."
 
@@ -182,7 +195,6 @@ srun --het-group=0 \
     --pretrain "$TRAIN_MODEL" \
     --save_path "$OUTPUT_DIR" \
     --agents "$AGENTS_CONFIG" \
-    --shared_agents \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$TRAIN_DATA_PATH" \
     --eval_dataset "$EVAL_DATA_PATH" \
