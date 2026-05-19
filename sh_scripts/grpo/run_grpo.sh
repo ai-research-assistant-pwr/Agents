@@ -182,6 +182,7 @@ srun --het-group=0 \
     --pretrain "$TRAIN_MODEL" \
     --save_path "$OUTPUT_DIR" \
     --agents "$AGENTS_CONFIG" \
+    --shared_agents \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$TRAIN_DATA_PATH" \
     --eval_dataset "$EVAL_DATA_PATH" \
