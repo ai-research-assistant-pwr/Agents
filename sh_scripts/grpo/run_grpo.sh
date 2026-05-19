@@ -1,6 +1,6 @@
 #!/bin/bash
 # =================================================
-# HET GROUP 0: Primary Training Node (2 GPUs)
+# HET GROUP 0: Primary Training Node (4 GPUs)
 # =================================================
 #SBATCH --job-name=grpo_qwen
 #SBATCH --output=Agents/out/%x_%j.out
@@ -9,7 +9,7 @@
 #SBATCH -N 1
 #SBATCH -c 32
 #SBATCH --mem=128gb
-#SBATCH --gres=gpu:hopper:2
+#SBATCH --gres=gpu:hopper:4
 #SBATCH --ntasks-per-node=1
 
 #SBATCH hetjob
@@ -34,7 +34,7 @@ WEAVIATE_NODE_ID=$2
 MY_DISK="$SLURM_SUBMIT_DIR"
 BASE_DIR="$MY_DISK/Agents"
 
-TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-0.6B"}"
+TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-4B"}"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
 RERANK_MODEL="${RERANK_MODEL:-"Qwen/Qwen3-Reranker-0.6B"}"
 WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}"
@@ -95,7 +95,7 @@ EMBED_PORT=8000
 RERANK_PORT=8001
 
 echo "=> Job distributed across heterogeneous nodes:"
-echo "   Trainer Node (2 GPUs): $TRAIN_NODE"
+echo "   Trainer Node (4 GPUs): $TRAIN_NODE"
 echo "   Embedding Node (1 GPU): $EMBED_NODE"
 echo "   Train Model: $TRAIN_MODEL"
 echo "   Embed Model: $EMBED_MODEL"
@@ -158,11 +158,17 @@ DEFAULT_AGENT="{
     \"is_reasoning_model\": true
 }"
 
-AGENT0="{
+AGENTS_CONFIG="{
     \"0\": {
-        \"agent_id\": \"shared_agent\",
+        \"agent_id\": \"retriever_agent\",
+        \"role\": \"retriever\",
+        \"pretrain\": \"$TRAIN_MODEL\",
+        \"is_tuning\": true,
+        \"is_reasoning_model\": true
+    },
+    \"1\": {
+        \"agent_id\": \"generator_agent\",
         \"role\": \"generator\",
-        \"agent_role\": \"generator\",
         \"pretrain\": \"$TRAIN_MODEL\",
         \"is_tuning\": true,
         \"is_reasoning_model\": true
@@ -175,7 +181,7 @@ srun --het-group=0 \
     $VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --pretrain "$TRAIN_MODEL" \
     --save_path "$OUTPUT_DIR" \
-    --agents "$AGENT0" \
+    --agents "$AGENTS_CONFIG" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$TRAIN_DATA_PATH" \
     --eval_dataset "$EVAL_DATA_PATH" \
@@ -188,31 +194,32 @@ srun --het-group=0 \
     --label_key "hypothesis" \
     --metadata_key "metadata" \
     --advantage_estimator "group_norm" \
-    --vllm_num_engines 2 \
+    --vllm_num_engines 4 \
     --vllm_tensor_parallel_size 1 \
-    --vllm_gpu_memory_utilization 0.7 \
+    --vllm_gpu_memory_utilization 0.4 \
     --colocate_all_models \
     --vllm_sync_backend nccl \
     --enforce_eager \
     --vllm_enable_sleep \
     --deepspeed_enable_sleep \
     --actor_num_nodes 1 \
-    --actor_num_gpus_per_node 2 \
+    --actor_num_gpus_per_node 4 \
     --ref_num_nodes 1 \
-    --ref_num_gpus_per_node 2 \
+    --ref_num_gpus_per_node 4 \
     --lr_scheduler constant \
     --actor_learning_rate 5e-7 \
     --use_kl_loss \
     --init_kl_coef 0.05 \
     --train_batch_size "$BATCH_SIZE" \
-    --micro_train_batch_size 4 \
+    --micro_train_batch_size 1 \
     --rollout_batch_size "$ROLLOUT_SIZE" \
-    --n_samples_per_prompt 8 \
+    --n_samples_per_prompt 16 \
     --num_episodes 1 \
     --max_epochs 1 \
-    --prompt_max_len 4096 \
-    --generate_max_len 1024 \
-    --zero_stage 2 \
+    --prompt_max_len 4000 \
+    --generate_max_len 3000 \
+    --eval_generate_max_len 3000 \
+    --zero_stage 3 \
     --bf16 \
     --gradient_checkpointing \
     --packing_samples \
@@ -226,7 +233,7 @@ srun --het-group=0 \
 echo "=> Training completed successfully!"
 
 # Stop background processes
-kill "$NVIDIA_SMI_PID" 2>/dev/null
-kill "$VLLM_EMBED_PID" 2>/dev/null
-kill "$VLLM_RERANK_PID" 2>/dev/null
+kill "$NVIDIA_SMI_PID" 2>/dev/null || true
+kill "$VLLM_EMBED_PID" 2>/dev/null || true
+kill "$VLLM_RERANK_PID" 2>/dev/null || true
 echo "=> Background logging and vLLM processes stopped."
