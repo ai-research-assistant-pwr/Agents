@@ -27,10 +27,10 @@ import argparse
 import json
 import os
 import sys
+import types as _types
 from pathlib import Path
 
-import types as _types
-
+import numpy as np
 from dotenv import load_dotenv
 
 # Resolve project root and add src/ to sys.path
@@ -51,9 +51,15 @@ sys.modules.setdefault("weaviate", _weaviate)
 sys.modules.setdefault("weaviate.classes", _weaviate_classes)
 sys.modules.setdefault("weaviate.classes.query", _weaviate_classes_query)
 
+from weaviate.collections.classes.filters import Filter
+
 from app.api_client.base import BaseAPIClient
 from app.api_client.google_client import GoogleAPIClient
 from app.api_client.openai_client import OpenAIAPIClient
+from app.explorer.tools.weaviate_tools import (
+    _get_weaviate_client,
+    _load_embedding_model,
+)
 from hypotheses_evaluation import (
     ClarityJudge,
     GroundednessJudge,
@@ -98,14 +104,14 @@ def _find_latest_run(outputs_dir: Path) -> Path:
 def _find_last_retriever_file(run_dir: Path) -> Path:
     """Return the last retriever output file in the run directory.
 
-    Handles both the plain ``02_retriever.json`` and any
-    ``03_retriever_refinement_turn_N.json`` files produced by the
+    Handles both the plain ``03_retriever.json`` and any
+    ``04_retriever_refinement_turn_N.json`` files produced by the
     refinement loop, always returning the one that feeds the generator.
     """
-    refinement_files = sorted(run_dir.glob("03_retriever_refinement_turn_*.json"))
+    refinement_files = sorted(run_dir.glob("04_retriever_refinement_turn_*.json"))
     if refinement_files:
         return refinement_files[-1]
-    plain = run_dir / "02_retriever.json"
+    plain = run_dir / "03_retriever.json"
     if plain.exists():
         return plain
     raise FileNotFoundError(f"No retriever output file found in {run_dir}")
@@ -159,7 +165,76 @@ def _print_score_row(label: str, result: JudgeResult, max_score: int) -> None:
         print(f"{indent}{ln}")
 
 
-def _print_summary(all_scores: list[dict]) -> None:
+def _calculate_diversity(hypotheses: list[str]) -> float:
+    if len(hypotheses) < 2:
+        return 0.0
+
+    model = _load_embedding_model()
+    embeddings = model.embed(hypotheses)
+    embeddings = np.array([e.outputs.embedding for e in embeddings])
+
+    embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+
+    similarity_matrix = embeddings @ embeddings.T
+
+    n = len(hypotheses)
+    diversities = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            diversities.append(1 - similarity_matrix[i, j])
+
+    return np.mean(diversities) if diversities else 0.0
+
+
+def _get_existing_hypotheses(paper_ids: list[str]) -> list[str]:
+    if not paper_ids:
+        return []
+
+    weaviate_client = _get_weaviate_client()
+    collection = weaviate_client.collections.get("ResearchPapers")
+
+    type_filter = Filter.by_property("type").equal("HYPOTHESIS")
+    paper_filter = Filter.by_property("paperId").contains_any(paper_ids)
+    combined_filter = type_filter & paper_filter
+
+    response = collection.query.fetch_objects(
+        filters=combined_filter,
+        limit=1000,
+        return_properties=["content"],
+    )
+
+    return [obj.properties.get("content", "") for obj in response.objects]
+
+
+def _calculate_novelty(
+    generated_hypotheses: list[str], existing_hypotheses: list[str]
+) -> float:
+    if not generated_hypotheses or not existing_hypotheses:
+        return 0.0
+
+    model = _load_embedding_model()
+
+    generated_embeddings = model.embed(generated_hypotheses)
+    generated_embeddings = np.array([e.outputs.embedding for e in generated_embeddings])
+    generated_embeddings = generated_embeddings / np.linalg.norm(
+        generated_embeddings, axis=1, keepdims=True
+    )
+
+    existing_embeddings = model.embed(existing_hypotheses)
+    existing_embeddings = np.array([e.outputs.embedding for e in existing_embeddings])
+    existing_embeddings = existing_embeddings / np.linalg.norm(
+        existing_embeddings, axis=1, keepdims=True
+    )
+
+    similarities = []
+    for gen_emb in generated_embeddings:
+        for exist_emb in existing_embeddings:
+            similarities.append(1 - np.dot(gen_emb, exist_emb))
+
+    return np.mean(similarities) if similarities else 0.0
+
+
+def _print_summary(all_scores: list[dict], diversity: float, novelty: float) -> None:
     """Print a compact summary table of mean scores across all hypotheses."""
     if not all_scores:
         return
@@ -187,6 +262,8 @@ def _print_summary(all_scores: list[dict]) -> None:
         mx = max_scores[m]
         means_row += f"  {mean:.2f}/{mx}{'':>7}"
     print(means_row)
+    print(f"  {'Diversity':<14}  {diversity:.2f}/1.00")
+    print(f"  {'Novelty':<14}  {novelty:.2f}/1.00")
     _print_rule("=")
 
 
@@ -197,7 +274,7 @@ def _print_summary(all_scores: list[dict]) -> None:
 
 def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     # --- Load pipeline artifacts ---
-    explorer_data = _load_json(run_dir / "01_explorer.json")
+    explorer_data = _load_json(run_dir / "02_explorer.json")
     retriever_path = _find_last_retriever_file(run_dir)
     retriever_data = _load_json(retriever_path)
     generator_path = run_dir / "04_generator.json"
@@ -210,6 +287,8 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     query: str = explorer_data["metadata"]["prompt"]
     evidence: str = retriever_data["content"]
     hypotheses: list[str] = generator_data["hypotheses"]
+    explorer_metadata = explorer_data.get("metadata", {})
+    paper_ids = [p.get("id") for p in explorer_metadata.get("papers", [])]
 
     # --- Summarise what we loaded ---
     _print_rule("=")
@@ -254,7 +333,10 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
         )
 
     print()
-    _print_summary(all_scores)
+    diversity = _calculate_diversity(hypotheses)
+    existing_hypotheses = _get_existing_hypotheses(paper_ids)
+    novelty = _calculate_novelty(hypotheses, existing_hypotheses)
+    _print_summary(all_scores, diversity, novelty)
 
 
 # ---------------------------------------------------------------------------
