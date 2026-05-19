@@ -160,15 +160,17 @@ DEFAULT_AGENT="{
 }"
 
 # For the shared-model baseline (Baseline B) swap AGENTS_CONFIG for:
-AGENTS_CONFIG='{
-    "0": {
-        "agent_id": "shared_agent",
-        "role": "generator",
-        "pretrain": "'"$TRAIN_MODEL"'",
-        "is_tuning": true,
-        "is_reasoning_model": true
+AGENT0="{
+    \"0\": {
+        \"agent_id\": \"shared_agent\",
+        \"role\": \"generator\",
+        \"agent_role\": \"generator\",
+        \"pretrain\": \"$TRAIN_MODEL\",
+        \"is_tuning\": true,
+        \"is_reasoning_model\": true
     }
-}'
+}"
+
 # and add a second entry with role "generator" pointing to the same pretrain.
 # Both will share weights — equivalent to the previous single-agent setup. 
 
@@ -195,7 +197,7 @@ srun --het-group=0 \
     $VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --pretrain "$TRAIN_MODEL" \
     --save_path "$OUTPUT_DIR" \
-    --agents "$AGENTS_CONFIG" \
+    --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
     --prompt_data "$TRAIN_DATA_PATH" \
     --eval_dataset "$EVAL_DATA_PATH" \

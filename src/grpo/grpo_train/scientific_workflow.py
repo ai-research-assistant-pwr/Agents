@@ -19,18 +19,6 @@ to output only the relevant content for its step.  The final reward
 (embedding similarity + diversity + groundedness + relevancy) is computed on
 the parsed hypotheses and propagated back to all trajectory records.
 
-Agent routing
--------------
-The workflow expects agents to be passed with a ``role`` field set to either
-``"retriever"`` or ``"generator"``.  Routing is done via ``state.current_agent``
-(not by string-matching step names) so it stays correct even if step names
-change in the future.
-
-Two-agent mode (independent circuits, EAP-compatible):
-  AGENTS_CONFIG contains two entries with distinct agent_id values.
-  Each agent accumulates its own gradient history and, after training,
-  can be used independently for Attribution Patching / EAP analysis.
-
 kwargs (via --workflow_args JSON)
 ---------------------------------
   embed_host             – hostname of the vLLM embedding server  (default: "localhost")
@@ -74,17 +62,6 @@ from src.grpo.grpo_train.turns import execute_turn
 logger = init_logger(__name__)
 logger.setLevel("WARN")
 
-# ── valid agent roles ─────────────────────────────────────────────────────────
-# Centralised so that routing logic and error messages stay in sync.
-_RETRIEVER_ROLE = "retriever"
-_GENERATOR_ROLE = "generator"
-_VALID_ROLES    = {_RETRIEVER_ROLE, _GENERATOR_ROLE}
-
-# Steps that belong to the retriever agent.  Everything else goes to generator.
-# Using an explicit set rather than substring matching so renames never silently
-# misroute a step.
-_RETRIEVER_STEPS = {"retriever_search", "retriever_message"}
-
 
 # ── paper-context helper ──────────────────────────────────────────────────────
 
@@ -93,95 +70,10 @@ def _format_papers(papers: List[Dict[str, str]], max_papers: int = 8) -> str:
     selected = papers[:max_papers]
     lines = []
     for i, p in enumerate(selected, 1):
-        title   = p.get("title",   "Unknown title")
+        title = p.get("title", "Unknown title")
         summary = p.get("summary", p.get("abstract", "No summary available."))
         lines.append(f"[Paper {i}] {title}\n{summary.strip()}")
     return "\n\n".join(lines)
-
-
-# ── agent-dict builder ────────────────────────────────────────────────────────
-
-
-def _build_agent_dict(
-    agents: List[Dict[str, Any]],
-    stop_tokens: List[str],
-) -> Dict[str, Dict[str, Any]]:
-    """
-    Build a role → agent mapping and validate that both required roles are
-    present.
-
-    Each agent entry must have a ``role`` field set to ``"retriever"`` or
-    ``"generator"``.  If an agent's ``sampling_params`` supports a ``stop``
-    attribute it is set here so we do not repeat the logic in the loop.
-
-    Raises
-    ------
-    ValueError
-        If a required role is missing or an unknown role is encountered.
-    """
-    agent_dict: Dict[str, Dict[str, Any]] = {}
-
-    for a in agents:
-        role = a.get("role")
-        if role not in _VALID_ROLES:
-            raise ValueError(
-                f"Agent '{a.get('agent_id', '<unknown>')}' has role={role!r}. "
-                f"Expected one of {sorted(_VALID_ROLES)}."
-            )
-        if role in agent_dict:
-            raise ValueError(
-                f"Duplicate agent role {role!r}. "
-                "Each role must be assigned to exactly one agent."
-            )
-
-        sp = a["sampling_params"]
-        if hasattr(sp, "stop"):
-            sp.stop = stop_tokens
-        elif isinstance(sp, dict):
-            sp["stop"] = stop_tokens
-
-        agent_dict[role] = a
-
-    missing = _VALID_ROLES - set(agent_dict)
-    if missing:
-        raise ValueError(
-            f"Missing agent(s) for role(s): {sorted(missing)}. "
-            "Both 'retriever' and 'generator' agents must be provided."
-        )
-
-    return agent_dict
-
-
-def _route_agent(
-    state: TrajectoryState,
-    agent_dict: Dict[str, Dict[str, Any]],
-) -> Dict[str, Any]:
-    """
-    Return the agent that should execute the current trajectory step.
-
-    Routing is based on ``state.current_step`` matched against the explicit
-    ``_RETRIEVER_STEPS`` set — not substring matching — so future step-name
-    changes do not silently misroute.
-
-    Falls back to ``state.current_agent`` if it is set and the step is not in
-    the retriever set (defensive: handles any step added later that does not
-    follow the retriever_*/generator_* naming convention).
-    """
-    step = state.current_step
-
-    if step in _RETRIEVER_STEPS:
-        role = _RETRIEVER_ROLE
-    else:
-        # Prefer explicit field over heuristic when available
-        role = getattr(state, "current_agent", None) or _GENERATOR_ROLE
-
-    agent = agent_dict.get(role)
-    if agent is None:
-        raise RuntimeError(
-            f"No agent registered for role {role!r} at step {step!r}. "
-            f"Available roles: {list(agent_dict.keys())}"
-        )
-    return agent
 
 
 # ── debug helper ──────────────────────────────────────────────────────────────
@@ -198,18 +90,18 @@ def _write_debug_log(
     ec_stats: Dict[str, Any],
 ) -> None:
     os.makedirs(debug_dir, exist_ok=True)
-    ts_ms   = int(time.time() * 1000)
-    uid     = uuid.uuid4().hex[:8]
-    path    = os.path.join(debug_dir, f"traj_{ts_ms}_{uid}.json")
+    ts_ms = int(time.time() * 1000)
+    uid = uuid.uuid4().hex[:8]
+    path = os.path.join(debug_dir, f"traj_{ts_ms}_{uid}.json")
     tmp_path = path + ".tmp"
     payload = {
-        "prompt_id":    prompt_id,
-        "prompt":       prompt,
-        "label":        label,
+        "prompt_id": prompt_id,
+        "prompt": prompt,
+        "label": label,
         "total_reward": total_reward,
-        "elapsed_s":    elapsed_s,
-        "ec_stats":     ec_stats,
-        "turns":        turns,
+        "elapsed_s": elapsed_s,
+        "ec_stats": ec_stats,
+        "turns": turns,
     }
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -232,11 +124,17 @@ async def workflow(
     t_start = time.time()
 
     # ── agent setup ──────────────────────────────────────────────────────────
+    agent = agents[0]
+    llm = agent["llm"]
+    tokenizer = agent["tokenizer"]
+    sp = agent["sampling_params"]
+    agent_name: str = agent.get("agent_id", "shared_agent")
+
     stop_tokens = ["<|im_end|>", "<|endoftext|>"]
-    # _build_agent_dict validates roles and sets stop tokens; raises early with
-    # a clear message if something is misconfigured so we never get a KeyError
-    # halfway through a trajectory.
-    agent_dict = _build_agent_dict(agents, stop_tokens)
+    if hasattr(sp, "stop"):
+        sp.stop = stop_tokens
+    elif isinstance(sp, dict):
+        sp["stop"] = stop_tokens
 
     # ── kwargs unpacking ──────────────────────────────────────────────────────
     _wargs: Dict[str, Any] = kwargs.get("workflow_args") or {}
@@ -280,7 +178,9 @@ async def workflow(
 
     # ── paper context ─────────────────────────────────────────────────────────
     if use_weaviate_context:
-        papers = search_weaviate(prompt, weaviate_top_n, weaviate_url, embed_host, embed_port)
+        papers = search_weaviate(
+            prompt, weaviate_top_n, weaviate_url, embed_host, embed_port
+        )
         paper_block = _format_papers(papers, max_papers=weaviate_top_n)
     else:
         metadata = json.loads(json.loads(metadata))
@@ -297,27 +197,25 @@ async def workflow(
     )
 
     while not state.is_terminal:
-        # Route to the correct agent for this step
-        active_agent = _route_agent(state, agent_dict)
         state = await execute_turn(
-            state = state,
-            llm = active_agent["llm"],
-            tokenizer = active_agent["tokenizer"],
-            sampling_params = active_agent["sampling_params"],
-            agent_name = active_agent.get("agent_id"),
-            label = label,
-            embed_host = embed_host,
-            embed_port = embed_port,
-            weaviate_url = weaviate_url,
-            similarity_weight = similarity_weight,
-            diversity_weight = diversity_weight,
-            rerank_host = rerank_host,
-            rerank_port = rerank_port,
-            groundedness_weight = groundedness_weight,
-            relevancy_weight = relevancy_weight,
-            apply_channel_noise = apply_channel_noise,
-            noise_probability = noise_probability,
-            is_eval = is_eval,
+            state=state,
+            llm=llm,
+            tokenizer=tokenizer,
+            sampling_params=sp,
+            agent_name=agent_name,
+            label=label,
+            embed_host=embed_host,
+            embed_port=embed_port,
+            weaviate_url=weaviate_url,
+            similarity_weight=similarity_weight,
+            diversity_weight=diversity_weight,
+            rerank_host=rerank_host,
+            rerank_port=rerank_port,
+            groundedness_weight=groundedness_weight,
+            relevancy_weight=relevancy_weight,
+            apply_channel_noise=apply_channel_noise,
+            noise_probability=noise_probability,
+            is_eval=is_eval,
         )
 
     # ── assemble results & apply length penalty (Technique 1) ─────────────────
@@ -326,20 +224,23 @@ async def workflow(
 
     final_reward = trajectory[-1].get("reward", 0.0) if trajectory else 0.0
     total_length_penalty = 0.0
+
     channel_token_counts: List[int] = []
 
-    for record, entry in zip(trajectory, debug_entries):
+    for i, (record, entry) in enumerate(zip(trajectory, debug_entries)):
         extra_dict = entry.get("extra", {})
-        agent_role = entry.get("agent_role") or extra_dict.get("agent_role")
-        turn_type  = entry.get("turn_type")  or extra_dict.get("turn_type")
 
-        if agent_role == _RETRIEVER_ROLE and turn_type == "retriever_message":
+        agent_role = entry.get("agent_role") or extra_dict.get("agent_role")
+        turn_type = entry.get("turn_type") or extra_dict.get("turn_type")
+
+        if agent_role == "retriever" and turn_type == "retriever_message":
             n_tokens = entry.get("n_channel_tokens", 0) or extra_dict.get("n_channel_tokens", 0)
             channel_token_counts.append(n_tokens)
 
             if apply_length_penalty and not is_eval:
                 penalty = length_penalty_lambda * n_tokens
                 total_length_penalty += penalty
+
                 extra_dict["length_penalty"] = round(penalty, 4)
                 extra_dict["n_channel_tokens"] = n_tokens
 
@@ -357,8 +258,8 @@ async def workflow(
         )
 
     reward_matrix = [r.get("reward", 0.0) for r in trajectory]
-    elapsed = time.time() - t_start
 
+    elapsed = time.time() - t_start
     logger.warning(
         f"workflow done | turns={state.turn_id} | reward={penalised_reward:.3f} | time={elapsed:.1f}s"
     )
@@ -368,7 +269,8 @@ async def workflow(
         "channel_token_counts": channel_token_counts,
         "mean_channel_tokens": (
             round(sum(channel_token_counts) / len(channel_token_counts), 2)
-            if channel_token_counts else 0.0
+            if channel_token_counts
+            else 0.0
         ),
         "total_length_penalty": round(total_length_penalty, 4),
         "task_reward_before_penalty": round(final_reward, 4),
@@ -379,14 +281,14 @@ async def workflow(
 
     if debug:
         _write_debug_log(
-            debug_dir = debug_dir,
-            prompt_id = prompt_id,
-            prompt = prompt,
-            label = label,
-            total_reward = penalised_reward,
-            elapsed_s = round(elapsed, 2),
-            turns = debug_entries,
-            ec_stats = ec_stats,
+            debug_dir=debug_dir,
+            prompt_id=prompt_id,
+            prompt=prompt,
+            label=label,
+            total_reward=penalised_reward,
+            elapsed_s=round(elapsed, 2),
+            turns=debug_entries,
+            ec_stats=ec_stats,
         )
 
     return {
