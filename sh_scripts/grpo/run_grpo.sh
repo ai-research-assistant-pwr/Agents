@@ -34,18 +34,18 @@ WEAVIATE_NODE_ID=$2
 MY_DISK="$SLURM_SUBMIT_DIR"
 BASE_DIR="$MY_DISK/Agents"
 
-# TRAIN_MODEL="${TRAIN_MODEL:-"$BASE_DIR/models_output/merged_sft_qwen_4B"}"
-TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-4B"}"
+TRAIN_MODEL="${TRAIN_MODEL:-"$BASE_DIR/models_output/merged_sft_qwen_4B"}"
+# TRAIN_MODEL="${TRAIN_MODEL:-"Qwen/Qwen3-4B"}"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
 RERANK_MODEL="${RERANK_MODEL:-"Qwen/Qwen3-Reranker-0.6B"}"
 WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}"
 BATCH_SIZE="${TRAIN_BATCH_SIZE:-8}"
 ROLLOUT_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
 
-SIMILARITY_WEIGHT="${SIMILARITY_WEIGHT:-1.0}"
-DIVERSITY_WEIGHT="${DIVERSITY_WEIGHT:-1.0}"
-GROUNDEDNESS_WEIGHT="${GROUNDEDNESS_WEIGHT:-1.0}"
-RELEVANCY_WEIGHT="${RELEVANCY_WEIGHT:-1.0}"
+SIMILARITY_WEIGHT="${SIMILARITY_WEIGHT:-2.0}"
+DIVERSITY_WEIGHT="${DIVERSITY_WEIGHT:-0.5}"
+GROUNDEDNESS_WEIGHT="${GROUNDEDNESS_WEIGHT:-0.0}"
+RELEVANCY_WEIGHT="${RELEVANCY_WEIGHT:-0.0}"
 DEBUG_WORKFLOW="${DEBUG_WORKFLOW:-true}"
 USE_WEAVIATE_CONTEXT="${USE_WEAVIATE_CONTEXT:-false}"
 WEAVIATE_TOP_N="${WEAVIATE_TOP_N:-5}"
@@ -56,8 +56,8 @@ RETRIEVER_SEARCH_LIMIT="${RETRIEVER_SEARCH_LIMIT:-0}"
 # EMERGENT COMMUNCATION TECHNIQUES CONFIG
 # =================================================
 APPLY_LENGTH_PENALTY="${APPLY_LENGTH_PENALTY:-true}"
-LENGTH_PENALTY_LAMBDA="${LENGTH_PENALTY_LAMBDA:-0.005}"
-APPLY_CHANNEL_NOISE="${APPLY_CHANNEL_NOISE:-true}"
+LENGTH_PENALTY_LAMBDA="${LENGTH_PENALTY_LAMBDA:-0.00025}"
+APPLY_CHANNEL_NOISE="${APPLY_CHANNEL_NOISE:-false}"
 NOISE_PROBABILITY="${NOISE_PROBABILITY:-0.15}"
 
 # 3. Derived Paths
@@ -65,8 +65,8 @@ VENV_PATH="$BASE_DIR/venv"
 AGENTS_DIR="$BASE_DIR"
 MARTI_DIR="$BASE_DIR/MARTI"
 
-TRAIN_DATA_PATH="$AGENTS_DIR/data/datasets/rl_grounded_dataset_train_80.csv"
-EVAL_DATA_PATH="$AGENTS_DIR/data/datasets/rl_grounded_dataset_test_20.csv"
+TRAIN_DATA_PATH="$AGENTS_DIR/data/datasets/rl_grounded_dataset_train.csv"
+EVAL_DATA_PATH="$AGENTS_DIR/data/datasets/rl_grounded_dataset_test.csv"
 EVAL_STEPS="${EVAL_STEPS:-25}"
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
 OUTPUT_DIR="${OUTPUT_DIR:-$BASE_DIR/models_output/${SLURM_JOB_NAME}_results}"
@@ -126,22 +126,22 @@ echo "=> vLLM embedding server is online at http://$EMBED_NODE:$EMBED_PORT/v1!"
 # =================================================
 # START vLLM RERANKER SERVER (On Het Group 1)
 # =================================================
-echo "=> Starting vLLM Reranker Server on $EMBED_NODE..."
+# echo "=> Starting vLLM Reranker Server on $EMBED_NODE..."
 
-srun --het-group=1 --overlap \
-    vllm serve \
-        "$RERANK_MODEL"  \
-        --host 0.0.0.0 \
-        --port $RERANK_PORT \
-        --gpu-memory-utilization 0.4 \
-        --hf_overrides '{"architectures": ["Qwen3ForSequenceClassification"],"classifier_from_token": ["no", "yes"],"is_original_qwen3_reranker": true}' &
-VLLM_RERANK_PID=$!
+# srun --het-group=1 --overlap \
+#     vllm serve \
+#         "$RERANK_MODEL"  \
+#         --host 0.0.0.0 \
+#         --port $RERANK_PORT \
+#         --gpu-memory-utilization 0.4 \
+#         --hf_overrides '{"architectures": ["Qwen3ForSequenceClassification"],"classifier_from_token": ["no", "yes"],"is_original_qwen3_reranker": true}' &
+# VLLM_RERANK_PID=$!
 
-echo "=> Waiting for vLLM reranker server to become ready..."
-while ! curl -s http://$EMBED_NODE:$RERANK_PORT/v1/models > /dev/null; do
-    sleep 5
-done
-echo "=> vLLM reranker server is online at http://$EMBED_NODE:$RERANK_PORT/v1!"
+# echo "=> Waiting for vLLM reranker server to become ready..."
+# while ! curl -s http://$EMBED_NODE:$RERANK_PORT/v1/models > /dev/null; do
+#     sleep 5
+# done
+# echo "=> vLLM reranker server is online at http://$EMBED_NODE:$RERANK_PORT/v1!"
 
 # =================================================
 # START nvidia-smi LOGGING (On Het Group 0)
@@ -251,5 +251,5 @@ echo "=> Training completed successfully!"
 # Stop background processes
 kill "$NVIDIA_SMI_PID" 2>/dev/null || true
 kill "$VLLM_EMBED_PID" 2>/dev/null || true
-kill "$VLLM_RERANK_PID" 2>/dev/null || true
+# kill "$VLLM_RERANK_PID" 2>/dev/null || true
 echo "=> Background logging and vLLM processes stopped."
