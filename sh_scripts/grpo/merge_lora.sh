@@ -17,8 +17,15 @@ MY_DISK="$SLURM_SUBMIT_DIR"
 AGENTS_DIR="$MY_DISK/Agents"
 VENV_PATH="$AGENTS_DIR/venv"
 
+PYTHON_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/merge_lora.py"
+
+if [ ! -f "$PYTHON_SCRIPT" ]; then
+    echo "CRITICAL ERROR: Python script not found at $PYTHON_SCRIPT"
+    exit 1
+fi
+
 source /usr/local/sbin/modules.sh
-module load CUDA/12.8.0
+# FIX 3: Usunięto moduł CUDA, skoro działasz na partycji CPU (unika błędu modulefile)
 module load Python/3.12.3-GCCcore-13.3.0
 
 source "$VENV_PATH/bin/activate"
