@@ -152,7 +152,6 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
         if counts:
             probs = np.array(counts) / sum(counts)
             h = entropy(probs, base=2)
-            # Normalised entropy: 1.0 = perfectly uniform, 0.0 = single token
             h_norm = h / np.log2(vocab_size) if vocab_size > 1 else 0.0
         else:
             h = 0.0
@@ -166,6 +165,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
             "Active_Vocab_Size": vocab_size,
             "Unigram_Entropy": round(h, 4),
             "Unigram_Entropy_Norm": round(h_norm, 4),
+            "Top_5_Words": dict(window_vocab.most_common(5)) 
         })
 
     if not results:
@@ -177,6 +177,15 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     csv_path = os.path.join(output_dir, "exp1_morphology_metrics.csv")
     df.to_csv(csv_path, index=False)
     print(f"Saved raw windowed data to: {csv_path}")
+
+    top_words_evolution = {
+        f"Window_{r['Window_Index']:03d}": r["Top_5_Words"]
+        for r in results
+    }
+    json_path = os.path.join(output_dir, "exp1_top5_evolution.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(top_words_evolution, f, indent=4, ensure_ascii=False)
+    print(f"Saved Top 5 words evolution to: {json_path}")
 
     # ==========================================
     # Plot Generation
