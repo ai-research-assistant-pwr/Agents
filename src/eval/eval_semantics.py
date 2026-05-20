@@ -193,6 +193,7 @@ async def run_hybrid_topsim_analysis(
         signals_clean:  list[str] = []
         signals_noisy:  list[str] = []   # only appended when noisy actually exists
         noisy_count:    int       = 0    # trajectories with real noisy signal
+        seen_prompts:   set       = set() # <--- DODANE: Zbiór do śledzenia unikalnych promptów
 
         for _, file_path in batch_files:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -200,8 +201,9 @@ async def run_hybrid_topsim_analysis(
 
             try:
                 prompt = data.get("prompt", "")
-                if not prompt:
+                if not prompt or prompt in seen_prompts:
                     continue
+                seen_prompts.add(prompt)
 
                 meaning_space = prompt[:2_000]
 
