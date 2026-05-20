@@ -49,7 +49,7 @@ RELEVANCY_WEIGHT="${RELEVANCY_WEIGHT:-0.0}"
 DEBUG_WORKFLOW="${DEBUG_WORKFLOW:-true}"
 USE_WEAVIATE_CONTEXT="${USE_WEAVIATE_CONTEXT:-false}"
 WEAVIATE_TOP_N="${WEAVIATE_TOP_N:-5}"
-ASK_RETRIEVER_LIMIT="${ASK_RETRIEVER_LIMIT:-1}"
+ASK_RETRIEVER_LIMIT="${ASK_RETRIEVER_LIMIT:-0}"
 RETRIEVER_SEARCH_LIMIT="${RETRIEVER_SEARCH_LIMIT:-0}"
 
 # =================================================
@@ -232,7 +232,7 @@ srun --het-group=0 \
     --n_samples_per_prompt 16 \
     --num_episodes 1 \
     --max_epochs 1 \
-    --prompt_max_len 4000 \
+    --prompt_max_len 45000 \
     --generate_max_len 3000 \
     --eval_generate_max_len 3000 \
     --zero_stage 3 \
