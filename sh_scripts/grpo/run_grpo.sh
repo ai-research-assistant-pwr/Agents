@@ -4,7 +4,7 @@
 # =================================================
 #SBATCH --job-name=grpo_qwen
 #SBATCH --output=Agents/out/%x_%j.out
-#SBATCH --time=0-06:00:00
+#SBATCH --time=0-08:00:00
 #SBATCH -p lem-gpu-short
 #SBATCH -N 1
 #SBATCH -c 32
