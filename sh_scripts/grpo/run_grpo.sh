@@ -123,9 +123,9 @@ while ! curl -s http://$EMBED_NODE:$EMBED_PORT/v1/models > /dev/null; do
 done
 echo "=> vLLM embedding server is online at http://$EMBED_NODE:$EMBED_PORT/v1!"
 
-=================================================
-START vLLM RERANKER SERVER (On Het Group 1)
-=================================================
+# =================================================
+# START vLLM RERANKER SERVER (On Het Group 1)
+# =================================================
 echo "=> Starting vLLM Reranker Server on $EMBED_NODE..."
 
 srun --het-group=1 --overlap \
