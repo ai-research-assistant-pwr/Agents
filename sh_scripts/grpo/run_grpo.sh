@@ -232,7 +232,7 @@ srun --het-group=0 \
     --n_samples_per_prompt 16 \
     --num_episodes 1 \
     --max_epochs 1 \
-    --prompt_max_len 45000 \
+    --prompt_max_len 4000 \
     --generate_max_len 3000 \
     --eval_generate_max_len 3000 \
     --zero_stage 3 \
