@@ -153,6 +153,14 @@ NVIDIA_SMI_PID=$!
 echo "=> nvidia-smi logging started -> $NVIDIA_SMI_LOG"
 
 # =================================================
+# START RAM LOGGING (On Het Group 0)
+# =================================================
+RAM_LOG="$BASE_DIR/logs/ram_${SLURM_JOB_ID}.log"
+(while true; do echo "=== $(date '+%Y-%m-%d %H:%M:%S') ===" >> "$RAM_LOG"; free -h >> "$RAM_LOG"; sleep 10; done) &
+RAM_LOG_PID=$!
+echo "=> RAM logging started -> $RAM_LOG"
+
+# =================================================
 # START TRAINING (On Het Group 0)
 # =================================================
 DEFAULT_AGENT="{
@@ -234,6 +242,7 @@ echo "=> Training completed successfully!"
 
 # Stop background processes
 kill "$NVIDIA_SMI_PID" 2>/dev/null
+kill "$RAM_LOG_PID" 2>/dev/null
 kill "$VLLM_EMBED_PID" 2>/dev/null
 kill "$VLLM_RERANK_PID" 2>/dev/null
 echo "=> Background logging and vLLM processes stopped."
