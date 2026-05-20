@@ -42,10 +42,10 @@ WANDB_RUN="${WANDB_RUN_NAME:-$SLURM_JOB_NAME}"
 BATCH_SIZE="${TRAIN_BATCH_SIZE:-8}"
 ROLLOUT_SIZE="${ROLLOUT_BATCH_SIZE:-8}"
 
-SIMILARITY_WEIGHT="${SIMILARITY_WEIGHT:-2.0}"
-DIVERSITY_WEIGHT="${DIVERSITY_WEIGHT:-0.5}"
-GROUNDEDNESS_WEIGHT="${GROUNDEDNESS_WEIGHT:-0.0}"
-RELEVANCY_WEIGHT="${RELEVANCY_WEIGHT:-0.0}"
+SIMILARITY_WEIGHT="${SIMILARITY_WEIGHT:-1.2}"
+DIVERSITY_WEIGHT="${DIVERSITY_WEIGHT:-0.3}"
+GROUNDEDNESS_WEIGHT="${GROUNDEDNESS_WEIGHT:-1.0}"
+RELEVANCY_WEIGHT="${RELEVANCY_WEIGHT:-1.0}"
 DEBUG_WORKFLOW="${DEBUG_WORKFLOW:-true}"
 USE_WEAVIATE_CONTEXT="${USE_WEAVIATE_CONTEXT:-false}"
 WEAVIATE_TOP_N="${WEAVIATE_TOP_N:-5}"
@@ -123,25 +123,25 @@ while ! curl -s http://$EMBED_NODE:$EMBED_PORT/v1/models > /dev/null; do
 done
 echo "=> vLLM embedding server is online at http://$EMBED_NODE:$EMBED_PORT/v1!"
 
-# =================================================
-# START vLLM RERANKER SERVER (On Het Group 1)
-# =================================================
-# echo "=> Starting vLLM Reranker Server on $EMBED_NODE..."
+=================================================
+START vLLM RERANKER SERVER (On Het Group 1)
+=================================================
+echo "=> Starting vLLM Reranker Server on $EMBED_NODE..."
 
-# srun --het-group=1 --overlap \
-#     vllm serve \
-#         "$RERANK_MODEL"  \
-#         --host 0.0.0.0 \
-#         --port $RERANK_PORT \
-#         --gpu-memory-utilization 0.4 \
-#         --hf_overrides '{"architectures": ["Qwen3ForSequenceClassification"],"classifier_from_token": ["no", "yes"],"is_original_qwen3_reranker": true}' &
-# VLLM_RERANK_PID=$!
+srun --het-group=1 --overlap \
+    vllm serve \
+        "$RERANK_MODEL"  \
+        --host 0.0.0.0 \
+        --port $RERANK_PORT \
+        --gpu-memory-utilization 0.4 \
+        --hf_overrides '{"architectures": ["Qwen3ForSequenceClassification"],"classifier_from_token": ["no", "yes"],"is_original_qwen3_reranker": true}' &
+VLLM_RERANK_PID=$!
 
-# echo "=> Waiting for vLLM reranker server to become ready..."
-# while ! curl -s http://$EMBED_NODE:$RERANK_PORT/v1/models > /dev/null; do
-#     sleep 5
-# done
-# echo "=> vLLM reranker server is online at http://$EMBED_NODE:$RERANK_PORT/v1!"
+echo "=> Waiting for vLLM reranker server to become ready..."
+while ! curl -s http://$EMBED_NODE:$RERANK_PORT/v1/models > /dev/null; do
+    sleep 5
+done
+echo "=> vLLM reranker server is online at http://$EMBED_NODE:$RERANK_PORT/v1!"
 
 # =================================================
 # START nvidia-smi LOGGING (On Het Group 0)
