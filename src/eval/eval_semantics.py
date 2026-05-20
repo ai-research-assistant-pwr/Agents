@@ -7,57 +7,19 @@ similar input contexts systematically produce similar output signals.
 Compositionality is measured with Topological Similarity (TopSim):
   TopSim = Spearman ρ ( dist_meaning(i,j),  dist_signal(i,j) )
 
-Changes vs v1
--------------
-[FIX 1] Meaning space: prompt-only embedding (no papers)
-    Previously: meaning_space = prompt + all_paper_summaries (up to 12 000 chars)
-    Problem:    Two trajectories retrieving the same papers got near-zero meaning
-                distance regardless of what the user actually asked.  Papers also
-                dominate the string, so the embedding reflects paper content, not
-                user intent.  This led to an artificially bimodal distance
-                distribution (same-paper clusters vs. different-paper clusters)
-                that inflated ρ.
-    Fix:        meaning_space = prompt only.
-                If you want a richer meaning signal, consider a weighted average:
-                    0.7 * embed(prompt) + 0.3 * mean(embed(papers))
-                but keep them separate so papers don't swamp intent.
-
-[FIX 2] Noisy-signal fallback removed; noisy window skipped when noise is absent
-    Previously: signals_noisy.append(signal_noisy_str if signal_noisy_str else signal_clean_str)
-    Problem:    When APPLY_CHANNEL_NOISE=false the fallback fills noisy with clean,
-                so ρ_noisy ≡ ρ_clean and the plot shows four indistinguishable lines.
-    Fix:        Track per-trajectory whether a noisy signal exists.  Only compute
-                noisy TopSim if ≥ 10 trajectories in the window actually have a
-                noisy_output_content field.  Otherwise report NaN and skip plotting
-                those series entirely — a flat line at ρ=0.83 is more misleading
-                than a missing series.
-
-[FIX 3] Lexical distance: Jaccard on word sets instead of character-level Levenshtein
-    Previously: Levenshtein.distance(s1, s2) / max(len(s1), len(s2))
-    Problem:    Character-level edit distance on 400–900-token LLM outputs is
-                effectively meaningless — a single rephrasing of a sentence changes
-                hundreds of characters even if semantics are identical.  This makes
-                lexical TopSim measure surface noise, not structural similarity.
-    Fix:        Jaccard distance on unigram bag-of-words:
-                    J(A,B) = 1 − |A∩B| / |A∪B|
-                This captures lexical overlap directly, is order-insensitive (which
-                is appropriate for messages that may reorganise content), and is
-                O(|vocab|) not O(|string|²).
-                If you want to preserve some word-order sensitivity, replace with
-                soft cosine on tf-idf vectors (see commented alternative below).
-
-[FIX 4] Incomplete window handling consistent with eval_morphology.py
-    Previously: incomplete last window was processed normally.
-    Problem:    A window with 20 trajectories instead of 50 has a smaller sample
-                from the joint distance distribution, which can spuriously raise or
-                lower ρ.  eval_morphology already skips incomplete windows.
-    Fix:        Skip windows where len(batch) < window_size (same as morphology).
+Refactored Features:
+1. Hybrid Meaning Space: Computes separate embeddings for the prompt and the retrieved 
+   documents, combining them (0.7 * prompt + 0.3 * docs) to capture both user intent 
+   and actual context without either dominating the vector.
+2. Syntactic Lexical Distance: Replaced Jaccard (BoW) with Token Edit Distance 
+   (Word-level Levenshtein) to accurately measure structural/compositional changes.
+3. Corrected Subsampling: Filters for unique, valid trajectories *before* downsampling.
 
 Usage
 -----
   EMBED_HOST=<node> EMBED_PORT=8000 \\
   python eval_semantics.py \\
-      --logs_dir    ./Agents/workflow_logs/<run_name>/train \\
+      --logs_dir    ./Agents/workflow_logs/<run_name> \\
       --output_dir  ./Agents/eval_results/<run_name>/experiment_2 \\
       --window_size 50
 """
@@ -74,6 +36,7 @@ import matplotlib.pyplot as plt
 from itertools import combinations
 from scipy.stats import spearmanr
 from scipy.spatial.distance import pdist
+from sklearn.preprocessing import normalize
 
 # ==========================================
 # vLLM Server Configuration
@@ -106,31 +69,87 @@ async def get_embeddings(texts: list, host: str, port: str, model: str) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Jaccard lexical distance
+# Meaning extraction helpers
 # ---------------------------------------------------------------------------
 
-def _tokenize(text: str) -> set:
-    """Word-level tokenisation — returns a set (bag-of-words)."""
-    return set(re.findall(r'\b\w+\b', text.lower()))
+def _get_turn_field(turn: dict, field: str, default=None):
+    extra = turn.get("extra", {})
+    if field in extra:
+        return extra[field]
+    return turn.get(field, default)
+
+def _extract_papers_text(data: dict) -> str:
+    """Extract and concatenate document abstracts to form the context string."""
+    papers = (data.get("metadata") or {}).get("papers", [])[:5]
+    paper_contexts = []
+    
+    for p in papers:
+        title   = p.get("title", "")
+        summary = p.get("summary", p.get("abstract", ""))
+        if title or summary:
+            paper_contexts.append(f"{title}\n{summary}".strip())
+            
+    for turn in data.get("turns", []):
+        if _get_turn_field(turn, "turn_type") == "retriever_search":
+            search_result = _get_turn_field(turn, "search_result", [])
+            for p in search_result[:5]:
+                title   = p.get("title", "")
+                summary = p.get("summary", p.get("abstract", ""))
+                if title or summary:
+                    paper_contexts.append(f"{title}\n{summary}".strip())
+    
+    seen = set()
+    unique_papers = []
+    for p in paper_contexts:
+        if p not in seen:
+            seen.add(p)
+            unique_papers.append(p)
+            
+    # Return context string, bounded to avoid excessive length
+    return "\n\n".join(unique_papers)[:10_000]
 
 
-def jaccard_distance(s1: str, s2: str) -> float:
+# ---------------------------------------------------------------------------
+# Token Edit Distance (Word-level Levenshtein)
+# ---------------------------------------------------------------------------
+
+def token_edit_distance(s1: str, s2: str) -> float:
     """
-    Jaccard distance on unigram word sets: 1 − |A∩B|/|A∪B|.
-    Returns 1.0 for completely disjoint vocabularies, 0.0 for identical.
+    Computes normalized Levenshtein distance at the word level.
+    Unlike character-level edit distance, this captures structural compositionality.
+    Returns 0.0 (identical) to 1.0 (completely disjoint/different).
     """
-    a, b = _tokenize(s1), _tokenize(s2)
-    union = a | b
-    if not union:
+    tok1 = re.findall(r'\b\w+\b', s1.lower())
+    tok2 = re.findall(r'\b\w+\b', s2.lower())
+    
+    if not tok1 and not tok2:
         return 0.0
-    return 1.0 - len(a & b) / len(union)
+    if not tok1 or not tok2:
+        return 1.0
 
+    m, n = len(tok1), len(tok2)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    
+    for i in range(m + 1):
+        dp[i][0] = i
+    for j in range(n + 1):
+        dp[0][j] = j
+        
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            cost = 0 if tok1[i-1] == tok2[j-1] else 1
+            dp[i][j] = min(dp[i-1][j] + 1,      # deletion
+                           dp[i][j-1] + 1,      # insertion
+                           dp[i-1][j-1] + cost) # substitution
+                           
+    max_len = max(m, n)
+    return dp[m][n] / max_len if max_len > 0 else 0.0
 
 def compute_lexical_distances(signals: list) -> np.ndarray:
-    """Pairwise Jaccard distances for a list of signal strings."""
+    """Pairwise Token Edit Distances for a list of signal strings."""
     n = len(signals)
     return np.array([
-        jaccard_distance(signals[i], signals[j])
+        token_edit_distance(signals[i], signals[j])
         for i, j in combinations(range(n), 2)
     ])
 
@@ -177,23 +196,14 @@ async def run_hybrid_topsim_analysis(
         batch_files = parsed_files[i:i + window_size]
         window_idx  = i // window_size + 1
 
-        # Skip incomplete windows — keeps sample size uniform across windows
         if len(batch_files) < window_size:
             print(f"  Window {window_idx}: Skipping incomplete window "
                   f"({len(batch_files)}/{window_size}).")
             continue
 
-        # Subsample within the window to prevent O(N²) complexity explosion
-        if len(batch_files) > max_samples_per_window:
-            np.random.seed(42 + i)
-            idx         = np.random.choice(len(batch_files), max_samples_per_window, replace=False)
-            batch_files = [batch_files[k] for k in idx]
-
-        meanings:       list[str] = []
-        signals_clean:  list[str] = []
-        signals_noisy:  list[str] = []   # only appended when noisy actually exists
-        noisy_count:    int       = 0    # trajectories with real noisy signal
-        seen_prompts:   set       = set() # <--- DODANE: Zbiór do śledzenia unikalnych promptów
+        # Extract all valid data first, *before* subsampling
+        valid_trajectories = []
+        seen_prompts = set()
 
         for _, file_path in batch_files:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -205,64 +215,82 @@ async def run_hybrid_topsim_analysis(
                     continue
                 seen_prompts.add(prompt)
 
-                meaning_space = prompt[:2_000]
+                papers_text = _extract_papers_text(data)
 
                 clean_parts: list[str] = []
                 noisy_parts: list[str] = []
 
                 for turn in data.get("turns", []):
-                    if turn.get("turn_type") == "retriever_message":
-                        clean_text = (
-                            turn.get("output_content")
-                            or turn.get("extra", {}).get("output_content", "")
-                        )
-                        noisy_text = (
-                            turn.get("noisy_output_content")
-                            or turn.get("extra", {}).get("noisy_output_content", "")
-                        )
-                        if clean_text:
-                            clean_parts.append(clean_text)
-                        if noisy_text:
-                            noisy_parts.append(noisy_text)
+                    if _get_turn_field(turn, "turn_type") == "retriever_message":
+                        clean_text = _get_turn_field(turn, "output_content", "")
+                        noisy_text = _get_turn_field(turn, "noisy_output_content", "")
+                        
+                        if clean_text: clean_parts.append(clean_text)
+                        if noisy_text: noisy_parts.append(noisy_text)
 
                 signal_clean_str = " ".join(clean_parts).strip()[:12_000]
                 signal_noisy_str = " ".join(noisy_parts).strip()
 
                 if not signal_clean_str:
                     continue
+                
+                # Use "EMPTY_DOCS" if no docs found to avoid empty embedding queries
+                if not papers_text.strip():
+                    papers_text = "EMPTY_DOCS"
 
-                meanings.append(meaning_space)
-                signals_clean.append(signal_clean_str)
-
-                if signal_noisy_str:
-                    signals_noisy.append(signal_noisy_str[:12_000])
-                    noisy_count += 1
-                else:
-                    signals_noisy.append("")   # sentinel — excluded below
+                valid_trajectories.append({
+                    "prompt": prompt[:2_000],
+                    "papers": papers_text,
+                    "signal_clean": signal_clean_str,
+                    "signal_noisy": signal_noisy_str
+                })
 
             except Exception:
                 continue
 
-        if len(meanings) < 10:
-            print(f"  Window {window_idx}: Only {len(meanings)} valid samples — skipping.")
+        # Subsample *after* filtering
+        if len(valid_trajectories) > max_samples_per_window:
+            np.random.seed(42 + i)
+            idx = np.random.choice(len(valid_trajectories), max_samples_per_window, replace=False)
+            valid_trajectories = [valid_trajectories[k] for k in idx]
+
+        if len(valid_trajectories) < 10:
+            print(f"  Window {window_idx}: Only {len(valid_trajectories)} valid samples — skipping.")
             continue
 
-        print(f"  Window {window_idx}: {len(meanings)} samples "
+        noisy_count = sum(1 for t in valid_trajectories if t["signal_noisy"])
+        print(f"  Window {window_idx}: {len(valid_trajectories)} samples "
               f"({noisy_count} with noisy signal). Fetching embeddings…")
 
-        # Embed meanings and clean signals
-        all_mean_embs:  list = []
-        all_clean_embs: list = []
+        meanings_prompt = [t["prompt"] for t in valid_trajectories]
+        meanings_papers = [t["papers"] for t in valid_trajectories]
+        signals_clean   = [t["signal_clean"] for t in valid_trajectories]
+        signals_noisy   = [t["signal_noisy"] for t in valid_trajectories]
+
+        # Embed meanings (both prompt and papers separately) and clean signals
+        all_prompt_embs: list = []
+        all_papers_embs: list = []
+        all_clean_embs:  list = []
         BATCH = 50
 
-        for b in range(0, len(meanings), BATCH):
-            m_embs = await get_embeddings(meanings[b:b+BATCH],       EMBED_HOST, EMBED_PORT, EMBED_MODEL)
-            c_embs = await get_embeddings(signals_clean[b:b+BATCH],  EMBED_HOST, EMBED_PORT, EMBED_MODEL)
-            all_mean_embs.extend(m_embs)
+        for b in range(0, len(valid_trajectories), BATCH):
+            p_embs = await get_embeddings(meanings_prompt[b:b+BATCH], EMBED_HOST, EMBED_PORT, EMBED_MODEL)
+            d_embs = await get_embeddings(meanings_papers[b:b+BATCH], EMBED_HOST, EMBED_PORT, EMBED_MODEL)
+            c_embs = await get_embeddings(signals_clean[b:b+BATCH],   EMBED_HOST, EMBED_PORT, EMBED_MODEL)
+            all_prompt_embs.extend(p_embs)
+            all_papers_embs.extend(d_embs)
             all_clean_embs.extend(c_embs)
 
-        meaning_distances      = pdist(all_mean_embs,  metric='cosine')
-        signal_semantic_clean  = pdist(all_clean_embs, metric='cosine')
+        # Normalize components before addition
+        p_embs_norm = normalize(np.array(all_prompt_embs))
+        d_embs_norm = normalize(np.array(all_papers_embs))
+        
+        # Build Hybrid Meaning Space: 70% User Intent, 30% Context Docs
+        hybrid_meaning_embs = 0.7 * p_embs_norm + 0.3 * d_embs_norm
+        hybrid_meaning_embs = normalize(hybrid_meaning_embs) # Re-normalize the hybrid vector
+
+        meaning_distances      = pdist(hybrid_meaning_embs,  metric='cosine')
+        signal_semantic_clean  = pdist(all_clean_embs,       metric='cosine')
         signal_lexical_clean   = compute_lexical_distances(signals_clean)
 
         rho_sem_clean, p_sem_clean = spearmanr(meaning_distances, signal_semantic_clean)
@@ -270,7 +298,7 @@ async def run_hybrid_topsim_analysis(
 
         row = {
             "Window_Index":              window_idx,
-            "Trajectories":              len(meanings),
+            "Trajectories":              len(valid_trajectories),
             "Noisy_Trajectories":        noisy_count,
             "TopSim_Semantic_Rho_Clean": round(rho_sem_clean, 4),
             "TopSim_Semantic_P_Clean":   round(p_sem_clean,   6),
@@ -281,12 +309,12 @@ async def run_hybrid_topsim_analysis(
         }
 
         # Only compute noisy metrics when enough real noisy signals exist.
-        noisy_fraction = noisy_count / len(meanings)
+        noisy_fraction = noisy_count / len(valid_trajectories)
         if noisy_fraction >= min_noisy_fraction:
             # Filter to trajectories that actually have noisy signals
             valid_idx = [k for k, s in enumerate(signals_noisy) if s]
-            m_valid   = [all_mean_embs[k]  for k in valid_idx]
-            n_valid   = [signals_noisy[k]  for k in valid_idx]
+            m_valid   = [hybrid_meaning_embs[k] for k in valid_idx]
+            n_valid   = [signals_noisy[k]       for k in valid_idx]
 
             all_noisy_embs: list = []
             for b in range(0, len(n_valid), BATCH):
@@ -324,19 +352,11 @@ async def run_hybrid_topsim_analysis(
     df.to_csv(csv_path, index=False)
     print(f"\nSaved evolution data → {csv_path}")
 
-    # -----------------------------------------------------------------------
-    # Diagnostic: print distance distribution stats to flag bimodality
-    # -----------------------------------------------------------------------
     if last_window_data:
         md = last_window_data["meaning_distances"]
-        print(f"\n[Diagnostic] Final-window meaning-space distances:")
+        print(f"\n[Diagnostic] Final-window hybrid meaning-space distances:")
         print(f"  min={md.min():.3f}  median={np.median(md):.3f}  "
               f"max={md.max():.3f}  std={md.std():.3f}")
-        q25, q75 = np.percentile(md, [25, 75])
-        print(f"  25th pct={q25:.3f}  75th pct={q75:.3f}")
-        if md.std() > 0.28 and q25 < 0.05:
-            print("  ⚠  Distribution looks bimodal (large std, low 25th pct).")
-            print("     Consider filtering to diverse prompt pairs only, or stratifying.")
 
     # -----------------------------------------------------------------------
     # Plots
@@ -368,13 +388,13 @@ async def run_hybrid_topsim_analysis(
     ax.plot(x, df["TopSim_Semantic_Rho_Clean"], color=ACCENT,   lw=1.2,
             label='Semantic TopSim (clean)')
     ax.plot(x, df["TopSim_Lexical_Rho_Clean"],  color=GREY_MID, lw=1.2, ls='--',
-            label='Lexical TopSim / Jaccard (clean)')
+            label='Lexical TopSim / Token Edit (clean)')
 
     if has_noisy:
         ax.plot(x, df["TopSim_Semantic_Rho_Noisy"], color='#d62728', lw=1.0, ls=':',
                 label='Semantic TopSim (noisy)')
         ax.plot(x, df["TopSim_Lexical_Rho_Noisy"],  color='#ff7f0e', lw=1.0, ls=':',
-                label='Lexical TopSim / Jaccard (noisy)')
+                label='Lexical TopSim / Token Edit (noisy)')
     else:
         ax.text(0.5, 0.04,
                 "Noisy series not shown — run with APPLY_CHANNEL_NOISE=true",
@@ -383,7 +403,7 @@ async def run_hybrid_topsim_analysis(
 
     ax.axhline(0, lw=0.6, color=GREY_REF, ls='-.')
     ax.set_title('Experiment 2 — Emergence of compositionality: TopSim over training\n'
-                 '(meaning space = prompt only; lexical = Jaccard)', pad=8)
+                 '(meaning space = hybrid 70/30; lexical = Token Edit Distance)', pad=8)
     ax.set_xlabel('Training window')
     ax.set_ylabel('Spearman ρ')
     ax.yaxis.set_label_coords(-0.08, 0.5)
@@ -413,14 +433,14 @@ async def run_hybrid_topsim_analysis(
         ax_s.plot(x_sorted, m_c * x_sorted + b_c, color=ACCENT, lw=1.2)
         ax_s.set_title(f'Semantic TopSim (clean) — final window\nSpearman ρ = {rho:.3f}',
                        pad=8)
-        ax_s.set_xlabel('Meaning-space distance (prompt cosine)')
+        ax_s.set_xlabel('Meaning-space distance (hybrid cosine)')
         ax_s.set_ylabel('Signal-space distance (message cosine)')
         ax_s.grid(lw=0.4, color=GREY_REF, ls=':')
 
-        # Right: meaning-distance histogram — reveals bimodality if present
+        # Right: meaning-distance histogram
         ax_h = axes[1]
         ax_h.hist(m_dist, bins=60, color=ACCENT, alpha=0.7, linewidth=0)
-        ax_h.set_title('Meaning-space distance distribution\n(prompt only)', pad=8)
+        ax_h.set_title('Hybrid Meaning-space distance distribution', pad=8)
         ax_h.set_xlabel('Pairwise cosine distance')
         ax_h.set_ylabel('Pair count')
         ax_h.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
@@ -442,7 +462,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Experiment 2 — Semantics: TopSim compositionality (v2)"
+        description="Experiment 2 — Semantics: TopSim compositionality (v3)"
     )
     parser.add_argument("--logs_dir",    default="./Agents/workflow_logs")
     parser.add_argument("--output_dir",  default="./Agents/eval_results/experiment_2")
