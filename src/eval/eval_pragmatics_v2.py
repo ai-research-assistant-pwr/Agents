@@ -319,7 +319,7 @@ def _plot_tsne(data: dict, output_dir: str) -> None:
     ari        = data["ari"]
 
     perplexity = min(30, len(sig_embs) - 1)
-    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42, n_iter=1000)
+    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42, max_iter=1000)
     coords = tsne.fit_transform(sig_embs)
 
     cmap    = plt.cm.get_cmap("tab10", k)
