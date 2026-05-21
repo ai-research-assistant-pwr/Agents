@@ -7,8 +7,8 @@
 #SBATCH --time=0-08:00:00
 #SBATCH -p lem-gpu-short
 #SBATCH -N 1
-#SBATCH -c 32
-#SBATCH --mem=128gb
+#SBATCH -c 16
+#SBATCH --mem=256gb
 #SBATCH --gres=gpu:hopper:4
 #SBATCH --ntasks-per-node=1
 
@@ -55,9 +55,9 @@ RETRIEVER_SEARCH_LIMIT="${RETRIEVER_SEARCH_LIMIT:-0}"
 # =================================================
 # EMERGENT COMMUNCATION TECHNIQUES CONFIG
 # =================================================
-APPLY_LENGTH_PENALTY="${APPLY_LENGTH_PENALTY:-true}"
+APPLY_LENGTH_PENALTY="${APPLY_LENGTH_PENALTY:-false}"
 LENGTH_PENALTY_LAMBDA="${LENGTH_PENALTY_LAMBDA:-0.0005}"
-APPLY_CHANNEL_NOISE="${APPLY_CHANNEL_NOISE:-true}"
+APPLY_CHANNEL_NOISE="${APPLY_CHANNEL_NOISE:-false}"
 NOISE_PROBABILITY="${NOISE_PROBABILITY:-0.15}"
 
 # 3. Derived Paths
@@ -69,7 +69,7 @@ TRAIN_DATA_PATH="$AGENTS_DIR/data/datasets/rl_grounded_dataset_train.csv"
 EVAL_DATA_PATH="$AGENTS_DIR/data/datasets/rl_grounded_dataset_test.csv"
 EVAL_STEPS="${EVAL_STEPS:-25}"
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
-OUTPUT_DIR="${OUTPUT_DIR:-$BASE_DIR/models_output/${SLURM_JOB_NAME}_results}"
+OUTPUT_DIR="${OUTPUT_DIR:-$BASE_DIR/models_output/${SLURM_JOB_NAME}_${SLURM_JOB_ID}_results}"
 
 source /usr/local/sbin/modules.sh
 module load CUDA/12.8.0

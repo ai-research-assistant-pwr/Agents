@@ -5,34 +5,54 @@
 #
 # Runs one or more evaluation experiments against a training run's workflow logs.
 # Automatically starts (and stops) a vLLM embedding server for experiments that
-# need embeddings (2 and 3).
+# need embeddings (2, 3, 2v2, 3v2).
 #
 # Usage:
 #   sbatch sh_scripts/grpo/eval/run_eval.sh <EXPERIMENT> <LOGS_DIR> [OPTIONS]
 #
 # Arguments:
 #   EXPERIMENT   : exp1 | exp2 | exp3 | all
+#                  exp2v2 | exp3v2 | allv2   ← new v2 variants
+#
 #   LOGS_DIR     : Path to the workflow_logs/<run_name> directory
+#                  (for v2 experiments: this is the FULL / experimental run)
 #
 # Options (env vars):
 #   EMBED_MODEL          Model name for vLLM (default: Qwen/Qwen3-Embedding-4B)
 #   EVAL_OUTPUT_DIR      Where to write results (default: Agents/eval_results/<run_name>)
 #   WINDOW_SIZE          Window size for windowed analyses (default: 50)
-#   NOISY_LOGS_DIR       (exp3 only) Path to noisy run logs for cross-run CIC
 #   SKIP_VLLM            Set to "true" if vLLM is already running externally
 #   EMBED_HOST           Override embedding server host (default: localhost)
 #   EMBED_PORT           Override embedding server port (default: 8000)
 #
+#   ── Original v1 options ──────────────────────────────────────────────────
+#   NOISY_LOGS_DIR       (exp3 only) Path to noisy run logs for cross-run CIC
+#
+#   ── New v2 options ───────────────────────────────────────────────────────
+#   BASELINE_LOGS_DIR    Path to the baseline run logs directory.
+#                        Used by exp2v2 (comparison overlay) and
+#                        exp3v2 (cross-run generator divergence, Probe 2).
+#
 # Examples:
-#   # Run all experiments on the last exp_full training run:
-#   sbatch sh_scripts/grpo/eval/run_eval.sh all \
-#       Agents/workflow_logs/exp_full_20250512_143000
+#   # Run all v2 experiments (full run + baseline comparison):
+#   BASELINE_LOGS_DIR=Agents/workflow_logs/baseline_20250512 \
+#   sbatch sh_scripts/grpo/eval/run_eval.sh allv2 \
+#       Agents/workflow_logs/exp_full_20250512
+#
+#   # Run only exp2v2 (signal structure, no baseline):
+#   sbatch sh_scripts/grpo/eval/run_eval.sh exp2v2 \
+#       Agents/workflow_logs/exp_full_20250512
+#
+#   # Run exp3v2 with baseline for cross-run generator divergence:
+#   BASELINE_LOGS_DIR=Agents/workflow_logs/baseline_20250512 \
+#   sbatch sh_scripts/grpo/eval/run_eval.sh exp3v2 \
+#       Agents/workflow_logs/exp_full_20250512
 #
 #   # Run only experiment 1 (no embedding server needed):
 #   sbatch sh_scripts/grpo/eval/run_eval.sh exp1 \
 #       Agents/workflow_logs/baseline_free_20250512_120000
 #
-#   # Run experiment 3 with cross-run CIC:
+#   # Run original experiment 3 with cross-run CIC (v1):
 #   NOISY_LOGS_DIR=Agents/workflow_logs/exp_full_20250512_143000 \
 #   sbatch sh_scripts/grpo/eval/run_eval.sh exp3 \
 #       Agents/workflow_logs/baseline_free_20250512_120000
@@ -68,9 +88,10 @@ if [ ! -d "$LOGS_DIR" ]; then
 fi
 
 case "$EXPERIMENT" in
-  exp1|exp2|exp3|all) ;;
+  exp1|exp2|exp3|all|exp2v2|exp3v2|allv2) ;;
   *)
-    echo "ERROR: Unknown experiment '$EXPERIMENT'. Valid: exp1 | exp2 | exp3 | all"
+    echo "ERROR: Unknown experiment '$EXPERIMENT'."
+    echo "       Valid: exp1 | exp2 | exp3 | all | exp2v2 | exp3v2 | allv2"
     exit 1
     ;;
 esac
@@ -85,6 +106,7 @@ VENV_PATH="$BASE_DIR/venv"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
 WINDOW_SIZE="${WINDOW_SIZE:-50}"
 NOISY_LOGS_DIR="${NOISY_LOGS_DIR:-}"
+BASELINE_LOGS_DIR="${BASELINE_LOGS_DIR:-}"
 SKIP_VLLM="${SKIP_VLLM:-false}"
 EMBED_PORT="${EMBED_PORT:-8000}"
 
@@ -118,6 +140,8 @@ echo " Eval experiment  : $EXPERIMENT"
 echo " Logs dir         : $LOGS_DIR"
 echo " Output dir       : $EVAL_OUTPUT_DIR"
 echo " Window size      : $WINDOW_SIZE"
+[ -n "$BASELINE_LOGS_DIR" ] && echo " Baseline logs    : $BASELINE_LOGS_DIR"
+[ -n "$NOISY_LOGS_DIR"    ] && echo " Noisy logs (v1)  : $NOISY_LOGS_DIR"
 echo "========================================================"
 
 # =============================================================================
@@ -125,7 +149,7 @@ echo "========================================================"
 # =============================================================================
 _needs_vllm() {
     case "$1" in
-        exp2|exp3|all) return 0 ;;
+        exp2|exp3|all|exp2v2|exp3v2|allv2) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -205,14 +229,66 @@ run_exp3() {
     echo "    Exp 3 done → $OUT"
 }
 
+run_exp2v2() {
+    echo ""
+    echo "─── Experiment 2v2: Semantics (Signal Structure) ───────────"
+    local OUT="$EVAL_OUTPUT_DIR/experiment_2"
+    mkdir -p "$OUT"
+
+    BASELINE_ARG=""
+    if [ -n "$BASELINE_LOGS_DIR" ]; then
+        BASELINE_ARG="--baseline_logs_dir $BASELINE_LOGS_DIR"
+        echo "    Baseline comparison: $BASELINE_LOGS_DIR"
+    fi
+
+    EMBED_HOST="$EMBED_HOST" EMBED_PORT="$EMBED_PORT" EMBED_MODEL="$EMBED_MODEL" \
+    $VENV_PYTHON "$BASE_DIR/src/eval/eval_semantics_v2.py" \
+        --logs_dir   "$LOGS_DIR" \
+        --output_dir "$OUT" \
+        --window_size "$WINDOW_SIZE" \
+        --embed_host  "$EMBED_HOST" \
+        --embed_port  "$EMBED_PORT" \
+        $BASELINE_ARG
+    echo "    Exp 2v2 done → $OUT"
+}
+
+run_exp3v2() {
+    echo ""
+    echo "─── Experiment 3v2: Pragmatics (Grounding v2) ──────────────"
+    local OUT="$EVAL_OUTPUT_DIR/experiment_3"
+    mkdir -p "$OUT"
+
+    BASELINE_ARG=""
+    if [ -n "$BASELINE_LOGS_DIR" ]; then
+        BASELINE_ARG="--baseline_logs_dir $BASELINE_LOGS_DIR"
+        echo "    Cross-run divergence: $BASELINE_LOGS_DIR"
+    fi
+
+    $VENV_PYTHON "$BASE_DIR/src/eval/eval_pragmatics_v2.py" \
+        --logs_dir    "$LOGS_DIR" \
+        --output_dir  "$OUT" \
+        --window_size "$WINDOW_SIZE" \
+        --embed_host  "$EMBED_HOST" \
+        --embed_port  "$EMBED_PORT" \
+        $BASELINE_ARG
+    echo "    Exp 3v2 done → $OUT"
+}
+
 case "$EXPERIMENT" in
-    exp1) run_exp1 ;;
-    exp2) run_exp2 ;;
-    exp3) run_exp3 ;;
+    exp1)   run_exp1 ;;
+    exp2)   run_exp2 ;;
+    exp3)   run_exp3 ;;
     all)
         run_exp1
         run_exp2
         run_exp3
+        ;;
+    exp2v2) run_exp2v2 ;;
+    exp3v2) run_exp3v2 ;;
+    allv2)
+        run_exp1
+        run_exp2v2
+        run_exp3v2
         ;;
 esac
 
@@ -221,13 +297,14 @@ esac
 # =============================================================================
 cat > "$EVAL_OUTPUT_DIR/eval_manifest.json" <<EOF
 {
-  "experiment":    "$EXPERIMENT",
-  "run_name":      "$RUN_NAME",
-  "logs_dir":      "$LOGS_DIR",
-  "output_dir":    "$EVAL_OUTPUT_DIR",
-  "window_size":   $WINDOW_SIZE,
-  "slurm_job_id":  "$SLURM_JOB_ID",
-  "completed_at":  "$(date -Iseconds)"
+  "experiment":         "$EXPERIMENT",
+  "run_name":           "$RUN_NAME",
+  "logs_dir":           "$LOGS_DIR",
+  "baseline_logs_dir":  "$BASELINE_LOGS_DIR",
+  "output_dir":         "$EVAL_OUTPUT_DIR",
+  "window_size":        $WINDOW_SIZE,
+  "slurm_job_id":       "$SLURM_JOB_ID",
+  "completed_at":       "$(date -Iseconds)"
 }
 EOF
 
