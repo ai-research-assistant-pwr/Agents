@@ -1,5 +1,5 @@
 """
-Morphology Evaluation — Experiment 1 (Full Suite with Lexical Evolution)
+Morphology Evaluation — Experiment 1 (Full Suite with Rank-Evolution)
 ======================================
 Tests the Information Bottleneck hypothesis: does adding a per-token length
 penalty (R = R_task − λ · length(message)) cause the Retriever to compress
@@ -12,7 +12,7 @@ Metrics tracked over the course of training:
   - Unigram Entropy (raw + normalised)
   - Reward Dynamics (Total vs Task vs Penalty)
   - Reward Components (Similarity, Diversity, Groundedness, Relevancy)
-  - Lexical Evolution (NEW: Relative frequency of top scientific terms)
+  - Lexical Rank Trajectories (NEW: Rank evolution of Initial vs Final Vocab)
 
 Output
 ------
@@ -23,7 +23,7 @@ Output
     ├── exp1_entropy_and_vocab.png
     ├── exp1_rewards_evolution.png
     ├── exp1_reward_components.png
-    └── exp1_lexical_evolution.png
+    └── exp1_lexical_evolution.png       — NEW: Side-by-side Rank Evolution Plots
 """
 
 import os
@@ -54,7 +54,7 @@ def tokenize(text: str) -> list:
     """Tokenization with stop-word and length filtering."""
     if not text:
         return []
-    # Filtracja: tylko litery, minimum 3 znaki
+    # Tylko czyste litery, minimum 3 znaki
     words = re.findall(r'\b[a-z]{3,}\b', text.lower())
     return [w for w in words if w not in STOP_WORDS]
 
@@ -85,7 +85,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     print(f"Found {len(parsed_files)} trajectories. Analyzing in windows of {window_size}...")
 
     results = []
-    window_vocabs_raw = [] # Track full raw counters for post-processing lexical trends
+    window_vocabs_raw = [] # Przechowuje liczniki słów dla każdego okna
 
     for i in range(0, len(parsed_files), window_size):
         batch_files = parsed_files[i:i + window_size]
@@ -283,55 +283,49 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     plt.savefig(os.path.join(output_dir, "exp1_reward_components.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    # --- NOWY Wykres 5: Kaskadowa Mapa Ciepła Ewolucji Leksykalnej ---
-    global_top_keywords = set()
-    for r in results:
-        global_top_keywords.update(r["Top_5_Words"].keys())
-        
-    lexical_trends = {word: [] for word in global_top_keywords}
+    # --- NEW Plot 5: Lexical Rank Trajectories (Initial vs Final Top 5) ---
+    DISPLAY_MAX_RANK = 20
+  
+    top5_first = [word for word, count in window_vocabs_raw[0][1].most_common(5)]
+    top5_last = [word for word, count in window_vocabs_raw[-1][1].most_common(5)]
+    
+    ranks_first = {word: [] for word in top5_first}
+    ranks_last = {word: [] for word in top5_last}
+    
     for w_idx, vocab in window_vocabs_raw:
-        total_words_in_window = sum(vocab.values())
-        for word in global_top_keywords:
-            freq = (vocab[word] / total_words_in_window) if total_words_in_window > 0 else 0.0
-            lexical_trends[word].append(freq)
-            
-    # Wybieramy TOP 15 najważniejszych słów w całym treningu
-    # SORTOWANIE KASKADOWE: Sortujemy według okna, w którym słowo osiągnęło SZCZYT popularności
-    sorted_keywords = sorted(
-        global_top_keywords, 
-        key=lambda w: (np.argmax(lexical_trends[w]), -max(lexical_trends[w]))
-    )[:15]
-    
-    # Budujemy macierz 2D (Słowa x Okna)
-    matrix_data = np.array([lexical_trends[word] for word in sorted_keywords])
-    
-    fig5, ax_lex = plt.subplots(figsize=(9, 6))
-    
-    # Rysujemy mapę ciepła. Cmap 'Purples', 'Blues' lub 'Greys' wyglądają bardzo profesjonalnie
-    im = ax_lex.imshow(matrix_data, cmap='Purples', aspect='auto', interpolation='nearest')
-    
-    # Konfiguracja osi Y (Słowa)
-    ax_lex.set_yticks(np.arange(len(sorted_keywords)))
-    ax_lex.set_yticklabels([f"'{word}'" for word in sorted_keywords], fontsize=9.5)
-    
-    # Konfiguracja osi X (Okna - pokazujemy co 10 okno, żeby opis nie był ściśnięty)
-    x_indices = np.arange(len(x_axis))
-    ax_lex.set_xticks(x_indices[::10])
-    ax_lex.set_xticklabels(x_axis[::10])
-    
-    ax_lex.set_xlabel('Training window')
-    ax_lex.set_ylabel('Emergent Vocabulary Tokens')
-    ax_lex.set_title('Experiment 1 — Lexical Cascade: Vocabulary Stabilization Over Training', pad=12)
-    
-    # Dodajemy elegancki pasek boczny z legendą kolorów (colorbar)
-    cbar = fig5.colorbar(im, ax_lex, fraction=0.03, pad=0.04)
-    cbar.set_label('Relative Token Frequency (Probability Within Window)')
-    cbar.outline.set_visible(False) # usuwamy ramkę wokół colorbaru dla minimalizmu
-    
-    # Usuwamy zbędne ramki wokół samej mapy ciepła
-    for spine in ax_lex.spines.values():
-        spine.set_visible(False)
+        sorted_words = [word for word, count in vocab.most_common()]
         
+        for word in top5_first:
+            rank = sorted_words.index(word) + 1 if word in sorted_words else (DISPLAY_MAX_RANK + 1)
+            ranks_first[word].append(min(rank, DISPLAY_MAX_RANK + 1))
+            
+        for word in top5_last:
+            rank = sorted_words.index(word) + 1 if word in sorted_words else (DISPLAY_MAX_RANK + 1)
+            ranks_last[word].append(min(rank, DISPLAY_MAX_RANK + 1))
+            
+    fig5, (ax_f, ax_l) = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
+    
+    for word in top5_first:
+        ax_f.plot(x_axis, ranks_first[word], marker='o', markersize=2.5, lw=1.2, label=f"'{word}'")
+    ax_f.set_title("Rank Evolution: Initial Top 5 Tokens", fontsize=10.5, pad=8)
+    ax_f.set_xlabel("Training window")
+    ax_f.set_ylabel("Vocabulary Rank (Top 1 is Highest)")
+    ax_f.set_ylim(0.5, DISPLAY_MAX_RANK + 1.5)
+    ax_f.invert_yaxis() # Odwracamy oś Y, aby ranga 1 była na samej górze
+    ax_f.set_yticks([1, 5, 10, 15, 20, DISPLAY_MAX_RANK + 1])
+    ax_f.set_yticklabels(['1', '5', '10', '15', '20', '>20'])
+    ax_f.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
+    ax_f.legend(frameon=False, loc='lower left', title="Initial Elite")
+    
+    for word in top5_last:
+        ax_l.plot(x_axis, ranks_last[word], marker='o', markersize=2.5, lw=1.2, label=f"'{word}'")
+    ax_l.set_title("Rank Evolution: Final Top 5 Tokens", fontsize=10.5, pad=8)
+    ax_l.set_xlabel("Training window")
+    ax_l.set_ylim(0.5, DISPLAY_MAX_RANK + 1.5)
+    ax_l.invert_yaxis()
+    ax_l.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
+    ax_l.legend(frameon=False, loc='lower left', title="Emergent Jargon")
+    
     fig5.tight_layout()
     plt.savefig(os.path.join(output_dir, "exp1_lexical_evolution.png"), dpi=300, bbox_inches='tight')
     plt.close()
