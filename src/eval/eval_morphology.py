@@ -1,29 +1,22 @@
 """
-Morphology Evaluation — Experiment 1 (Updated with Reward Dynamics)
+Morphology Evaluation — Experiment 1 (Updated with Reward Dynamics & Components)
 ======================================
 Tests the Information Bottleneck hypothesis: does adding a per-token length
 penalty (R = R_task − λ · length(message)) cause the Retriever to compress
 its messages over training, and does that compression correlate with task
 performance?
 
-Three windowed metrics are tracked over the course of training:
-
-  Average Message Length
-      Mean number of word tokens in Retriever outputs.
-
-  Active Vocabulary Size
-      Number of unique word types seen across all Retriever messages.
-
-  Unigram Entropy (raw + normalised)
-      Shannon entropy H over the unigram token distribution.
-
-  Reward Dynamics (NEW)
-      Tracks Task Reward (before penalty), Length Penalty, and Total Reward.
+Metrics tracked over the course of training:
+  - Average Message Length
+  - Active Vocabulary Size
+  - Unigram Entropy (raw + normalised)
+  - Reward Dynamics (Total vs Task vs Penalty)
+  - Reward Components (Similarity, Diversity, Groundedness, Relevancy)
 
 Data contract
 -------------
   Reads traj_*.json files written by scientific_workflow.py (DEBUG=True).
-  Each file must contain a "turns" list and "ec_stats" dictionary.
+  Extracts retriever messages and generator_generate turn scores.
 
 Output
 ------
@@ -31,7 +24,8 @@ Output
     ├── exp1_morphology_metrics.csv
     ├── exp1_compression_vs_reward.png   — total reward + length over time
     ├── exp1_entropy_and_vocab.png       — entropy + vocab size
-    └── exp1_rewards_evolution.png       — task reward vs penalty dynamics
+    ├── exp1_rewards_evolution.png       — task reward vs penalty dynamics
+    └── exp1_reward_components.png       — individual reward components vs penalty
 """
 
 import os
@@ -44,11 +38,27 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import entropy
 
+STOP_WORDS = {
+    "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", 
+    "he", "him", "his", "she", "her", "hers", "it", "its", "they", "them", "their", "theirs", 
+    "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are", 
+    "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", 
+    "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", 
+    "while", "of", "at", "by", "for", "with", "about", "against", "between", "into", 
+    "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", 
+    "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", 
+    "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", 
+    "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", 
+    "than", "too", "very", "can", "will", "just", "don", "should", "now", "end"
+}
+
 def tokenize(text: str) -> list:
-    """Simple tokenization on word level using regex."""
+    """Tokenization with stop-word and length filtering."""
     if not text:
         return []
-    return re.findall(r'\b\w+\b', text.lower())
+    words = re.findall(r'\b[a-z]{3,}\b', text.lower())
+
+    return [w for w in words if w not in STOP_WORDS]
 
 def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 50):
     os.makedirs(output_dir, exist_ok=True)
@@ -94,6 +104,12 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
         window_task_rewards = []
         window_length_penalties = []
         
+        # New component trackers
+        window_similarity = []
+        window_diversity = []
+        window_groundedness = []
+        window_relevancy = []
+        
         window_message_lengths = []
         window_vocab = Counter()
 
@@ -111,8 +127,12 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
             window_length_penalties.append(len_p)
 
             traj_lengths = []
+            
+            # Temporary holders for components in case they are missing
+            sim_val, div_val, grd_val, rel_val = 0.0, 0.0, 0.0, 0.0
 
             for turn in data.get("turns", []):
+                # Extracting message text and tokens
                 if turn.get("turn_type") == "retriever_message":
                     text = turn.get("output_content", "")
                     tokens = tokenize(text) 
@@ -121,6 +141,18 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
                         n_tokens = len(tokens)
                     traj_lengths.append(n_tokens)
                     window_vocab.update(tokens)
+                
+                # Extracting individual reward components from generator's turn
+                if turn.get("turn_type") == "generator_generate":
+                    sim_val = turn.get("similarity_score", 0.0)
+                    div_val = turn.get("diversity_score", 0.0)
+                    grd_val = turn.get("groundedness_score", 0.0)
+                    rel_val = turn.get("relevancy_score", 0.0)
+
+            window_similarity.append(sim_val)
+            window_diversity.append(div_val)
+            window_groundedness.append(grd_val)
+            window_relevancy.append(rel_val)
 
             if traj_lengths:
                 window_message_lengths.append(sum(traj_lengths) / len(traj_lengths))
@@ -146,6 +178,10 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
             "Avg_Total_Reward": round(np.mean(window_total_rewards), 4),
             "Avg_Task_Reward": round(np.mean(window_task_rewards), 4),
             "Avg_Length_Penalty": round(np.mean(window_length_penalties), 4),
+            "Avg_Similarity": round(np.mean(window_similarity), 4),
+            "Avg_Diversity": round(np.mean(window_diversity), 4),
+            "Avg_Groundedness": round(np.mean(window_groundedness), 4),
+            "Avg_Relevancy": round(np.mean(window_relevancy), 4),
             "Avg_Message_Length": round(np.mean(window_message_lengths), 2),
             "Active_Vocab_Size": vocab_size,
             "Unigram_Entropy": round(h, 4),
@@ -188,6 +224,12 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     GREY_MID = '#666666'
     GREY_REF = '#aaaaaa'
     RED_ACCENT = '#d62728'
+    
+    # Colors for the new components plot
+    C_SIM = '#1f77b4'  # Blue
+    C_DIV = '#ff7f0e'  # Orange
+    C_GRD = '#2ca02c'  # Green
+    C_REL = '#9467bd'  # Purple
 
     x_axis = df["Window_Index"]
 
@@ -277,6 +319,32 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
 
     fig3.tight_layout()
     plt.savefig(os.path.join(output_dir, "exp1_rewards_evolution.png"), dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # ------------------------------------------------------------------
+    # Plot 4: Detailed Reward Components Breakdown
+    # ------------------------------------------------------------------
+    fig4, ax_comp = plt.subplots(figsize=(8, 5))
+
+    ax_comp.plot(x_axis, df["Avg_Similarity"], color=C_SIM, linewidth=1.2, label='Similarity')
+    ax_comp.plot(x_axis, df["Avg_Diversity"], color=C_DIV, linewidth=1.2, label='Diversity')
+    ax_comp.plot(x_axis, df["Avg_Groundedness"], color=C_GRD, linewidth=1.2, label='Groundedness')
+    ax_comp.plot(x_axis, df["Avg_Relevancy"], color=C_REL, linewidth=1.2, label='Relevancy')
+    
+    # Overlay the length penalty on the same axis for scale comparison (using a distinct dashed line)
+    ax_comp.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, linewidth=1.5, linestyle='--', label='Length Penalty')
+
+    ax_comp.set_ylabel('Component Score / Penalty')
+    ax_comp.yaxis.set_label_coords(-0.08, 0.5)
+    ax_comp.set_xlabel('Training window')
+    ax_comp.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
+    ax_comp.set_title('Experiment 1 — Evolution of Individual Reward Components', pad=8, fontsize=11)
+    
+    # Place legend outside the plot area so it doesn't obstruct lines
+    ax_comp.legend(frameon=False, fontsize=9, loc='upper left', bbox_to_anchor=(1.02, 1))
+
+    fig4.tight_layout()
+    plt.savefig(os.path.join(output_dir, "exp1_reward_components.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
     print(f"Completed analysis. High-resolution plots saved to: {output_dir}")
