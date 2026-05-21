@@ -283,9 +283,10 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     plt.savefig(os.path.join(output_dir, "exp1_reward_components.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    # --- NEW Plot 5: Lexical Rank Trajectories (Initial vs Final Top 5) ---
+    # --- Plot 5: Lexical Rank Trajectories (Initial vs Final Top 5 with Local Smoothing) ---
     DISPLAY_MAX_RANK = 20
-  
+    SMOOTHING_WINDOW = 5 
+    
     top5_first = [word for word, count in window_vocabs_raw[0][1].most_common(5)]
     top5_last = [word for word, count in window_vocabs_raw[-1][1].most_common(5)]
     
@@ -303,23 +304,30 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
             rank = sorted_words.index(word) + 1 if word in sorted_words else (DISPLAY_MAX_RANK + 1)
             ranks_last[word].append(min(rank, DISPLAY_MAX_RANK + 1))
             
+    def smooth_series(series, window):
+        return pd.Series(series).rolling(window=window, min_periods=1, center=True).mean()
+
     fig5, (ax_f, ax_l) = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
     
     for word in top5_first:
-        ax_f.plot(x_axis, ranks_first[word], marker='o', markersize=2.5, lw=1.2, label=f"'{word}'")
-    ax_f.set_title("Rank Evolution: Initial Top 5 Tokens", fontsize=10.5, pad=8)
+        smoothed_ranks = smooth_series(ranks_first[word], SMOOTHING_WINDOW)
+        ax_f.plot(x_axis, smoothed_ranks, lw=1.5, label=f"'{word}'")
+        
+    ax_f.set_title("Rank Evolution: Initial Top 5 Tokens (Smoothed)", fontsize=10.5, pad=8)
     ax_f.set_xlabel("Training window")
     ax_f.set_ylabel("Vocabulary Rank (Top 1 is Highest)")
     ax_f.set_ylim(0.5, DISPLAY_MAX_RANK + 1.5)
-    ax_f.invert_yaxis() # Odwracamy oś Y, aby ranga 1 była na samej górze
+    ax_f.invert_yaxis()
     ax_f.set_yticks([1, 5, 10, 15, 20, DISPLAY_MAX_RANK + 1])
     ax_f.set_yticklabels(['1', '5', '10', '15', '20', '>20'])
     ax_f.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
     ax_f.legend(frameon=False, loc='lower left', title="Initial Elite")
     
     for word in top5_last:
-        ax_l.plot(x_axis, ranks_last[word], marker='o', markersize=2.5, lw=1.2, label=f"'{word}'")
-    ax_l.set_title("Rank Evolution: Final Top 5 Tokens", fontsize=10.5, pad=8)
+        smoothed_ranks = smooth_series(ranks_last[word], SMOOTHING_WINDOW)
+        ax_l.plot(x_axis, smoothed_ranks, lw=1.5, label=f"'{word}'")
+        
+    ax_l.set_title("Rank Evolution: Final Top 5 Tokens (Smoothed)", fontsize=10.5, pad=8)
     ax_l.set_xlabel("Training window")
     ax_l.set_ylim(0.5, DISPLAY_MAX_RANK + 1.5)
     ax_l.invert_yaxis()
