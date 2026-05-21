@@ -283,35 +283,56 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     plt.savefig(os.path.join(output_dir, "exp1_reward_components.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    # --- NEW Plot 5: Lexical Evolution Tracking (Top Scientific Terms) ---
-    # Find all unique keywords that hit TOP 5 in ANY window to observe their propagation
+    # --- NOWY Wykres 5: Kaskadowa Mapa Ciepła Ewolucji Leksykalnej ---
     global_top_keywords = set()
     for r in results:
         global_top_keywords.update(r["Top_5_Words"].keys())
         
-    # Build frequency streams over time (relative probability within the window text)
     lexical_trends = {word: [] for word in global_top_keywords}
     for w_idx, vocab in window_vocabs_raw:
         total_words_in_window = sum(vocab.values())
         for word in global_top_keywords:
-            # Normalized frequency to maintain true scale across text compression
             freq = (vocab[word] / total_words_in_window) if total_words_in_window > 0 else 0.0
             lexical_trends[word].append(freq)
             
-    fig5, ax_lex = plt.subplots(figsize=(9, 5))
+    # Wybieramy TOP 15 najważniejszych słów w całym treningu
+    # SORTOWANIE KASKADOWE: Sortujemy według okna, w którym słowo osiągnęło SZCZYT popularności
+    sorted_keywords = sorted(
+        global_top_keywords, 
+        key=lambda w: (np.argmax(lexical_trends[w]), -max(lexical_trends[w]))
+    )[:15]
     
-    # Sort keywords by their maximum final peak frequency to pick the top 7 most dominant for plotting
-    sorted_keywords = sorted(global_top_keywords, key=lambda w: max(lexical_trends[w]), reverse=True)[:7]
+    # Budujemy macierz 2D (Słowa x Okna)
+    matrix_data = np.array([lexical_trends[word] for word in sorted_keywords])
     
-    for word in sorted_keywords:
-        ax_lex.plot(x_axis, lexical_trends[word], lw=1.4, label=f"'{word}'")
-        
-    ax_lex.set_ylabel('Relative Word Frequency (Probability)')
+    fig5, ax_lex = plt.subplots(figsize=(9, 6))
+    
+    # Rysujemy mapę ciepła. Cmap 'Purples', 'Blues' lub 'Greys' wyglądają bardzo profesjonalnie
+    im = ax_lex.imshow(matrix_data, cmap='Purples', aspect='auto', interpolation='nearest')
+    
+    # Konfiguracja osi Y (Słowa)
+    ax_lex.set_yticks(np.arange(len(sorted_keywords)))
+    ax_lex.set_yticklabels([f"'{word}'" for word in sorted_keywords], fontsize=9.5)
+    
+    # Konfiguracja osi X (Okna - pokazujemy co 10 okno, żeby opis nie był ściśnięty)
+    x_indices = np.arange(len(x_axis))
+    ax_lex.set_xticks(x_indices[::10])
+    ax_lex.set_xticklabels(x_axis[::10])
+    
     ax_lex.set_xlabel('Training window')
-    ax_lex.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
-    ax_lex.set_title('Experiment 1 — Lexical Evolution: Dominant Scientific Terms Over Training', pad=8)
-    ax_lex.legend(frameon=False, loc='upper left', bbox_to_anchor=(1.02, 1), title="Emergent Lexicon")
+    ax_lex.set_ylabel('Emergent Vocabulary Tokens')
+    ax_lex.set_title('Experiment 1 — Lexical Cascade: Vocabulary Stabilization Over Training', pad=12)
     
+    # Dodajemy elegancki pasek boczny z legendą kolorów (colorbar)
+    cbar = fig5.colorbar(im, ax_lex, fraction=0.03, pad=0.04)
+    cbar.set_label('Relative Token Frequency (Probability Within Window)')
+    cbar.outline.set_visible(False) # usuwamy ramkę wokół colorbaru dla minimalizmu
+    
+    # Usuwamy zbędne ramki wokół samej mapy ciepła
+    for spine in ax_lex.spines.values():
+        spine.set_visible(False)
+        
+    fig5.tight_layout()
     plt.savefig(os.path.join(output_dir, "exp1_lexical_evolution.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
