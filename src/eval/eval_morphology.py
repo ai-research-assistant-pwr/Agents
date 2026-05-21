@@ -199,6 +199,15 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     df.to_csv(csv_path, index=False)
     print(f"Saved raw windowed data to: {csv_path}")
 
+    top_words_evolution = {
+        f"Window_{r['Window_Index']:03d}": r["Top_5_Words"]
+        for r in results
+    }
+    json_path = os.path.join(output_dir, "exp1_top5_evolution.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(top_words_evolution, f, indent=4, ensure_ascii=False)
+    print(f"Saved Top 5 words evolution to: {json_path}")
+
     # ==========================================
     # Plot Generation
     # ==========================================
