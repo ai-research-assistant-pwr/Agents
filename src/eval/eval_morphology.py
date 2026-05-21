@@ -1,5 +1,5 @@
 """
-Morphology Evaluation — Experiment 1 (Updated with Reward Dynamics & Components)
+Morphology Evaluation — Experiment 1 (Full Suite with Lexical Evolution)
 ======================================
 Tests the Information Bottleneck hypothesis: does adding a per-token length
 penalty (R = R_task − λ · length(message)) cause the Retriever to compress
@@ -12,20 +12,18 @@ Metrics tracked over the course of training:
   - Unigram Entropy (raw + normalised)
   - Reward Dynamics (Total vs Task vs Penalty)
   - Reward Components (Similarity, Diversity, Groundedness, Relevancy)
-
-Data contract
--------------
-  Reads traj_*.json files written by scientific_workflow.py (DEBUG=True).
-  Extracts retriever messages and generator_generate turn scores.
+  - Lexical Evolution (NEW: Relative frequency of top scientific terms)
 
 Output
 ------
   eval_results/experiment_1/
     ├── exp1_morphology_metrics.csv
-    ├── exp1_compression_vs_reward.png   — total reward + length over time
-    ├── exp1_entropy_and_vocab.png       — entropy + vocab size
-    ├── exp1_rewards_evolution.png       — task reward vs penalty dynamics
-    └── exp1_reward_components.png       — individual reward components vs penalty
+    ├── exp1_top5_evolution.json
+    ├── exp1_compression_vs_reward.png
+    ├── exp1_entropy_and_vocab.png
+    ├── exp1_rewards_evolution.png
+    ├── exp1_reward_components.png
+    └── exp1_lexical_evolution.png
 """
 
 import os
@@ -56,22 +54,19 @@ def tokenize(text: str) -> list:
     """Tokenization with stop-word and length filtering."""
     if not text:
         return []
+    # Filtracja: tylko litery, minimum 3 znaki
     words = re.findall(r'\b[a-z]{3,}\b', text.lower())
-
     return [w for w in words if w not in STOP_WORDS]
 
 def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 50):
     os.makedirs(output_dir, exist_ok=True)
 
-    # Auto-detect 'train' subfolder to ensure we analyze training dynamics
     train_logs_dir = os.path.join(logs_dir, "train")
     if os.path.isdir(train_logs_dir):
         print(f"Auto-detected 'train' subfolder. Reading trajectories from: {train_logs_dir}")
         logs_dir = train_logs_dir
 
-    # Load and sort log files by timestamp
     log_files = glob.glob(os.path.join(logs_dir, "traj_*.json"))
-
     parsed_files = []
     for f in log_files:
         basename = os.path.basename(f)
@@ -90,8 +85,8 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     print(f"Found {len(parsed_files)} trajectories. Analyzing in windows of {window_size}...")
 
     results = []
+    window_vocabs_raw = [] # Track full raw counters for post-processing lexical trends
 
-    # Process logs in windows to compute metrics over time
     for i in range(0, len(parsed_files), window_size):
         batch_files = parsed_files[i:i + window_size]
 
@@ -103,8 +98,6 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
         window_total_rewards = []
         window_task_rewards = []
         window_length_penalties = []
-        
-        # New component trackers
         window_similarity = []
         window_diversity = []
         window_groundedness = []
@@ -127,12 +120,9 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
             window_length_penalties.append(len_p)
 
             traj_lengths = []
-            
-            # Temporary holders for components in case they are missing
             sim_val, div_val, grd_val, rel_val = 0.0, 0.0, 0.0, 0.0
 
             for turn in data.get("turns", []):
-                # Extracting message text and tokens
                 if turn.get("turn_type") == "retriever_message":
                     text = turn.get("output_content", "")
                     tokens = tokenize(text) 
@@ -142,7 +132,6 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
                     traj_lengths.append(n_tokens)
                     window_vocab.update(tokens)
                 
-                # Extracting individual reward components from generator's turn
                 if turn.get("turn_type") == "generator_generate":
                     sim_val = turn.get("similarity_score", 0.0)
                     div_val = turn.get("diversity_score", 0.0)
@@ -161,7 +150,6 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
             print(f"  Window {i // window_size + 1}: No retriever messages found — skipping.")
             continue
 
-        # Calculate window metrics
         vocab_size = len(window_vocab)
         counts = list(window_vocab.values())
         if counts:
@@ -172,8 +160,11 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
             h = 0.0
             h_norm = 0.0
 
+        window_idx = i // window_size + 1
+        window_vocabs_raw.append((window_idx, window_vocab))
+
         results.append({
-            "Window_Index": i // window_size + 1,
+            "Window_Index": window_idx,
             "Trajectories_Count": len(batch_files),
             "Avg_Total_Reward": round(np.mean(window_total_rewards), 4),
             "Avg_Task_Reward": round(np.mean(window_task_rewards), 4),
@@ -190,19 +181,16 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
         })
 
     if not results:
-        print("No complete windows produced results. Check log files and turn types.")
+        print("No complete windows produced results. Check log files.")
         return
 
-    # Save metrics to CSV for further analysis
+    # Save metrics and JSON
     df = pd.DataFrame(results)
     csv_path = os.path.join(output_dir, "exp1_morphology_metrics.csv")
     df.to_csv(csv_path, index=False)
     print(f"Saved raw windowed data to: {csv_path}")
 
-    top_words_evolution = {
-        f"Window_{r['Window_Index']:03d}": r["Top_5_Words"]
-        for r in results
-    }
+    top_words_evolution = {f"Window_{r['Window_Index']:03d}": r["Top_5_Words"] for r in results}
     json_path = os.path.join(output_dir, "exp1_top5_evolution.json")
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(top_words_evolution, f, indent=4, ensure_ascii=False)
@@ -211,7 +199,6 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     # ==========================================
     # Plot Generation
     # ==========================================
-
     plt.rcParams.update({
         'font.family':      'serif',
         'font.size':        10,
@@ -223,8 +210,6 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
         'axes.spines.top':  False,
         'axes.spines.right': False,
         'axes.linewidth':   0.6,
-        'xtick.major.width': 0.6,
-        'ytick.major.width': 0.6,
         'figure.facecolor': 'white',
         'axes.facecolor':   'white',
     })
@@ -233,139 +218,109 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     GREY_MID = '#666666'
     GREY_REF = '#aaaaaa'
     RED_ACCENT = '#d62728'
-    
-    # Colors for the new components plot
-    C_SIM = '#1f77b4'  # Blue
-    C_DIV = '#ff7f0e'  # Orange
-    C_GRD = '#2ca02c'  # Green
-    C_REL = '#9467bd'  # Purple
-
     x_axis = df["Window_Index"]
 
-    # ------------------------------------------------------------------
-    # Plot 1: Compression vs. Task Reward (Total)
-    # ------------------------------------------------------------------
-    fig1, (ax_r, ax_l) = plt.subplots(
-        2, 1, figsize=(7, 5), sharex=True, gridspec_kw={'hspace': 0.12},
-    )
-
-    ax_r.plot(x_axis, df["Avg_Total_Reward"], color=ACCENT, linewidth=1.2)
+    # --- Plot 1: Compression vs Total Reward ---
+    fig1, (ax_r, ax_l) = plt.subplots(2, 1, figsize=(7, 5), sharex=True, gridspec_kw={'hspace': 0.12})
+    ax_r.plot(x_axis, df["Avg_Total_Reward"], color=ACCENT, lw=1.2)
     ax_r.fill_between(x_axis, df["Avg_Total_Reward"], alpha=0.06, color=ACCENT)
     ax_r.set_ylabel('Total reward')
-    ax_r.yaxis.set_label_coords(-0.08, 0.5)
-    ax_r.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
-    ax_r.set_title('Experiment 1 — Information Bottleneck: compression vs. total reward', pad=8, fontsize=11)
-
-    ax_l.plot(x_axis, df["Avg_Message_Length"], color=ACCENT, linewidth=1.2)
+    ax_r.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
+    ax_r.set_title('Experiment 1 — Information Bottleneck: compression vs. total reward', pad=8)
+    ax_l.plot(x_axis, df["Avg_Message_Length"], color=ACCENT, lw=1.2)
     ax_l.fill_between(x_axis, df["Avg_Message_Length"], alpha=0.06, color=ACCENT)
     ax_l.set_ylabel('Message length (tokens)')
-    ax_l.yaxis.set_label_coords(-0.08, 0.5)
     ax_l.set_xlabel('Training window')
-    ax_l.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
-
-    fig1.tight_layout()
+    ax_l.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
     plt.savefig(os.path.join(output_dir, "exp1_compression_vs_reward.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    # ------------------------------------------------------------------
-    # Plot 2: Entropy and Vocabulary Size
-    # ------------------------------------------------------------------
-    fig2, (ax_e, ax_en, ax_v) = plt.subplots(
-        3, 1, figsize=(7, 7), sharex=True, gridspec_kw={'hspace': 0.12},
-    )
-
-    ax_e.plot(x_axis, df["Unigram_Entropy"], color=ACCENT, linewidth=1.2)
-    ax_e.fill_between(x_axis, df["Unigram_Entropy"], alpha=0.06, color=ACCENT)
+    # --- Plot 2: Entropy and Vocab ---
+    fig2, (ax_e, ax_en, ax_v) = plt.subplots(3, 1, figsize=(7, 7), sharex=True, gridspec_kw={'hspace': 0.12})
+    ax_e.plot(x_axis, df["Unigram_Entropy"], color=ACCENT, lw=1.2)
     ax_e.set_ylabel('Entropy (bits)')
-    ax_e.yaxis.set_label_coords(-0.08, 0.5)
-    ax_e.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
-    ax_e.set_title(f'Experiment 1 — Token distribution entropy and vocabulary size\n(window = {window_size} trajectories)', pad=8, fontsize=11)
-
-    ax_en.plot(x_axis, df["Unigram_Entropy_Norm"], color=ACCENT, linewidth=1.2)
-    ax_en.fill_between(x_axis, df["Unigram_Entropy_Norm"], alpha=0.06, color=ACCENT)
+    ax_e.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
+    ax_e.set_title(f'Experiment 1 — Token distribution entropy and vocabulary size\n(window = {window_size} trajectories)', pad=8)
+    ax_en.plot(x_axis, df["Unigram_Entropy_Norm"], color=ACCENT, lw=1.2)
     ax_en.set_ylabel('H / log₂(V)')
-    ax_en.yaxis.set_label_coords(-0.08, 0.5)
     ax_en.set_ylim(0, 1.05)
-    ax_en.axhline(1.0, linewidth=0.5, color=GREY_REF, linestyle=':')
-    ax_en.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
-
-    ax_v.plot(x_axis, df["Active_Vocab_Size"], color=ACCENT, linewidth=1.2)
-    ax_v.fill_between(x_axis, df["Active_Vocab_Size"], alpha=0.06, color=ACCENT)
+    ax_en.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
+    ax_v.plot(x_axis, df["Active_Vocab_Size"], color=ACCENT, lw=1.2)
     ax_v.set_ylabel('Vocabulary size')
-    ax_v.yaxis.set_label_coords(-0.08, 0.5)
     ax_v.set_xlabel('Training window')
-    ax_v.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
-
-    fig2.tight_layout()
+    ax_v.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
     plt.savefig(os.path.join(output_dir, "exp1_entropy_and_vocab.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    # ------------------------------------------------------------------
-    # Plot 3: Reward Components Evolution (Task Reward vs Penalty)
-    # ------------------------------------------------------------------
-    fig3, (ax_r_main, ax_pen) = plt.subplots(
-        2, 1, figsize=(7, 5), sharex=True, gridspec_kw={'hspace': 0.12},
-    )
-
-    ax_r_main.plot(x_axis, df["Avg_Task_Reward"], color=GREY_MID, linewidth=1.2, linestyle='--', label='Task Reward (Before Penalty)')
-    ax_r_main.plot(x_axis, df["Avg_Total_Reward"], color=ACCENT, linewidth=1.2, label='Total Reward (After Penalty)')
-    
-    # Fill the gap to visualize the magnitude of the penalty dynamically
-    ax_r_main.fill_between(x_axis, df["Avg_Total_Reward"], df["Avg_Task_Reward"], color=RED_ACCENT, alpha=0.1, label='Length Penalty Gap')
-    
+    # --- Plot 3: Reward Evolution ---
+    fig3, (ax_r_main, ax_pen) = plt.subplots(2, 1, figsize=(7, 5), sharex=True, gridspec_kw={'hspace': 0.12})
+    ax_r_main.plot(x_axis, df["Avg_Task_Reward"], color=GREY_MID, lw=1.2, ls='--', label='Task Reward')
+    ax_r_main.plot(x_axis, df["Avg_Total_Reward"], color=ACCENT, lw=1.2, label='Total Reward')
+    ax_r_main.fill_between(x_axis, df["Avg_Total_Reward"], df["Avg_Task_Reward"], color=RED_ACCENT, alpha=0.1, label='Penalty Gap')
     ax_r_main.set_ylabel('Reward Score')
-    ax_r_main.yaxis.set_label_coords(-0.08, 0.5)
-    ax_r_main.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
-    ax_r_main.set_title('Experiment 1 — Reward Dynamics: Task Quality vs. Length Penalty', pad=8, fontsize=11)
-    ax_r_main.legend(frameon=False, fontsize=9)
-
-    ax_pen.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, linewidth=1.2)
-    ax_pen.fill_between(x_axis, df["Avg_Length_Penalty"], alpha=0.06, color=RED_ACCENT)
+    ax_r_main.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
+    ax_r_main.set_title('Experiment 1 — Reward Dynamics: Task Quality vs. Length Penalty', pad=8)
+    ax_r_main.legend(frameon=False, loc='lower left')
+    ax_pen.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, lw=1.2)
     ax_pen.set_ylabel('Length Penalty')
-    ax_pen.yaxis.set_label_coords(-0.08, 0.5)
     ax_pen.set_xlabel('Training window')
-    ax_pen.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
-
-    fig3.tight_layout()
+    ax_pen.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
     plt.savefig(os.path.join(output_dir, "exp1_rewards_evolution.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    # ------------------------------------------------------------------
-    # Plot 4: Detailed Reward Components Breakdown
-    # ------------------------------------------------------------------
-    fig4, ax_comp = plt.subplots(figsize=(8, 5))
-
-    ax_comp.plot(x_axis, df["Avg_Similarity"], color=C_SIM, linewidth=1.2, label='Similarity')
-    ax_comp.plot(x_axis, df["Avg_Diversity"], color=C_DIV, linewidth=1.2, label='Diversity')
-    ax_comp.plot(x_axis, df["Avg_Groundedness"], color=C_GRD, linewidth=1.2, label='Groundedness')
-    ax_comp.plot(x_axis, df["Avg_Relevancy"], color=C_REL, linewidth=1.2, label='Relevancy')
-    
-    # Overlay the length penalty on the same axis for scale comparison (using a distinct dashed line)
-    ax_comp.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, linewidth=1.5, linestyle='--', label='Length Penalty')
-
+    # --- Plot 4: Detailed Component Breakdown ---
+    fig4, ax_comp = plt.subplots(figsize=(8, 4.5))
+    ax_comp.plot(x_axis, df["Avg_Similarity"], color='#1f77b4', lw=1.2, label='Similarity')
+    ax_comp.plot(x_axis, df["Avg_Diversity"], color='#ff7f0e', lw=1.2, label='Diversity')
+    ax_comp.plot(x_axis, df["Avg_Groundedness"], color='#2ca02c', lw=1.2, label='Groundedness')
+    ax_comp.plot(x_axis, df["Avg_Relevancy"], color='#9467bd', lw=1.2, label='Relevancy')
+    ax_comp.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, lw=1.5, ls='--', label='Length Penalty')
     ax_comp.set_ylabel('Component Score / Penalty')
-    ax_comp.yaxis.set_label_coords(-0.08, 0.5)
     ax_comp.set_xlabel('Training window')
-    ax_comp.grid(axis='y', linewidth=0.4, color=GREY_REF, linestyle=':')
-    ax_comp.set_title('Experiment 1 — Evolution of Individual Reward Components', pad=8, fontsize=11)
-    
-    # Place legend outside the plot area so it doesn't obstruct lines
-    ax_comp.legend(frameon=False, fontsize=9, loc='upper left', bbox_to_anchor=(1.02, 1))
-
-    fig4.tight_layout()
+    ax_comp.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
+    ax_comp.set_title('Experiment 1 — Evolution of Individual Reward Components', pad=8)
+    ax_comp.legend(frameon=False, loc='upper left', bbox_to_anchor=(1.02, 1))
     plt.savefig(os.path.join(output_dir, "exp1_reward_components.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    print(f"Completed analysis. High-resolution plots saved to: {output_dir}")
+    # --- NEW Plot 5: Lexical Evolution Tracking (Top Scientific Terms) ---
+    # Find all unique keywords that hit TOP 5 in ANY window to observe their propagation
+    global_top_keywords = set()
+    for r in results:
+        global_top_keywords.update(r["Top_5_Words"].keys())
+        
+    # Build frequency streams over time (relative probability within the window text)
+    lexical_trends = {word: [] for word in global_top_keywords}
+    for w_idx, vocab in window_vocabs_raw:
+        total_words_in_window = sum(vocab.values())
+        for word in global_top_keywords:
+            # Normalized frequency to maintain true scale across text compression
+            freq = (vocab[word] / total_words_in_window) if total_words_in_window > 0 else 0.0
+            lexical_trends[word].append(freq)
+            
+    fig5, ax_lex = plt.subplots(figsize=(9, 5))
+    
+    # Sort keywords by their maximum final peak frequency to pick the top 7 most dominant for plotting
+    sorted_keywords = sorted(global_top_keywords, key=lambda w: max(lexical_trends[w]), reverse=True)[:7]
+    
+    for word in sorted_keywords:
+        ax_lex.plot(x_axis, lexical_trends[word], lw=1.4, label=f"'{word}'")
+        
+    ax_lex.set_ylabel('Relative Word Frequency (Probability)')
+    ax_lex.set_xlabel('Training window')
+    ax_lex.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
+    ax_lex.set_title('Experiment 1 — Lexical Evolution: Dominant Scientific Terms Over Training', pad=8)
+    ax_lex.legend(frameon=False, loc='upper left', bbox_to_anchor=(1.02, 1), title="Emergent Lexicon")
+    
+    plt.savefig(os.path.join(output_dir, "exp1_lexical_evolution.png"), dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"Completed analysis. All 5 high-resolution plots saved to: {output_dir}")
 
 if __name__ == "__main__":
     import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Experiment 1 — Morphology: compression vs. usefulness"
-    )
-    parser.add_argument("--logs_dir",    default="./Agents/workflow_logs",
-                        help="Directory with traj_*.json debug logs")
+    parser = argparse.ArgumentParser(description="Experiment 1 — Morphology Suite")
+    parser.add_argument("--logs_dir",    default="./Agents/workflow_logs")
     parser.add_argument("--output_dir",  default="./Agents/eval_results/experiment_1")
     parser.add_argument("--window_size", type=int, default=50)
     args = parser.parse_args()
