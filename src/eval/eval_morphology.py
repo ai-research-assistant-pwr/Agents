@@ -287,8 +287,8 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     DISPLAY_MAX_RANK = 20
     SMOOTHING_WINDOW = 5 
     
-    top5_first = [word for word, count in window_vocabs_raw[0][1].most_common(5)]
-    top5_last = [word for word, count in window_vocabs_raw[-1][1].most_common(5)]
+    top5_first = [word for word, count in window_vocabs_raw[0][1].most_common(3)]
+    top5_last = [word for word, count in window_vocabs_raw[-1][1].most_common(3)]
     
     ranks_first = {word: [] for word in top5_first}
     ranks_last = {word: [] for word in top5_last}
@@ -313,7 +313,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
         smoothed_ranks = smooth_series(ranks_first[word], SMOOTHING_WINDOW)
         ax_f.plot(x_axis, smoothed_ranks, lw=1.5, label=f"'{word}'")
         
-    ax_f.set_title("Rank Evolution: Initial Top 5 Tokens (Smoothed)", fontsize=10.5, pad=8)
+    ax_f.set_title("Rank Evolution: Initial Top 3 Tokens (Smoothed)", fontsize=10.5, pad=8)
     ax_f.set_xlabel("Training window")
     ax_f.set_ylabel("Vocabulary Rank (Top 1 is Highest)")
     ax_f.set_ylim(0.5, DISPLAY_MAX_RANK + 1.5)
@@ -327,7 +327,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
         smoothed_ranks = smooth_series(ranks_last[word], SMOOTHING_WINDOW)
         ax_l.plot(x_axis, smoothed_ranks, lw=1.5, label=f"'{word}'")
         
-    ax_l.set_title("Rank Evolution: Final Top 5 Tokens (Smoothed)", fontsize=10.5, pad=8)
+    ax_l.set_title("Rank Evolution: Final Top 3 Tokens (Smoothed)", fontsize=10.5, pad=8)
     ax_l.set_xlabel("Training window")
     ax_l.set_ylim(0.5, DISPLAY_MAX_RANK + 1.5)
     ax_l.invert_yaxis()
