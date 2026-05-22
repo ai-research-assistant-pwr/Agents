@@ -9,10 +9,10 @@ paths:
   prompts_dir: "data/prompts"
   articles_dir: "articles"
   models_dir: "models"
-  models_output_dir: "Agents/models_output/sft"
+  models_output_dir: "Agents/models_output/sft_no_masking"
 
   datasets: "data/datasets"
-  dataset_prepped: "data/datasets/sft_mod"
+  dataset_prepped: "data/datasets/sft_mod_no_masking"
 
 files:
   prompt_topics: "taxonomy_phase2_gemini-3-flash-preview_adv.jsonl"

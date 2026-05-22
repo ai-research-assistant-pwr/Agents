@@ -12,9 +12,6 @@ Input files (placed in data/datasets/):
       columns: paper_id, paper_title, user_query, retriever_message,
                masked_retriever_message (empty), input_messages, reasoning, hypotheses
 
-  - rl_generator_outputs_mask.csv
-      same schema as above, but masked_retriever_message is filled
-
 Output files (placed in data/datasets/sft3/):
   - shared_agent_train.jsonl
   - shared_agent_eval.jsonl    (only if EVAL_SPLIT_RATIO > 0)
@@ -26,7 +23,7 @@ Record format (ChatML with Qwen3 thinking):
     "messages": [
       {"role": "system",    "content": "<system prompt>"},
       {"role": "user",      "content": "<user turn>"},
-      {"role": "assistant", "content": "<think>\\n{reasoning}\\n</think>\\n\\n{output}"}
+      {"role": "assistant", "content": "<think>\n{reasoning}\n</think>\n\n{output}"}
     ]
   }
 
@@ -38,10 +35,6 @@ Notes
       <think>\n{reasoning}\n</think>\n\n{output}
   This matches the Qwen3 thinking format expected by the tokenizer and keeps
   the reasoning inside the training loss (we want the model to learn to reason).
-- masked_retriever_message records are included as a data-augmentation variant:
-  the generator sees a noisy channel message and still has to produce valid
-  hypotheses. They are tagged agent_role="generator_masked" so you can filter
-  them out if you change your mind.
 - No separate test split is created — you only need train + eval for SFT when
   the primary evaluation is the downstream GRPO comparison.
 """
@@ -76,7 +69,6 @@ os.makedirs(OUTPUT_DATASET_DIR, exist_ok=True)
 
 RETRIEVER_CSV        = os.path.join(DATASETS_DIR, "rl_retriever_outputs.csv")
 GENERATOR_NO_MASK_CSV = os.path.join(DATASETS_DIR, "rl_generator_outputs_no_mask.csv")
-GENERATOR_MASK_CSV   = os.path.join(DATASETS_DIR, "rl_generator_outputs_mask.csv")
 
 # ── output files ──────────────────────────────────────────────────────────────
 
@@ -87,10 +79,6 @@ EVAL_FILE  = os.path.join(OUTPUT_DATASET_DIR, "shared_agent_eval.jsonl")
 
 EVAL_SPLIT_RATIO = 0.1   # set to 0.0 to skip eval split entirely
 RANDOM_SEED      = 42
-
-# ── include masked generator records as augmentation? ────────────────────────
-
-USE_MASKED_AUGMENTATION = True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -156,7 +144,7 @@ def load_retriever_records(csv_path: str) -> list:
 
     Each row becomes one record where:
       - system + user  → from input_messages (already built by GRPO pipeline)
-      - assistant      → <think>{reasoning}</think>\\n\\n{retriever_message}
+      - assistant      → <think>{reasoning}</think>\n\n{retriever_message}
     """
     df = pd.read_csv(csv_path)
     required = {"input_messages", "reasoning", "retriever_message"}
@@ -208,11 +196,8 @@ def load_generator_records(csv_path: str, agent_role: str, output_col: str) -> l
     Parameters
     ----------
     csv_path   : path to the CSV file
-    agent_role : "generator" or "generator_masked"
-    output_col : column that holds the target output
-                 ("hypotheses" for no_mask, "hypotheses" for mask too — the
-                 difference is only in the user turn via masked_retriever_message
-                 already embedded in input_messages for the mask file)
+    agent_role : "generator"
+    output_col : column that holds the target output ("hypotheses")
     """
     df = pd.read_csv(csv_path)
     required = {"input_messages", "reasoning", output_col}
@@ -355,15 +340,7 @@ def main():
         GENERATOR_NO_MASK_CSV, agent_role="generator", output_col="hypotheses"
     )
 
-    masked_records = []
-    if USE_MASKED_AUGMENTATION and os.path.exists(GENERATOR_MASK_CSV):
-        masked_records = load_generator_records(
-            GENERATOR_MASK_CSV, agent_role="generator_masked", output_col="hypotheses"
-        )
-    elif USE_MASKED_AUGMENTATION:
-        print(f"  [WARN] Mask file not found at {GENERATOR_MASK_CSV} — skipping augmentation.")
-
-    all_records = retriever_records + generator_records + masked_records
+    all_records = retriever_records + generator_records
 
     if not all_records:
         print("ERROR: No valid records after filtering.")

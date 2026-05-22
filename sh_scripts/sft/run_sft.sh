@@ -69,7 +69,6 @@ if [ ! -f "$TRAIN_DATASET" ]; then
     echo "Input CSVs expected at:"
     echo "  $AGENTS_DIR/data/datasets/rl_retriever_outputs.csv"
     echo "  $AGENTS_DIR/data/datasets/rl_generator_outputs_no_mask.csv"
-    echo "  $AGENTS_DIR/data/datasets/rl_generator_outputs_mask.csv  (optional)"
     exit 1
 fi
 
