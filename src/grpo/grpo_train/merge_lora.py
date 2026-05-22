@@ -8,8 +8,8 @@ BASE_DIR = "Agents"
 BASE_MODEL_NAME = "Qwen/Qwen3-4B"
 
 # Ścieżki do modeli
-ADAPTER_PATH = os.path.join(BASE_DIR, "models_output", "sft", "lora_shared_agent_Qwen3-4B")
-OUTPUT_PATH = os.path.join(BASE_DIR, "models_output", "merged_sft_qwen_4B")
+ADAPTER_PATH = os.path.join(BASE_DIR, "models_output", "sft_no_masking", "lora_shared_agent_Qwen3-4B")
+OUTPUT_PATH = os.path.join(BASE_DIR, "models_output", "merged_sft_no_masking", "merged_sft_qwen_4B")
 
 def merge_lora_weights():
     print(f"Checking for adapter at: {ADAPTER_PATH}")
