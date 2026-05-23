@@ -18,11 +18,11 @@ MY_DISK="$SLURM_SUBMIT_DIR"
 BASE_DIR="$MY_DISK/Agents"
 VENV_PATH="$BASE_DIR/venv"
 
-# TODO: Ustaw ścieżkę do wyuczonego modelu SFT/GRPO
 TRAIN_MODEL="${TRAIN_MODEL:-"$BASE_DIR/models_output/grpo_qwen_5231830_results"}"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
 
 EVAL_DATA_PATH="$BASE_DIR/data/datasets/rl_grounded_dataset_eval.csv"
+TRAIN_DATA_PATH="$BASE_DIR/data/datasets/rl_grounded_dataset_train.csv"
 WORKFLOW_SCRIPT="$BASE_DIR/src/grpo/grpo_train/scientific_workflow.py"
 DEBUG_DIR="$BASE_DIR/workflow_logs/eval_clean"
 
@@ -77,26 +77,34 @@ AGENT0="{
     }
 }"
 
-echo "=> Rozpoczęcie ewaluacji..."
+echo "=> Rozpoczęcie zhackowanej ewaluacji z czystym kanałem komunikacyjnym (Baseline)..."
 
 $VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --pretrain "$TRAIN_MODEL" \
+    --save_path "$DEBUG_DIR" \
     --agents "$AGENT0" \
     --workflow_func_path "$WORKFLOW_SCRIPT" \
+    --prompt_data "$TRAIN_DATA_PATH" \
     --eval_dataset "$EVAL_DATA_PATH" \
     --eval_split test \
     --eval_only \
+    --eval_before_training \
     --eval_n_samples_per_prompt 10 \
-    --save_path "$DEBUG_DIR" \
     --workflow_args "{\"debug_dir\": \"$DEBUG_DIR\", \"apply_channel_noise\": \"false\", \"noise_probability\": 0.0, \"embed_host\": \"localhost\", \"embed_port\": $EMBED_PORT}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
     --metadata_key "metadata" \
+    --advantage_estimator "group_norm" \
     --vllm_num_engines 1 \
     --vllm_tensor_parallel_size 1 \
     --vllm_gpu_memory_utilization 0.6 \
     --actor_num_nodes 1 \
-    --actor_num_gpus_per_node 1
+    --actor_num_gpus_per_node 1 \
+    --train_batch_size 1 \
+    --micro_train_batch_size 1 \
+    --rollout_batch_size 1 \
+    --num_episodes 1 \
+    --max_epochs 1
 
 echo "=> Ewaluacja (Clean) zakończona pomyślnie!"
 
