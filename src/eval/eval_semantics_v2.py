@@ -394,7 +394,7 @@ async def main():
     parser.add_argument("--output_dir", default="./Agents/eval_results/merged_semantics")
     parser.add_argument("--window_size", type=int, default=50)
     parser.add_argument("--hdbscan_min_samples", type=int, default=15)
-    parser.add_argument("--umap_neighbors", type=int, default=15)
+    parser.add_argument("--umap_neighbors", type=int, default=50)
     
     # Argumenty przekazywane przez run_eval.sh
     parser.add_argument("--embed_host", default=EMBED_HOST)
@@ -441,7 +441,7 @@ async def main():
     # 3. Global UMAP on Main Run
     print("\nFitting UMAP on main trajectory...")
     main_embs = np.array([r["embedding"] for r in global_main])
-    reducer = umap.UMAP(n_neighbors=args.umap_neighbors, min_dist=0.1, n_components=2, metric="cosine", random_state=42)
+    reducer = umap.UMAP(n_neighbors=args.umap_neighbors, min_dist=0.01, n_components=2, metric="cosine", random_state=42)
     main_embs_2d = reducer.fit_transform(main_embs)
 
     # 4. HDBSCAN Clustering (On Original Embeddings)
