@@ -11,6 +11,7 @@ import math
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
+import numpy as np
 
 # ── embedding similarity reward ───────────────────────────────────────────────
 
@@ -188,6 +189,36 @@ _GROUNDEDNESS_INSTRUCTION = (
     "evidence supporting or grounding the hypothesis"
 )
 
+def softmax_weighted_mean(scores, temperature=0.1):
+    """
+    Calculates the softmax-weighted mean of document scores.
+    
+    Args:
+        scores (list or np.ndarray): Cross-encoder scores for each document.
+        temperature (float): Controls the 'hardness' of the max. 
+                             Closer to 0 acts like hard max. 
+                             Higher values act more like simple mean.
+                             
+    Returns:
+        float: The aggregated groundedness reward.
+    """
+    scores = np.array(scores)
+    
+    # Scale scores by temperature
+    scaled_scores = scores / temperature
+    
+    # Numerical stability: subtract max before exponentiating 
+    # to prevent overflow (this computes the exact same probabilities)
+    scaled_scores -= np.max(scaled_scores)
+    
+    # Calculate softmax weights
+    exp_scores = np.exp(scaled_scores)
+    weights = exp_scores / np.sum(exp_scores)
+    
+    # Calculate the weighted sum of the *original* scores
+    reward = np.sum(weights * scores)
+    
+    return float(reward)
 
 async def groundedness_reward(
     hypotheses: List[str],
@@ -224,7 +255,7 @@ async def groundedness_reward(
             server_port=rerank_port,
             model=model,
         )
-        scores_per_hyp.append(sum(scores) / len(scores))
+        scores_per_hyp.append(softmax_weighted_mean(scores, temperature=0.5))
 
     return round(sum(scores_per_hyp) / len(scores_per_hyp), 4)
 
