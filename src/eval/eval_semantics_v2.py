@@ -478,4 +478,26 @@ async def main():
     print(f"\n=== Pipeline Complete. Results saved to {args.output_dir} ===")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Experiment 2 & 3 — Semantics & Global Clustering Suite")
+    parser.add_argument("--logs_dir", default="./Agents/workflow_logs")
+    parser.add_argument("--extra_logs_dir", nargs="*", default=[], help="Extra runs 'label:path'")
+    parser.add_argument("--output_dir", default="./Agents/eval_results/merged_semantics")
+    parser.add_argument("--window_size", type=int, default=50)
+    parser.add_argument("--hdbscan_min_samples", type=int, default=15)
+    parser.add_argument("--umap_neighbors", type=int, default=15)
+    
+    # Przywrócone argumenty dla serwera vLLM
+    parser.add_argument("--embed_host", default=EMBED_HOST)
+    parser.add_argument("--embed_port", type=int, default=EMBED_PORT)
+    parser.add_argument("--embed_model", default=EMBED_MODEL)
+    
+    args = parser.parse_args()
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    # Nadpisanie globalnych stałych, jeśli podano je w argumentach
+    EMBED_HOST = args.embed_host
+    EMBED_PORT = args.embed_port
+    EMBED_MODEL = args.embed_model
+
+    print("\n=== Experiment 2 & 3: Semantic Evolution & Global Clustering ===")
     asyncio.run(main())
