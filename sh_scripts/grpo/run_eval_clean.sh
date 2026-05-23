@@ -182,7 +182,7 @@ srun --het-group=0 \
     --eval_split train \
     --eval_steps 9999 \
     --eval_before_training \
-    --eval_n_samples_per_prompt 1 \
+    --eval_n_samples_per_prompt '$N_SAMPLES' \
     --workflow_args "{
         \"debug_dir\": \"$DEBUG_DIR\",
         \"embed_host\": \"$EMBED_NODE\",
