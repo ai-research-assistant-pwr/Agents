@@ -218,7 +218,7 @@ async def workflow(
         f"workflow done | turns={state.turn_id} | reward={final_reward:.3f} | time={elapsed:.1f}s"
     )
 
-    if debug:
+    if debug and is_eval:
         _write_debug_log(
             debug_dir=debug_dir,
             prompt_id=prompt_id,

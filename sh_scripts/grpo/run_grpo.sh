@@ -4,10 +4,10 @@
 # =================================================
 #SBATCH --job-name=grpo_qwen
 #SBATCH --output=/home/%u/disk/patryk/Agents/out/%x_%j.out
-#SBATCH --time=0-00:15:00
+#SBATCH --time=0-05:00:00
 #SBATCH -p lem-gpu-short
 #SBATCH -N 1
-#SBATCH -c 32
+#SBATCH -c 16
 #SBATCH --mem=128gb
 #SBATCH --gres=gpu:hopper:4
 #SBATCH --ntasks-per-node=1
@@ -48,6 +48,8 @@ USE_WEAVIATE_CONTEXT="${USE_WEAVIATE_CONTEXT:-false}"
 WEAVIATE_TOP_N="${WEAVIATE_TOP_N:-5}"
 ASK_RETRIEVER_LIMIT="${ASK_RETRIEVER_LIMIT:-0}"
 RETRIEVER_SEARCH_LIMIT="${RETRIEVER_SEARCH_LIMIT:-0}"
+SAVE_STEPS="${SAVE_STEPS:-25}"
+MAX_CKPT_NUM="${MAX_CKPT_NUM:-2}"
 
 # 3. Derived Paths
 VENV_PATH="$BASE_DIR/venv"
@@ -58,6 +60,7 @@ EVAL_DATA_PATH="$AGENTS_DIR/data/rl_grounded_dataset_test.csv"
 EVAL_STEPS="${EVAL_STEPS:-25}"
 WORKFLOW_SCRIPT="$AGENTS_DIR/src/grpo/grpo_train/scientific_workflow.py"
 OUTPUT_DIR="${OUTPUT_DIR:-$MY_DISK/patryk/models_output/${SLURM_JOB_NAME}_results}"
+CKPT_PATH="${CKPT_PATH:-$OUTPUT_DIR/checkpoints}"
 
 source /usr/local/sbin/modules.sh
 module load CUDA/12.8.0
@@ -80,8 +83,8 @@ mkdir -p "$MY_NEW_TMP" "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CAC
 # =================================================
 TRAIN_NODE=$(scontrol show hostnames $SLURM_JOB_NODELIST_HET_GROUP_0 | head -n 1)
 EMBED_NODE=$(scontrol show hostnames $SLURM_JOB_NODELIST_HET_GROUP_1 | head -n 1)
-EMBED_PORT=8000
-RERANK_PORT=8001
+EMBED_PORT=8120
+RERANK_PORT=8121
 
 echo "=> Job distributed across heterogeneous nodes:"
 echo "   Trainer Node (4 GPUs): $TRAIN_NODE"
@@ -150,6 +153,14 @@ NVIDIA_SMI_PID=$!
 echo "=> nvidia-smi logging started -> $NVIDIA_SMI_LOG"
 
 # =================================================
+# START RAM LOGGING (On Het Group 0)
+# =================================================
+RAM_LOG="$BASE_DIR/logs/ram_${SLURM_JOB_ID}.log"
+(while true; do echo "=== $(date '+%Y-%m-%d %H:%M:%S') ===" >> "$RAM_LOG"; free -h >> "$RAM_LOG"; sleep 10; done) &
+RAM_LOG_PID=$!
+echo "=> RAM logging started -> $RAM_LOG"
+
+# =================================================
 # START TRAINING (On Het Group 0)
 # =================================================
 DEFAULT_AGENT="{
@@ -209,7 +220,7 @@ srun --het-group=0 \
     --n_samples_per_prompt 16 \
     --num_episodes 1 \
     --max_epochs 1 \
-    --prompt_max_len 4000 \
+    --prompt_max_len 4500 \
     --generate_max_len 3000 \
     --eval_generate_max_len 3000 \
     --zero_stage 3 \
@@ -217,6 +228,10 @@ srun --het-group=0 \
     --gradient_checkpointing \
     --packing_samples \
     --save_hf_ckpt \
+    --save_steps "$SAVE_STEPS" \
+    --ckpt_path "$CKPT_PATH" \
+    --max_ckpt_num "$MAX_CKPT_NUM" \
+    # --load_checkpoint \
     --seed 42 \
     --logging_steps 1 \
     --use_wandb "$WANDB_API_KEY" \
@@ -227,6 +242,7 @@ echo "=> Training completed successfully!"
 
 # Stop background processes
 kill "$NVIDIA_SMI_PID" 2>/dev/null
+kill "$RAM_LOG_PID" 2>/dev/null
 kill "$VLLM_EMBED_PID" 2>/dev/null
 kill "$VLLM_RERANK_PID" 2>/dev/null
 echo "=> Background logging and vLLM processes stopped."
