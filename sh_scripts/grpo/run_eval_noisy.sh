@@ -76,7 +76,7 @@ RETRIEVER_SEARCH_LIMIT="${RETRIEVER_SEARCH_LIMIT:-0}"
 NOISE_PROBABILITY="1.0"
 APPLY_CHANNEL_NOISE="true"
 
-EVAL_DATA_PATH="${EVAL_DATA_PATH:-"$BASE_DIR/data/datasets/rl_grounded_dataset_eval.csv"}"
+EVAL_DATA_PATH="${EVAL_DATA_PATH:-"$BASE_DIR/data/datasets/rl_grounded_dataset_test.csv"}"
 WORKFLOW_SCRIPT="$BASE_DIR/src/grpo/grpo_train/scientific_workflow.py"
 
 # Trajektorie trafią do eval/ (scientific_workflow.py dopisuje /eval gdy is_eval=true)
