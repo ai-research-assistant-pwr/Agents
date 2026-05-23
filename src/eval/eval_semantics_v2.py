@@ -389,11 +389,17 @@ def plot_umap_multi_run(xy_list, labels_list, output_path):
 async def main():
     parser = argparse.ArgumentParser(description="Experiment 2 & 3 — Semantics & Global Clustering Suite")
     parser.add_argument("--logs_dir", default="./Agents/workflow_logs")
+    parser.add_argument("--baseline_logs_dir", default=None, help="Optional baseline run for comparison from run_eval.sh")
     parser.add_argument("--extra_logs_dir", nargs="*", default=[], help="Extra runs 'label:path'")
     parser.add_argument("--output_dir", default="./Agents/eval_results/merged_semantics")
     parser.add_argument("--window_size", type=int, default=50)
     parser.add_argument("--hdbscan_min_samples", type=int, default=15)
     parser.add_argument("--umap_neighbors", type=int, default=15)
+    
+    # Argumenty przekazywane przez run_eval.sh
+    parser.add_argument("--embed_host", default=EMBED_HOST)
+    parser.add_argument("--embed_port", type=int, default=EMBED_PORT)
+    parser.add_argument("--embed_model", default=EMBED_MODEL)
     
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
@@ -402,20 +408,27 @@ async def main():
     
     # 1. Process Main Run (Windowed + Global Data)
     df_main, global_main = await analyse_run_windowed(
-        args.logs_dir, args.window_size, "main", EMBED_HOST, EMBED_PORT, EMBED_MODEL
+        args.logs_dir, args.window_size, "main", args.embed_host, args.embed_port, args.embed_model
     )
     
     if not global_main:
         print("No data extracted. Exiting.")
         return
 
-    # 2. Process Extra Runs
+    # 2. Process Extra Runs (w tym baseline z run_eval.sh)
     dfs = [df_main]
     global_extras = []
+    
+    # Kompatybilność z parametrem BASELINE_ARG ze skryptu run_eval.sh
+    if args.baseline_logs_dir:
+        args.extra_logs_dir.append(f"baseline:{args.baseline_logs_dir}")
+
     for spec in args.extra_logs_dir:
         if ":" not in spec: continue
         label, path = spec.split(":", 1)
-        df_ext, glob_ext = await analyse_run_windowed(path, args.window_size, label, EMBED_HOST, EMBED_PORT, EMBED_MODEL)
+        df_ext, glob_ext = await analyse_run_windowed(
+            path, args.window_size, label, args.embed_host, args.embed_port, args.embed_model
+        )
         if glob_ext:
             dfs.append(df_ext)
             global_extras.append((label, glob_ext))
@@ -478,26 +491,4 @@ async def main():
     print(f"\n=== Pipeline Complete. Results saved to {args.output_dir} ===")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Experiment 2 & 3 — Semantics & Global Clustering Suite")
-    parser.add_argument("--logs_dir", default="./Agents/workflow_logs")
-    parser.add_argument("--extra_logs_dir", nargs="*", default=[], help="Extra runs 'label:path'")
-    parser.add_argument("--output_dir", default="./Agents/eval_results/merged_semantics")
-    parser.add_argument("--window_size", type=int, default=50)
-    parser.add_argument("--hdbscan_min_samples", type=int, default=15)
-    parser.add_argument("--umap_neighbors", type=int, default=15)
-    
-    # Przywrócone argumenty dla serwera vLLM
-    parser.add_argument("--embed_host", default=EMBED_HOST)
-    parser.add_argument("--embed_port", type=int, default=EMBED_PORT)
-    parser.add_argument("--embed_model", default=EMBED_MODEL)
-    
-    args = parser.parse_args()
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    # Nadpisanie globalnych stałych, jeśli podano je w argumentach
-    EMBED_HOST = args.embed_host
-    EMBED_PORT = args.embed_port
-    EMBED_MODEL = args.embed_model
-
-    print("\n=== Experiment 2 & 3: Semantic Evolution & Global Clustering ===")
     asyncio.run(main())
