@@ -394,7 +394,7 @@ async def main():
     parser.add_argument("--output_dir", default="./Agents/eval_results/merged_semantics")
     parser.add_argument("--window_size", type=int, default=50)
     parser.add_argument("--hdbscan_min_samples", type=int, default=15)
-    parser.add_argument("--umap_neighbors", type=int, default=50)
+    parser.add_argument("--umap_neighbors", type=int, default=5)
     
     # Argumenty przekazywane przez run_eval.sh
     parser.add_argument("--embed_host", default=EMBED_HOST)
