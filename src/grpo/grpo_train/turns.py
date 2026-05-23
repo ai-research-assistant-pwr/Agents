@@ -154,7 +154,9 @@ async def execute_turn(
             tokenizer.encode(clean_message, add_special_tokens=False)
         )
 
-        apply_noise_this_step = apply_channel_noise and not is_eval
+        # apply_noise_this_step = apply_channel_noise and not is_eval
+        # for inference on eval data
+        apply_noise_this_step = apply_channel_noise
 
         if apply_noise_this_step:
             noisy_message = _inject_noise(clean_message, noise_probability)
