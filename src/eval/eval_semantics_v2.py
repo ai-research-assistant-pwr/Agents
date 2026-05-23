@@ -1,78 +1,87 @@
 """
-Semantics Evaluation v2 — Experiment 2
-========================================
-Replaces TopSim (which loses resolution on narrow scientific domains) with two
-complementary measures of how the Retriever's emergent language evolves
-structurally over training.
+Semantics Evaluation v2 — Experiment 2 & 3 (Merged Suite)
+=========================================================
+Comprehensive semantic analysis of emergent communication. 
+Combines window-based structural analysis (Measure A & B) with global 
+trajectory clustering (Measure C) using UMAP and HDBSCAN.
 
 Measure A — Intra-window signal dispersion
--------------------------------------------
-Tracks mean pairwise cosine *distance* between Retriever messages within each
-training window.  A decrease signals convergence toward a shared vocabulary /
-compressed protocol; an increase signals diverging, context-specific language.
-Reported alongside standard deviation to distinguish systematic drift from
-noise.
+Tracks mean pairwise cosine distance between Retriever messages within 
+each training window. 
 
-Measure B — Signal–prompt alignment (grounding index)
-------------------------------------------------------
-For each trajectory, computes cosine similarity between the Retriever's
-message embedding and the embedding of the original user prompt.
-High and rising alignment → the Retriever is grounding its synthesis in the
-query rather than drifting into generic filler.
+Measure B — Signal-prompt alignment (grounding index)
+Computes cosine similarity between the Retriever's message and the user prompt.
 
-Both measures are computed for each training window and plotted over time.
-When a --baseline_logs_dir is supplied, the same metrics are computed for the
-baseline run and overlaid on the same axes for direct comparison.
-
-Data contract
--------------
-Reads traj_*.json written by scientific_workflow.py (debug=true).
-Each file must contain:
-  - "prompt"  : str
-  - "turns"   : list of turn dicts where turn_type == "retriever_message"
-                has "output_content" (or "extra.output_content") with the
-                clean Retriever message text.
+Measure C — Global Message Space Evolution (UMAP + HDBSCAN)
+Projects all messages across the entire training run onto a 2D UMAP space, 
+colored by training window to show temporal drift. Performs HDBSCAN clustering 
+on the ORIGINAL high-dimensional embeddings to identify true semantic clusters, 
+extracting TF-IDF keywords for each.
 
 Output
 ------
   <output_dir>/
-    ├── exp2v2_signal_structure.csv        windowed metrics (both runs)
-    ├── exp2v2_dispersion_over_time.png    Measure A plot
-    └── exp2v2_grounding_over_time.png     Measure B plot
-
-Usage
------
-  EMBED_HOST=<node> EMBED_PORT=8000 \\
-  python eval_semantics_v2.py \\
-      --logs_dir          ./Agents/workflow_logs/<full_run> \\
-      --baseline_logs_dir ./Agents/workflow_logs/<baseline_run> \\
-      --output_dir        ./Agents/eval_results/<run>/experiment_2 \\
-      --window_size       50
+    ├── exp2_signal_structure.csv           (Windowed metrics A & B)
+    ├── exp2_clustering_metrics.csv         (Global clustering metrics)
+    ├── exp2_cluster_keywords.json          (TF-IDF keywords per cluster)
+    ├── exp2_dispersion_over_time.png       
+    ├── exp2_grounding_over_time.png        
+    ├── exp2_umap_by_time.png               (Colored by temporal drift)
+    ├── exp2_umap_by_cluster.png            (Colored by HDBSCAN label)
+    ├── exp2_umap_by_reward.png             (Colored by final trajectory reward)
+    └── exp2_umap_multi_run.png             (If multiple runs are provided)
 """
 
 import os
 import json
 import glob
 import asyncio
+import argparse
+from collections import defaultdict
+
 import aiohttp
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.spatial.distance import cdist, cosine as cosine_dist
 from itertools import combinations
-from scipy.spatial.distance import cosine as cosine_dist
+
 from sklearn.preprocessing import normalize
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import silhouette_score, davies_bouldin_score
+
+try:
+    import umap
+    import hdbscan
+except ImportError:
+    raise ImportError("Please install required packages: pip install umap-learn hdbscan scikit-learn")
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-EMBED_HOST  = os.getenv("EMBED_HOST",  "localhost")
-EMBED_PORT  = int(os.getenv("EMBED_PORT",  "8000"))
+EMBED_HOST  = os.getenv("EMBED_HOST", "localhost")
+EMBED_PORT  = int(os.getenv("EMBED_PORT", "8000"))
 EMBED_MODEL = os.getenv("EMBED_MODEL", "Qwen/Qwen3-Embedding-4B")
 BATCH_SIZE  = 32
 
+STOP_WORDS_EN = {
+    "i", "me", "my", "we", "our", "you", "your", "he", "him", "she", "her",
+    "it", "its", "they", "them", "what", "which", "who", "this", "that",
+    "these", "those", "am", "is", "are", "was", "were", "be", "been",
+    "being", "have", "has", "had", "do", "does", "did", "a", "an", "the",
+    "and", "but", "if", "or", "as", "of", "at", "by", "for", "with",
+    "about", "into", "through", "to", "from", "in", "out", "on", "not",
+    "no", "can", "will", "just", "than", "so", "also", "such", "more",
+    "may", "would", "could", "should", "study", "research", "paper",
+    "show", "shown", "found", "results", "using", "used", "based",
+    "two", "one", "three", "four", "five", "however", "thus", "therefore",
+    "between", "among", "provide", "provides", "suggest", "suggests",
+    # Technical tokens from noise injection
+    "mask", "[mask]"
+}
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers: Data Loading & Embeddings
 # ---------------------------------------------------------------------------
 
 def _get_field(turn: dict, field: str, default=None):
@@ -82,9 +91,11 @@ def _get_field(turn: dict, field: str, default=None):
         return extra[field]
     return turn.get(field, default)
 
-
 def _load_sorted_logs(logs_dir: str) -> list:
     """Return (timestamp, filepath) pairs sorted by timestamp."""
+    train_dir = os.path.join(logs_dir, "train")
+    if os.path.isdir(train_dir):
+        logs_dir = train_dir
     files = glob.glob(os.path.join(logs_dir, "traj_*.json"))
     parsed = []
     for f in files:
@@ -96,17 +107,8 @@ def _load_sorted_logs(logs_dir: str) -> list:
     parsed.sort(key=lambda x: x[0])
     return parsed
 
-
-def _use_train_if_exists(directory: str) -> str:
-    train_dir = os.path.join(directory, "train")
-    if os.path.isdir(train_dir):
-        print(f"  Auto-detected 'train' subfolder: {train_dir}")
-        return train_dir
-    return directory
-
-
 async def _get_embeddings(texts: list, host: str, port: int, model: str) -> list:
-    """Fetch embeddings from vLLM in batches."""
+    """Fetch embeddings from vLLM asynchronously in batches."""
     if not texts:
         return []
     all_embs = []
@@ -119,7 +121,7 @@ async def _get_embeddings(texts: list, host: str, port: int, model: str) -> list
                 try:
                     async with session.post(
                         url, json=payload,
-                        timeout=aiohttp.ClientTimeout(total=120)
+                        timeout=aiohttp.ClientTimeout(total=180)
                     ) as resp:
                         resp.raise_for_status()
                         data = await resp.json()
@@ -132,348 +134,348 @@ async def _get_embeddings(texts: list, host: str, port: int, model: str) -> list
                     await asyncio.sleep(2 ** attempt)
     return all_embs
 
-
 def _mean_pairwise_cosine_distance(emb_matrix: np.ndarray) -> tuple:
     """Return (mean, std) pairwise cosine distance for a set of embeddings."""
     n = len(emb_matrix)
     if n < 2:
         return 0.0, 0.0
-    dists = [
-        cosine_dist(emb_matrix[i], emb_matrix[j])
-        for i, j in combinations(range(n), 2)
-    ]
+    dists = [cosine_dist(emb_matrix[i], emb_matrix[j]) for i, j in combinations(range(n), 2)]
     return float(np.mean(dists)), float(np.std(dists))
 
 
 # ---------------------------------------------------------------------------
-# Per-run windowed analysis
+# Core Analysis Functions
 # ---------------------------------------------------------------------------
 
-async def _analyse_run(
-    logs_dir: str,
-    window_size: int,
-    run_label: str,
-    embed_host: str,
-    embed_port: int,
-    embed_model: str,
-) -> pd.DataFrame:
+async def analyse_run_windowed(
+    logs_dir: str, window_size: int, run_label: str, embed_host: str, embed_port: int, embed_model: str
+) -> tuple[pd.DataFrame, list[dict]]:
     """
-    Compute windowed Measure A (dispersion) and Measure B (grounding) for a
-    single run directory.  Returns a DataFrame with one row per complete window.
+    Computes windowed Measure A & B, and collects flat data for Measure C (Clustering).
     """
-    logs_dir = _use_train_if_exists(logs_dir)
     parsed_files = _load_sorted_logs(logs_dir)
-
     if not parsed_files:
         print(f"  [{run_label}] No traj_*.json files found in {logs_dir}")
-        return pd.DataFrame()
+        return pd.DataFrame(), []
 
-    print(f"  [{run_label}] Found {len(parsed_files)} trajectories.")
-
+    print(f"  [{run_label}] Found {len(parsed_files)} trajectories. Analyzing windows...")
     results = []
+    global_messages = []
+    total_files = len(parsed_files)
 
-    for win_start in range(0, len(parsed_files), window_size):
+    for win_start in range(0, total_files, window_size):
         batch = parsed_files[win_start : win_start + window_size]
         if len(batch) < window_size:
-            print(f"  [{run_label}] Window {win_start // window_size + 1}: "
-                  f"incomplete ({len(batch)}/{window_size}) — skipped.")
             continue
 
         window_idx = win_start // window_size + 1
-        prompts: list = []
-        messages: list = []
-        rewards: list = []
+        prompts, messages, rewards, traj_indices = [], [], [], []
 
-        for _, fpath in batch:
+        for offset, (_, fpath) in enumerate(batch):
             with open(fpath, encoding="utf-8") as f:
                 data = json.load(f)
-
             prompt = data.get("prompt", "")
             reward = data.get("total_reward", 0.0)
-            rewards.append(reward)
 
             for turn in data.get("turns", []):
                 if _get_field(turn, "turn_type") == "retriever_message":
-                    msg = _get_field(turn, "output_content", "") or ""
-                    if msg.strip():
-                        messages.append(msg.strip())
+                    msg = (_get_field(turn, "output_content", "") or "").strip()
+                    if msg:
+                        messages.append(msg)
                         prompts.append(prompt)
+                        rewards.append(reward)
+                        traj_indices.append(win_start + offset)
 
         if len(messages) < 4:
-            print(f"  [{run_label}] Window {window_idx}: "
-                  f"too few messages ({len(messages)}) — skipped.")
             continue
 
-        print(f"  [{run_label}] Window {window_idx}: "
-              f"embedding {len(messages)} messages + {len(set(prompts))} unique prompts…")
-
-        # Embed messages and prompts together in one call
+        # Embed messages and prompts
         unique_prompts = list(set(prompts))
         all_texts = messages + unique_prompts
-        all_embs  = await _get_embeddings(all_texts, embed_host, embed_port, embed_model)
+        all_embs = await _get_embeddings(all_texts, embed_host, embed_port, embed_model)
+        
+        msg_embs = normalize(np.array(all_embs[:len(messages)]))
+        prompt_embs = normalize(np.array(all_embs[len(messages):]))
+        prompt_to_emb = {p: prompt_embs[i] for i, p in enumerate(unique_prompts)}
 
-        msg_embs    = np.array(all_embs[:len(messages)])
-        prompt_embs_raw = np.array(all_embs[len(messages):])
+        # Measure A: Dispersion
+        sample_idx = np.random.choice(len(msg_embs), min(200, len(msg_embs)), replace=False)
+        mean_dist, std_dist = _mean_pairwise_cosine_distance(msg_embs[sample_idx])
 
-        # Normalise for cosine arithmetic
-        msg_embs_n    = normalize(msg_embs)
-        prompt_embs_n = normalize(prompt_embs_raw)
-
-        # Build prompt → embedding lookup
-        prompt_to_emb = {p: prompt_embs_n[i] for i, p in enumerate(unique_prompts)}
-
-        # ── Measure A: mean pairwise cosine distance between messages ─────────
-        # Sample up to 200 messages to keep quadratic cost manageable
-        sample_idx = (
-            np.random.choice(len(msg_embs_n), 200, replace=False)
-            if len(msg_embs_n) > 200
-            else np.arange(len(msg_embs_n))
-        )
-        sampled = msg_embs_n[sample_idx]
-        mean_dist, std_dist = _mean_pairwise_cosine_distance(sampled)
-
-        # ── Measure B: cosine similarity between message and its prompt ───────
-        sims = []
-        for i, (msg_emb, ptext) in enumerate(zip(msg_embs_n, prompts)):
-            p_emb = prompt_to_emb.get(ptext)
-            if p_emb is not None:
-                sim = float(np.dot(msg_emb, p_emb))   # vectors are L2-normalised
-                sims.append(sim)
-
-        mean_grounding = float(np.mean(sims)) if sims else float("nan")
-        std_grounding  = float(np.std(sims))  if sims else float("nan")
-        mean_reward    = float(np.mean(rewards))
-
+        # Measure B: Grounding
+        sims = [float(np.dot(m_emb, prompt_to_emb[p])) for m_emb, p in zip(msg_embs, prompts) if p in prompt_to_emb]
+        
         results.append({
-            "Run":               run_label,
-            "Window_Index":      window_idx,
-            "N_Messages":        len(messages),
-            "Mean_Dispersion":   round(mean_dist,       4),
-            "Std_Dispersion":    round(std_dist,        4),
-            "Mean_Grounding":    round(mean_grounding,  4),
-            "Std_Grounding":     round(std_grounding,   4),
-            "Mean_Reward":       round(mean_reward,     4),
+            "Run": run_label,
+            "Window_Index": window_idx,
+            "Mean_Dispersion": round(mean_dist, 4),
+            "Std_Dispersion": round(std_dist, 4),
+            "Mean_Grounding": round(np.mean(sims) if sims else 0, 4),
+            "Std_Grounding": round(np.std(sims) if sims else 0, 4),
+            "Mean_Reward": round(np.mean(rewards), 4),
         })
-        print(f"    dispersion={mean_dist:.3f}  grounding={mean_grounding:.3f}  "
-              f"reward={mean_reward:.3f}")
 
-    return pd.DataFrame(results)
+        # Collect for Measure C
+        for i in range(len(messages)):
+            quartile = int(traj_indices[i] / total_files * 4)
+            global_messages.append({
+                "text": messages[i],
+                "embedding": msg_embs[i],
+                "reward": rewards[i],
+                "traj_idx": traj_indices[i],
+                "window_quartile": quartile,
+                "run_label": run_label
+            })
+
+    return pd.DataFrame(results), global_messages
+
+def extract_cluster_keywords(records: list[dict], labels: np.ndarray, top_k: int = 8) -> dict:
+    """Extracts top TF-IDF keywords for each HDBSCAN cluster."""
+    cluster_docs = defaultdict(list)
+    for rec, label in zip(records, labels):
+        if label >= 0:
+            cluster_docs[int(label)].append(rec["text"])
+
+    if not cluster_docs:
+        return {}
+
+    all_cluster_ids = sorted(cluster_docs.keys())
+    corpus = [" ".join(cluster_docs[c]) for c in all_cluster_ids]
+
+    vectorizer = TfidfVectorizer(
+        max_features=1000,
+        stop_words=list(STOP_WORDS_EN),
+        ngram_range=(1, 2),
+        min_df=2,
+    )
+    
+    try:
+        tfidf_matrix = vectorizer.fit_transform(corpus)
+        feature_names = vectorizer.get_feature_names_out()
+    except ValueError:
+        return {}
+
+    keywords = {}
+    for i, cluster_id in enumerate(all_cluster_ids):
+        row = tfidf_matrix[i].toarray().flatten()
+        top_indices = row.argsort()[-top_k:][::-1]
+        keywords[cluster_id] = [{"term": feature_names[j], "score": round(float(row[j]), 4)} for j in top_indices]
+    return keywords
+
+def run_hdbscan_clustering(embs_orig: np.ndarray, records: list[dict], min_cluster_size: int) -> tuple[np.ndarray, dict]:
+    """
+    Runs HDBSCAN on the original L2-normalized embeddings.
+    Since data is L2-normalized, Euclidean distance is monotonically related to Cosine distance.
+    """
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric='euclidean', cluster_selection_epsilon=0.1)
+    labels = clusterer.fit_predict(embs_orig)
+
+    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+    n_noise = int(np.sum(labels == -1))
+    noise_pct = 100 * n_noise / len(labels)
+
+    metrics = {
+        "n_clusters": n_clusters,
+        "n_noise": n_noise,
+        "noise_pct": round(noise_pct, 2),
+    }
+
+    if n_clusters >= 2:
+        mask = labels >= 0
+        if mask.sum() >= 2:
+            sil = silhouette_score(embs_orig[mask], labels[mask], metric="cosine")
+            db_idx = davies_bouldin_score(embs_orig[mask], labels[mask])
+            metrics["silhouette"] = round(float(sil), 4)
+            metrics["davies_bouldin"] = round(float(db_idx), 4)
+
+    # Temporal drift: Centroid of Q0 vs Q3
+    quartiles = np.array([r["window_quartile"] for r in records])
+    q0_mask, q3_mask = quartiles == 0, quartiles == 3
+    if q0_mask.sum() > 0 and q3_mask.sum() > 0:
+        c0 = embs_orig[q0_mask].mean(axis=0, keepdims=True)
+        c3 = embs_orig[q3_mask].mean(axis=0, keepdims=True)
+        metrics["temporal_drift_cosine"] = round(float(cdist(c0, c3, metric="cosine")[0, 0]), 4)
+
+    return labels, metrics
 
 
 # ---------------------------------------------------------------------------
-# Plotting
+# Plotting Functions
 # ---------------------------------------------------------------------------
 
-_PLT_STYLE = {
-    "font.family":       "serif",
-    "font.size":         10,
-    "axes.labelsize":    10,
-    "axes.titlesize":    11,
-    "legend.fontsize":    9,
-    "xtick.labelsize":    9,
-    "ytick.labelsize":    9,
-    "axes.spines.top":   False,
-    "axes.spines.right": False,
-    "axes.linewidth":    0.6,
-    "figure.facecolor":  "white",
-    "axes.facecolor":    "white",
+_STYLE = {
+    "font.family": "serif", "font.size": 10, "axes.labelsize": 10, "axes.titlesize": 11,
+    "legend.fontsize": 8, "axes.spines.top": False, "axes.spines.right": False,
+    "figure.facecolor": "white", "axes.facecolor": "white",
 }
 
-_COLORS = {
-    "full":     "#1a1a1a",
-    "baseline": "#888888",
-}
-
-
-def _plot_metric(
-    df: pd.DataFrame,
-    y_col: str,
-    y_err_col: str | None,
-    title: str,
-    ylabel: str,
-    output_path: str,
-) -> None:
-    plt.rcParams.update(_PLT_STYLE)
+def plot_windowed_metrics(df: pd.DataFrame, output_dir: str):
+    plt.rcParams.update(_STYLE)
+    
+    # 1. Dispersion
     fig, ax = plt.subplots(figsize=(7, 4))
-
-    for run_label, group in df.groupby("Run"):
-        color  = _COLORS.get(run_label, "#444444")
-        ls     = "-" if run_label != "baseline" else "--"
-        x      = group["Window_Index"]
-        y      = group[y_col]
-
-        ax.plot(x, y, color=color, lw=1.2, ls=ls, label=run_label)
-        ax.fill_between(x, y, alpha=0.06, color=color)
-
-        if y_err_col and y_err_col in group.columns:
-            err = group[y_err_col]
-            ax.fill_between(x, y - err, y + err, alpha=0.08, color=color)
-
-    ax.set_title(title, pad=8)
-    ax.set_xlabel("Training window")
-    ax.set_ylabel(ylabel)
-    ax.yaxis.set_label_coords(-0.1, 0.5)
-    ax.grid(axis="y", lw=0.4, color="#aaaaaa", ls=":")
+    for label, group in df.groupby("Run"):
+        ax.plot(group["Window_Index"], group["Mean_Dispersion"], label=label, lw=1.5)
+        ax.fill_between(group["Window_Index"], group["Mean_Dispersion"] - group["Std_Dispersion"], 
+                        group["Mean_Dispersion"] + group["Std_Dispersion"], alpha=0.1)
+    ax.set(title="Experiment 2 — Intra-window signal dispersion", xlabel="Training Window", ylabel="Mean Cosine Distance")
     ax.legend(frameon=False)
-    fig.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "exp2_dispersion_over_time.png"), dpi=300)
     plt.close()
-    print(f"  Saved → {output_path}")
 
-
-def _plot_dual(
-    df: pd.DataFrame,
-    output_dir: str,
-) -> None:
-    """Combined 2-panel plot: dispersion + grounding, both runs on same axes."""
-    plt.rcParams.update(_PLT_STYLE)
-    fig, (ax_d, ax_g) = plt.subplots(
-        2, 1, figsize=(7, 6), sharex=True,
-        gridspec_kw={"hspace": 0.12},
-    )
-
-    for run_label, group in df.groupby("Run"):
-        color = _COLORS.get(run_label, "#444444")
-        ls    = "-" if run_label != "baseline" else "--"
-        x     = group["Window_Index"]
-
-        ax_d.plot(x, group["Mean_Dispersion"], color=color, lw=1.2, ls=ls,
-                  label=run_label)
-        ax_d.fill_between(x, group["Mean_Dispersion"], alpha=0.06, color=color)
-
-        ax_g.plot(x, group["Mean_Grounding"], color=color, lw=1.2, ls=ls,
-                  label=run_label)
-        ax_g.fill_between(x, group["Mean_Grounding"], alpha=0.06, color=color)
-
-    ax_d.set_ylabel("Mean pairwise\ncosine distance")
-    ax_d.yaxis.set_label_coords(-0.1, 0.5)
-    ax_d.grid(axis="y", lw=0.4, color="#aaaaaa", ls=":")
-    ax_d.legend(frameon=False)
-    ax_d.set_title(
-        "Experiment 2 — Signal structure evolution over training\n"
-        "Upper: intra-window dispersion  ·  Lower: signal–prompt alignment",
-        pad=8,
-    )
-
-    ax_g.set_ylabel("Mean cosine similarity\n(message ↔ prompt)")
-    ax_g.yaxis.set_label_coords(-0.1, 0.5)
-    ax_g.set_xlabel("Training window")
-    ax_g.grid(axis="y", lw=0.4, color="#aaaaaa", ls=":")
-
-    fig.tight_layout()
-    out = os.path.join(output_dir, "exp2v2_signal_structure_combined.png")
-    plt.savefig(out, dpi=300, bbox_inches="tight")
+    # 2. Grounding
+    fig, ax = plt.subplots(figsize=(7, 4))
+    for label, group in df.groupby("Run"):
+        ax.plot(group["Window_Index"], group["Mean_Grounding"], label=label, lw=1.5)
+        ax.fill_between(group["Window_Index"], group["Mean_Grounding"] - group["Std_Grounding"], 
+                        group["Mean_Grounding"] + group["Std_Grounding"], alpha=0.1)
+    ax.set(title="Experiment 2 — Signal-prompt alignment (Grounding)", xlabel="Training Window", ylabel="Cosine Similarity")
+    ax.legend(frameon=False)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "exp2_grounding_over_time.png"), dpi=300)
     plt.close()
-    print(f"  Saved → {out}")
+
+def plot_umap_scatter(xy, c, cmap, title, cbar_label, output_path, vmin=None, vmax=None):
+    plt.rcParams.update(_STYLE)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sc = ax.scatter(xy[:, 0], xy[:, 1], c=c, cmap=cmap, s=8, alpha=0.5, linewidths=0, vmin=vmin, vmax=vmax)
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set(title=title, xlabel="UMAP 1", ylabel="UMAP 2")
+    plt.colorbar(sc, ax=ax, label=cbar_label)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+
+def plot_umap_clusters(xy, labels, output_path):
+    plt.rcParams.update(_STYLE)
+    fig, ax = plt.subplots(figsize=(9, 6))
+    unique_labels = sorted(set(labels))
+    cmap = plt.cm.get_cmap("tab20", max(len(unique_labels), 1))
+
+    for lbl in unique_labels:
+        mask = labels == lbl
+        color = "lightgray" if lbl == -1 else cmap(unique_labels.index(lbl))
+        ax.scatter(xy[mask, 0], xy[mask, 1], c=[color], s=10 if lbl >= 0 else 4, 
+                   alpha=0.6 if lbl >= 0 else 0.2, linewidths=0, label=f"Cluster {lbl}" if lbl >= 0 else "Noise")
+    
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set(title="Global UMAP Projection: HDBSCAN Clusters", xlabel="UMAP 1", ylabel="UMAP 2")
+    ax.legend(frameon=False, loc="upper right", bbox_to_anchor=(1.25, 1), markerscale=2)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+
+def plot_umap_multi_run(xy_list, labels_list, output_path):
+    plt.rcParams.update(_STYLE)
+    fig, ax = plt.subplots(figsize=(9, 6))
+    colors = ["#1a1a1a", "#e6194b", "#3cb44b", "#4363d8", "#f58231"]
+    
+    for i, (xy, label) in enumerate(zip(xy_list, labels_list)):
+        ax.scatter(xy[:, 0], xy[:, 1], c=colors[i % len(colors)], s=6, alpha=0.4, linewidths=0, label=label)
+        
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set(title="UMAP Comparison: Multiple Training Runs", xlabel="UMAP 1", ylabel="UMAP 2")
+    ax.legend(frameon=False, loc="upper right")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300)
+    plt.close()
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# Main Execution
 # ---------------------------------------------------------------------------
 
-async def run_semantics_v2(
-    logs_dir: str,
-    output_dir: str,
-    window_size: int = 50,
-    baseline_logs_dir: str | None = None,
-    embed_host: str = EMBED_HOST,
-    embed_port: int = EMBED_PORT,
-    embed_model: str = EMBED_MODEL,
-) -> None:
-    os.makedirs(output_dir, exist_ok=True)
+async def main():
+    parser = argparse.ArgumentParser(description="Experiment 2 & 3 — Semantics & Global Clustering Suite")
+    parser.add_argument("--logs_dir", default="./Agents/workflow_logs")
+    parser.add_argument("--extra_logs_dir", nargs="*", default=[], help="Extra runs 'label:path'")
+    parser.add_argument("--output_dir", default="./Agents/eval_results/merged_semantics")
+    parser.add_argument("--window_size", type=int, default=50)
+    parser.add_argument("--hdbscan_min_samples", type=int, default=15)
+    parser.add_argument("--umap_neighbors", type=int, default=15)
+    
+    args = parser.parse_args()
+    os.makedirs(args.output_dir, exist_ok=True)
 
-    print("\n=== Experiment 2v2 — Signal Structure Analysis ===")
-
-    # Analyse full (experimental) run
-    df_full = await _analyse_run(
-        logs_dir, window_size, "full",
-        embed_host, embed_port, embed_model,
+    print("\n=== Experiment 2 & 3: Semantic Evolution & Global Clustering ===")
+    
+    # 1. Process Main Run (Windowed + Global Data)
+    df_main, global_main = await analyse_run_windowed(
+        args.logs_dir, args.window_size, "main", EMBED_HOST, EMBED_PORT, EMBED_MODEL
     )
-
-    all_dfs = [df_full] if not df_full.empty else []
-
-    # Optionally analyse baseline run
-    if baseline_logs_dir and os.path.isdir(baseline_logs_dir):
-        print(f"\n  Baseline run: {baseline_logs_dir}")
-        df_base = await _analyse_run(
-            baseline_logs_dir, window_size, "baseline",
-            embed_host, embed_port, embed_model,
-        )
-        if not df_base.empty:
-            all_dfs.append(df_base)
-    elif baseline_logs_dir:
-        print(f"  WARNING: baseline_logs_dir not found: {baseline_logs_dir}")
-
-    if not all_dfs:
-        print("No data produced — check log directories.")
+    
+    if not global_main:
+        print("No data extracted. Exiting.")
         return
 
-    df = pd.concat(all_dfs, ignore_index=True)
+    # 2. Process Extra Runs
+    dfs = [df_main]
+    global_extras = []
+    for spec in args.extra_logs_dir:
+        if ":" not in spec: continue
+        label, path = spec.split(":", 1)
+        df_ext, glob_ext = await analyse_run_windowed(path, args.window_size, label, EMBED_HOST, EMBED_PORT, EMBED_MODEL)
+        if glob_ext:
+            dfs.append(df_ext)
+            global_extras.append((label, glob_ext))
 
-    csv_path = os.path.join(output_dir, "exp2v2_signal_structure.csv")
-    df.to_csv(csv_path, index=False)
-    print(f"\n  CSV saved → {csv_path}")
+    # Save Windowed Metrics
+    df_all = pd.concat(dfs, ignore_index=True)
+    df_all.to_csv(os.path.join(args.output_dir, "exp2_signal_structure.csv"), index=False)
+    plot_windowed_metrics(df_all, args.output_dir)
 
-    # ── Plots ────────────────────────────────────────────────────────────────
-    _plot_dual(df, output_dir)
+    # 3. Global UMAP on Main Run
+    print("\nFitting UMAP on main trajectory...")
+    main_embs = np.array([r["embedding"] for r in global_main])
+    reducer = umap.UMAP(n_neighbors=args.umap_neighbors, min_dist=0.1, n_components=2, metric="cosine", random_state=42)
+    main_embs_2d = reducer.fit_transform(main_embs)
 
-    _plot_metric(
-        df,
-        y_col="Mean_Dispersion",
-        y_err_col="Std_Dispersion",
-        title=(
-            "Experiment 2 — Intra-window signal dispersion over training\n"
-            "(mean pairwise cosine distance between Retriever messages)"
-        ),
-        ylabel="Mean cosine distance",
-        output_path=os.path.join(output_dir, "exp2v2_dispersion_over_time.png"),
-    )
+    # 4. HDBSCAN Clustering (On Original Embeddings)
+    print(f"Running HDBSCAN (min_samples={args.hdbscan_min_samples})...")
+    labels, metrics = run_hdbscan_clustering(main_embs, global_main, args.hdbscan_min_samples)
+    
+    print(f"  Detected Clusters: {metrics['n_clusters']} | Noise: {metrics['noise_pct']:.1f}%")
+    if "temporal_drift_cosine" in metrics:
+        print(f"  Temporal Drift (Cosine): {metrics['temporal_drift_cosine']:.4f}")
 
-    _plot_metric(
-        df,
-        y_col="Mean_Grounding",
-        y_err_col="Std_Grounding",
-        title=(
-            "Experiment 2 — Signal–prompt alignment (grounding index) over training\n"
-            "(mean cosine similarity: Retriever message ↔ user prompt)"
-        ),
-        ylabel="Cosine similarity",
-        output_path=os.path.join(output_dir, "exp2v2_grounding_over_time.png"),
-    )
+    # Save Clustering Metrics
+    pd.DataFrame([metrics]).to_csv(os.path.join(args.output_dir, "exp2_clustering_metrics.csv"), index=False)
 
-    # Print summary
-    print("\n  === Summary (final window) ===")
-    for run_label, group in df.groupby("Run"):
-        last = group.iloc[-1]
-        print(f"  [{run_label}]  dispersion={last['Mean_Dispersion']:.4f}  "
-              f"grounding={last['Mean_Grounding']:.4f}  "
-              f"reward={last['Mean_Reward']:.4f}")
+    # 5. Extract TF-IDF Keywords
+    print("Extracting TF-IDF Keywords per cluster...")
+    kw = extract_cluster_keywords(global_main, labels)
+    with open(os.path.join(args.output_dir, "exp2_cluster_keywords.json"), "w", encoding="utf-8") as f:
+        json.dump(kw, f, ensure_ascii=False, indent=2)
 
-    print(f"\nExperiment 2v2 complete. Results in: {output_dir}")
+    # 6. Global Plotting
+    print("Generating UMAP projections...")
+    times = np.array([r["traj_idx"] for r in global_main])
+    plot_umap_scatter(main_embs_2d, times, "plasma", "Temporal Drift (Trajectory Index)", "Chronological Index", 
+                      os.path.join(args.output_dir, "exp2_umap_by_time.png"))
+    
+    rewards = np.array([r["reward"] for r in global_main])
+    plot_umap_scatter(main_embs_2d, rewards, "RdYlGn", "UMAP colored by Trajectory Reward", "Total Reward", 
+                      os.path.join(args.output_dir, "exp2_umap_by_reward.png"),
+                      vmin=np.percentile(rewards, 5), vmax=np.percentile(rewards, 95))
 
+    plot_umap_clusters(main_embs_2d, labels, os.path.join(args.output_dir, "exp2_umap_by_cluster.png"))
+
+    # 7. Multi-run Plotting (Projection via fitted UMAP)
+    if global_extras:
+        print("Projecting additional runs onto shared UMAP space...")
+        all_2d = [main_embs_2d]
+        all_labels = ["main"]
+        
+        for run_label, run_data in global_extras:
+            ext_embs = np.array([r["embedding"] for r in run_data])
+            ext_2d = reducer.transform(ext_embs)  # Project into the same manifold
+            all_2d.append(ext_2d)
+            all_labels.append(run_label)
+            
+        plot_umap_multi_run(all_2d, all_labels, os.path.join(args.output_dir, "exp2_umap_multi_run.png"))
+
+    print(f"\n=== Pipeline Complete. Results saved to {args.output_dir} ===")
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Experiment 2v2 — Semantics: signal structure evolution"
-    )
-    parser.add_argument("--logs_dir",          default="./Agents/workflow_logs")
-    parser.add_argument("--baseline_logs_dir", default=None,
-                        help="Optional baseline run for comparison")
-    parser.add_argument("--output_dir",        default="./Agents/eval_results/experiment_2")
-    parser.add_argument("--window_size",       type=int, default=50)
-    parser.add_argument("--embed_host",        default=EMBED_HOST)
-    parser.add_argument("--embed_port",        type=int, default=EMBED_PORT)
-    parser.add_argument("--embed_model",       default=EMBED_MODEL)
-    args = parser.parse_args()
-
-    asyncio.run(run_semantics_v2(
-        logs_dir           = args.logs_dir,
-        output_dir         = args.output_dir,
-        window_size        = args.window_size,
-        baseline_logs_dir  = args.baseline_logs_dir,
-        embed_host         = args.embed_host,
-        embed_port         = args.embed_port,
-        embed_model        = args.embed_model,
-    ))
+    asyncio.run(main())
