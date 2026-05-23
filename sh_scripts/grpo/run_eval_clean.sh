@@ -70,12 +70,14 @@ AGENT0="{
         \"role\": \"generator\",
         \"agent_role\": \"generator\",
         \"pretrain\": \"$TRAIN_MODEL\",
+        \"reward_pretrain\": \"\",
+        \"critic_pretrain\": \"\",
         \"is_tuning\": false,
         \"is_reasoning_model\": true
     }
 }"
 
-echo "=> Rozpoczęcie ewaluacji z czystym kanałem komunikacyjnym (Baseline)..."
+echo "=> Rozpoczęcie ewaluacji..."
 
 $VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --pretrain "$TRAIN_MODEL" \
@@ -85,6 +87,7 @@ $VENV_PYTHON -m marti.cli.multi_agent_train_ppo_ray \
     --eval_split test \
     --eval_only \
     --eval_n_samples_per_prompt 10 \
+    --save_path "$DEBUG_DIR" \
     --workflow_args "{\"debug_dir\": \"$DEBUG_DIR\", \"apply_channel_noise\": \"false\", \"noise_probability\": 0.0, \"embed_host\": \"localhost\", \"embed_port\": $EMBED_PORT}" \
     --input_key "user_query" \
     --label_key "hypothesis" \
