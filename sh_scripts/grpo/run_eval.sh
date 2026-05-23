@@ -125,7 +125,7 @@ module load Python/3.12.3-GCCcore-13.3.0
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-$VENV_PYTHON -m pip install umap-learn
+$VENV_PYTHON -m pip install hdbscan
 
 export PYTHONPATH="$BASE_DIR:$PYTHONPATH"
 
