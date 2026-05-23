@@ -231,7 +231,6 @@ srun --het-group=0 \
     --save_steps "$SAVE_STEPS" \
     --ckpt_path "$CKPT_PATH" \
     --max_ckpt_num "$MAX_CKPT_NUM" \
-    # --load_checkpoint \
     --seed 42 \
     --logging_steps 1 \
     --use_wandb "$WANDB_API_KEY" \
