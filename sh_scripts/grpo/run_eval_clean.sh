@@ -208,6 +208,7 @@ srun --het-group=0 \
     --label_key "hypothesis" \
     --metadata_key "metadata" \
     --advantage_estimator "group_norm" \
+    --packing_samples \
     --vllm_num_engines 4 \
     --vllm_tensor_parallel_size 1 \
     --vllm_gpu_memory_utilization 0.4 \
