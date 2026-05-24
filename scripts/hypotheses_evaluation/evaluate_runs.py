@@ -40,8 +40,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO
 
-import types as _types
-
 from dotenv import load_dotenv
 
 # Resolve project root and add src/ to sys.path
@@ -50,20 +48,16 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 load_dotenv(PROJECT_ROOT / ".env")
 
-# Stub out the weaviate package so that importing app.api_client.google_client
-# does not fail in environments where weaviate is not installed.
-_weaviate = _types.ModuleType("weaviate")
-_weaviate_classes = _types.ModuleType("weaviate.classes")
-_weaviate_classes_query = _types.ModuleType("weaviate.classes.query")
-_weaviate_classes_query.MetadataQuery = None  # type: ignore[attr-defined]
-_weaviate.classes = _weaviate_classes  # type: ignore[attr-defined]
-sys.modules.setdefault("weaviate", _weaviate)
-sys.modules.setdefault("weaviate.classes", _weaviate_classes)
-sys.modules.setdefault("weaviate.classes.query", _weaviate_classes_query)
+import numpy as np
+from weaviate.collections.classes.filters import Filter
 
 from app.api_client.base import BaseAPIClient
 from app.api_client.google_client import GoogleAPIClient
 from app.api_client.openai_client import OpenAIAPIClient
+from app.explorer.tools.weaviate_tools import (
+    _get_weaviate_client,
+    _load_embedding_model,
+)
 from hypotheses_evaluation import (
     ClarityJudge,
     GroundednessJudge,
@@ -158,7 +152,78 @@ def _print_score_row(
         print(f"{indent}{ln}", file=out)
 
 
-def _print_run_summary(all_scores: list[dict], out: IO[str] = sys.stdout) -> None:
+def _calculate_diversity(hypotheses: list[str]) -> float:
+    if len(hypotheses) < 2:
+        return 0.0
+
+    model = _load_embedding_model()
+    embeddings = model.embed(hypotheses)
+    embeddings = np.array([e.outputs.embedding for e in embeddings])
+
+    embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+
+    similarity_matrix = embeddings @ embeddings.T
+
+    n = len(hypotheses)
+    diversities = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            diversities.append(1 - similarity_matrix[i, j])
+
+    return np.mean(diversities) if diversities else 0.0
+
+
+def _get_existing_hypotheses(paper_ids: list[str]) -> list[str]:
+    if not paper_ids:
+        return []
+
+    weaviate_client = _get_weaviate_client()
+    collection = weaviate_client.collections.get("ResearchPapers")
+
+    type_filter = Filter.by_property("type").equal("HYPOTHESIS")
+    paper_filter = Filter.by_property("paperId").contains_any(paper_ids)
+    combined_filter = type_filter & paper_filter
+
+    response = collection.query.fetch_objects(
+        filters=combined_filter,
+        limit=1000,
+        return_properties=["content"],
+    )
+
+    return [obj.properties.get("content", "") for obj in response.objects]
+
+
+def _calculate_novelty(
+    generated_hypotheses: list[str], existing_hypotheses: list[str]
+) -> float:
+    if not generated_hypotheses or not existing_hypotheses:
+        return 0.0
+
+    model = _load_embedding_model()
+
+    generated_embeddings = model.embed(generated_hypotheses)
+    generated_embeddings = np.array([e.outputs.embedding for e in generated_embeddings])
+    generated_embeddings = generated_embeddings / np.linalg.norm(
+        generated_embeddings, axis=1, keepdims=True
+    )
+
+    existing_embeddings = model.embed(existing_hypotheses)
+    existing_embeddings = np.array([e.outputs.embedding for e in existing_embeddings])
+    existing_embeddings = existing_embeddings / np.linalg.norm(
+        existing_embeddings, axis=1, keepdims=True
+    )
+
+    similarities = []
+    for gen_emb in generated_embeddings:
+        for exist_emb in existing_embeddings:
+            similarities.append(1 - np.dot(gen_emb, exist_emb))
+
+    return np.mean(similarities) if similarities else 0.0
+
+
+def _print_run_summary(
+    all_scores: list[dict], diversity: float, novelty: float, out: IO[str] = sys.stdout
+) -> None:
     """Print a compact summary table of mean scores for a single run."""
     if not all_scores:
         return
@@ -175,17 +240,19 @@ def _print_run_summary(all_scores: list[dict], out: IO[str] = sys.stdout) -> Non
     for i, scores in enumerate(all_scores, start=1):
         row = f"  {f'#{i}':<14}"
         for m in metrics:
-            s = scores[m]
+            s = scores[m].score
             mx = max_scores[m]
             row += f"  {s}/{mx}{'':>10}"
         print(row, file=out)
     _print_rule(out=out)
     means_row = f"  {'Mean':<14}"
     for m in metrics:
-        mean = sum(s[m] for s in all_scores) / len(all_scores)
+        mean = sum(s[m].score for s in all_scores) / len(all_scores)
         mx = max_scores[m]
         means_row += f"  {mean:.2f}/{mx}{'':>7}"
     print(means_row, file=out)
+    print(f"  {'Diversity':<14}  {diversity:.2f}/1.00", file=out)
+    print(f"  {'Novelty':<14}  {novelty:.2f}/1.00", file=out)
     _print_rule("=", out=out)
 
 
@@ -199,11 +266,13 @@ def _print_aggregate_summary(run_results: list[dict]) -> None:
     _print_rule("*", 70)
     print("AGGREGATE SUMMARY  (all runs)")
     _print_rule("*", 70)
-    header = f"  {'Run':<20}" + "".join(f"  {m.capitalize():>13}" for m in metrics)
+    header = f"  {'Run':<20}" + "".join(f"  {m.capitalize():>13}" for m in metrics) + "  Diversity  Novelty"
     print(header)
     _print_rule()
 
     grand: dict[str, list[float]] = {m: [] for m in metrics}
+    grand_diversity: list[float] = []
+    grand_novelty: list[float] = []
 
     for result in run_results:
         name = result["run_name"]
@@ -213,9 +282,14 @@ def _print_aggregate_summary(run_results: list[dict]) -> None:
             mean = scores[m]
             mx = max_scores[m]
             row += f"  {mean:.2f}/{mx}{'':>7}"
+        div = result.get("diversity", 0.0)
+        nov = result.get("novelty", 0.0)
+        row += f"  {div:<9.2f}  {nov:<7.2f}"
         print(row)
         for m in metrics:
             grand[m].append(scores[m])
+        grand_diversity.append(div)
+        grand_novelty.append(nov)
 
     _print_rule()
     grand_row = f"  {'Grand Mean':<20}"
@@ -223,6 +297,9 @@ def _print_aggregate_summary(run_results: list[dict]) -> None:
         gm = sum(grand[m]) / len(grand[m]) if grand[m] else 0.0
         mx = max_scores[m]
         grand_row += f"  {gm:.2f}/{mx}{'':>7}"
+    gdiv = sum(grand_diversity) / len(grand_diversity) if grand_diversity else 0.0
+    gnov = sum(grand_novelty) / len(grand_novelty) if grand_novelty else 0.0
+    grand_row += f"  {gdiv:<9.2f}  {gnov:<7.2f}"
     print(grand_row)
     _print_rule("*", 70)
 
@@ -242,8 +319,8 @@ def evaluate_run(
 ) -> dict | None:
     """Evaluate a single run directory.
 
-    Returns a dict with keys ``query``, ``hypotheses``, and ``mean_scores``,
-    or None if the run is incomplete / cannot be loaded.
+    Returns a dict with keys ``query``, ``hypotheses``, ``mean_scores``,
+    ``diversity``, and ``novelty``, or None if the run is incomplete.
     """
 
     try:
@@ -264,6 +341,8 @@ def evaluate_run(
     query: str = explorer_data["metadata"]["prompt"]
     evidence: str = retriever_data["content"]
     hypotheses: list[str] = generator_data["hypotheses"]
+    explorer_metadata = explorer_data.get("metadata", {})
+    paper_ids = [p.get("id") for p in explorer_metadata.get("papers", [])]
 
     _print_rule("=", out=out)
     print(f"Run directory : {run_dir.relative_to(PROJECT_ROOT)}", file=out)
@@ -275,6 +354,7 @@ def evaluate_run(
     _print_rule(out=out)
 
     hypothesis_results: list[dict] = []
+    all_scores: list[dict] = []
 
     for i, hypothesis in enumerate(hypotheses, start=1):
         print(f"\nHypothesis {i}/{len(hypotheses)}", file=out)
@@ -304,26 +384,62 @@ def evaluate_run(
             }
         )
 
-    # Flat score dicts for the summary helpers
-    all_scores = [
-        {
-            "groundedness": h["groundedness"]["score"],
-            "relevancy": h["relevancy"]["score"],
-            "clarity": h["clarity"]["score"],
-        }
-        for h in hypothesis_results
-    ]
+        all_scores.append(
+            {
+                "groundedness": g_result,
+                "relevancy": r_result,
+                "clarity": c_result,
+            }
+        )
+
+    diversity = _calculate_diversity(hypotheses)
+    existing_hypotheses = _get_existing_hypotheses(paper_ids)
+    novelty = _calculate_novelty(hypotheses, existing_hypotheses)
 
     print(file=out)
-    _print_run_summary(all_scores, out=out)
+    _print_run_summary(all_scores, diversity, novelty, out=out)
 
     metrics = ["groundedness", "relevancy", "clarity"]
-    mean_scores = {m: sum(s[m] for s in all_scores) / len(all_scores) for m in metrics}
+    mean_scores = {m: sum(s[m].score for s in all_scores) / len(all_scores) for m in metrics}
+
+    # --- Save per-run evaluation results ---
+    save_payload = {
+        "metadata": {
+            "judge_model": model,
+            "num_hypotheses": len(hypotheses),
+            "evaluated_at": datetime.now().isoformat(),
+        },
+        "hypotheses": [
+            {
+                "index": i,
+                "hypothesis": h["text"],
+                "groundedness": {"score": h["groundedness"]["score"], "reasoning": h["groundedness"]["reasoning"]},
+                "relevancy": {"score": h["relevancy"]["score"], "reasoning": h["relevancy"]["reasoning"]},
+                "clarity": {"score": h["clarity"]["score"], "reasoning": h["clarity"]["reasoning"]},
+            }
+            for i, h in enumerate(hypothesis_results, start=1)
+        ],
+        "summary": {
+            "mean_groundedness": round(mean_scores["groundedness"], 2),
+            "mean_relevancy": round(mean_scores["relevancy"], 2),
+            "mean_clarity": round(mean_scores["clarity"], 2),
+            "diversity": round(diversity, 2),
+            "novelty": round(novelty, 2),
+        },
+    }
+
+    save_path = run_dir / "06_evaluation.json"
+    with open(save_path, "w") as f:
+        json.dump(save_payload, f, indent=2, ensure_ascii=False)
+
+    print(f"\nResults saved to: {save_path.relative_to(PROJECT_ROOT)}", file=out)
 
     return {
         "query": query,
         "hypotheses": hypothesis_results,
         "mean_scores": mean_scores,
+        "diversity": diversity,
+        "novelty": novelty,
     }
 
 
@@ -349,12 +465,18 @@ def _save_results(runs_dir: Path, model: str, run_results: list[dict]) -> Path:
     else:
         aggregate_mean_scores = {m: None for m in metrics}
 
+    # Compute aggregate diversity and novelty across all runs
+    diversities = [r.get("diversity", 0.0) for r in run_results if r.get("diversity") is not None]
+    novelties = [r.get("novelty", 0.0) for r in run_results if r.get("novelty") is not None]
+
     payload = {
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "runs_dir": str(runs_dir.relative_to(PROJECT_ROOT)),
         "runs": run_results,
         "aggregate_mean_scores": aggregate_mean_scores,
+        "aggregate_diversity": round(sum(diversities) / len(diversities), 2) if diversities else None,
+        "aggregate_novelty": round(sum(novelties) / len(novelties), 2) if novelties else None,
     }
 
     out_path = runs_dir / "evaluation_results.json"
