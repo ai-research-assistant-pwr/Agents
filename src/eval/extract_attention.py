@@ -1,21 +1,25 @@
 """
 extract_attention.py
 ====================
-Skrypt do ekstrakcji map uwagi i generowania interaktywnego 
-dokumentu HTML z podświetlonym tekstem.
+Skrypt do ekstrakcji map uwagi. Generuje zarówno klasyczną 
+heatmapę 2D (.png) jak i interaktywny dokument HTML z podświetlonym tekstem.
 """
 
 import os
 import torch
 import numpy as np
 import html
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # =============================================================================
 # 1. Konfiguracja i dane wejściowe
 # =============================================================================
 
-MODEL_PATH = "Agents/models_output/grpo_qwen_5231830_results"
+MODEL_PATH = "Agents/models_output/grpo_qwen_5232574_results"
 OUTPUT_DIR = "Agents/eval_results/attention_probe"
 
 RETRIEVER_MESSAGE = """The interpretation of decision processes in recurrent attention-based natural language inference (NLI) models requires advanced methods to probe intermediate alignment signals and recurrent states, especially when ordinary attention visualizations fail to provide meaningful insights. Papers highlight that attention mechanisms, such as those in DR-BiLSTM and ELMo, enable models to focus on critical semantic pairs and contextual features, but their interpretability is limited by standard visualization techniques. To address this, methods like Layer-wise Relevance Propagation (LRP) for RNNs offer a deterministic approach to attribute relevance to individual words, capturing multiplicative interactions and negation effects in a context-sensitive manner. Additionally, multi-perspective matching in BiMPM and dependent reading strategies in DR-BiLSTM enhance semantic alignment by modeling bidirectional and granular interactions between premise and hypothesis, respectively. These approaches collectively demonstrate that combining attention mechanisms with advanced attribution techniques and multi-granularity modeling can yield deeper insights into a model’s decision-making process. However, challenges remain in systematically analyzing recurrent states and alignment signals when standard methods fall short, necessitating further research into scalable and interpretable frameworks for deep semantic reasoning."""
@@ -88,7 +92,7 @@ def find_subsequence(full_list, sub_list):
     return None, None
 
 # =============================================================================
-# 3. Inferencja i Generowanie HTML
+# 3. Inferencja i Generowanie HTML/PNG
 # =============================================================================
 
 def main():
@@ -126,24 +130,51 @@ def main():
     mean_attn = torch.mean(last_layer_attn, dim=0).float().cpu().numpy()
     focus_matrix = mean_attn[hyp_start:hyp_end, ret_start:ret_end]
     
-    print("Obliczanie sumy uwagi (1D)...")
-    # Zsumowanie uwagi rzuconej przez CAŁĄ hipotezę na każdy wyraz z osobna
+    # Etykiety do wykresu 2D
+    y_labels = [tokenizer.decode([t]) for t in full_tokens[hyp_start:hyp_end]]
+    x_labels = [tokenizer.decode([t]) for t in full_tokens[ret_start:ret_end]]
+
+    # =============================================================================
+    # 4. Budowa pliku PNG (Heatmapa 2D)
+    # =============================================================================
+    print("Generowanie Heatmapy 2D...")
+    plt.figure(figsize=(24, 16))
+    
+    sns.heatmap(
+        focus_matrix,
+        xticklabels=x_labels,
+        yticklabels=y_labels,
+        cmap="Reds",
+        cbar_kws={'label': 'Siła uwagi (Attention Weight)'}
+    )
+    
+    plt.title("Uwaga Generatora skierowana na komunikat Retrievera (Ostatnia Warstwa, Średnia z Głów)", fontsize=16)
+    plt.xlabel("Tokeny Komunikatu Retrievera", fontsize=14)
+    plt.ylabel("Generowane Tokeny Hipotezy", fontsize=14)
+    
+    plt.xticks(rotation=90, fontsize=9)
+    plt.yticks(rotation=0, fontsize=9)
+    
+    out_path_png = os.path.join(OUTPUT_DIR, "generator_attention_map.png")
+    plt.tight_layout()
+    plt.savefig(out_path_png, dpi=300)
+    print(f"Zapisano heatmapę pod: {out_path_png}")
+
+    # =============================================================================
+    # 5. Budowa pliku HTML (1D Cumulated Attention)
+    # =============================================================================
+    print("Obliczanie sumy uwagi (1D) dla HTML...")
     token_importance = np.sum(focus_matrix, axis=0)
     
-    # Normalizacja [0, 1] z potęgowaniem, aby zredukować "szum tła" i uwypuklić ważne słowa
     min_val = np.min(token_importance)
     max_val = np.max(token_importance)
     norm_importance = (token_importance - min_val) / (max_val - min_val + 1e-9)
     norm_importance = norm_importance ** 2 
 
-    # =============================================================================
-    # 4. Budowa pliku HTML
-    # =============================================================================
     print("Generowanie dokumentu HTML...")
     html_path = os.path.join(OUTPUT_DIR, "retriever_attention.html")
     
     with open(html_path, "w", encoding="utf-8") as f:
-        # Style CSS
         f.write("<html><head><meta charset='utf-8'><style>\n")
         f.write("body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.8; font-size: 18px; padding: 40px; max-width: 900px; margin: auto; background: #fafafa; color: #333; }\n")
         f.write(".token { border-radius: 3px; padding: 2px 0px; margin: 0; display: inline-block; }\n")
@@ -156,27 +187,24 @@ def main():
         f.write("<p>Poniżej znajduje się komunikat Retrievera. Kolor czerwony oznacza fragmenty, z których Generator czerpał najwięcej informacji tworząc hipotezę nr 1. Najedź kursorem na wyraz, aby zobaczyć dokładną, skumulowaną wagę uwagi.</p>\n")
         f.write("<div style='background: white; padding: 30px; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: justify;'>\n")
 
-        # Generowanie tokenów z odpowiednim kolorem
         for i, token_id in enumerate(full_tokens[ret_start:ret_end]):
             word = tokenizer.decode([token_id])
             escaped_word = html.escape(word)
             score = norm_importance[i]
             
-            # Kolor: od białego do czerwonego. B i G maleją z 255 do 0 wraz ze wzrostem score.
             r = 255
             g = int(255 * (1 - score))
             b = int(255 * (1 - score))
             
-            # Wstawiamy token z kolorem w tle
             f.write(f"<span class='token tooltip' style='background-color: rgb({r},{g},{b});'>")
-            # Niektóre tokeny mają początkową spację w Qwen, pre na wszelki wypadek zachowa ciągłość
             f.write(f"<pre style='display:inline; font-family:inherit; margin:0;'>{escaped_word}</pre>")
             f.write(f"<span class='tooltiptext'>Skumulowana waga: {token_importance[i]:.4f}</span>")
             f.write("</span>")
 
         f.write("\n</div></body></html>")
         
-    print(f"Zakończono! Zapisano elegancki plik pod: {html_path}")
+    print(f"Zapisano elegancki plik HTML pod: {html_path}")
+    print("Zakończono pomyślnie!")
 
 if __name__ == "__main__":
     main()

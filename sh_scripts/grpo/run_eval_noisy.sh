@@ -53,7 +53,7 @@ MY_DISK="$SLURM_SUBMIT_DIR"
 BASE_DIR="$MY_DISK/Agents"
 VENV_PATH="$BASE_DIR/venv"
 
-TRAIN_MODEL="${TRAIN_MODEL:-"$BASE_DIR/models_output/grpo_qwen_5231830_results"}"
+TRAIN_MODEL="${TRAIN_MODEL:-"$BASE_DIR/models_output/grpo_qwen_5232574_results"}"
 EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
 RERANK_MODEL="${RERANK_MODEL:-"Qwen/Qwen3-Reranker-0.6B"}"
 
