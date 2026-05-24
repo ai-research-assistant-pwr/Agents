@@ -12,10 +12,12 @@
 #
 # Arguments:
 #   EXPERIMENT   : exp1 | exp2 | exp3 | all
-#                  exp2v2 | exp3v2 | allv2   ← new v2 variants
+#                  exp2v2 | exp3v2 | allv2   ← v2 variants
+#                  exp4                       ← noise probe (generator listening)
 #
 #   LOGS_DIR     : Path to the workflow_logs/<run_name> directory
 #                  (for v2 experiments: this is the FULL / experimental run)
+#                  (for exp4: not used, pass any existing dir e.g. ".")
 #
 # Options (env vars):
 #   EMBED_MODEL          Model name for vLLM (default: Qwen/Qwen3-Embedding-4B)
@@ -32,6 +34,32 @@
 #   BASELINE_LOGS_DIR    Path to the baseline run logs directory.
 #                        Used by exp2v2 (comparison overlay) and
 #                        exp3v2 (cross-run generator divergence, Probe 2).
+#
+#   ── Noise probe options (exp4) ───────────────────────────────────────────
+#   PROBE_DIR_A          Folder z trajektoriami warunku A
+#                        (default: $BASE_DIR/workflow_logs/noise_probe/eval_clean)
+#   PROBE_DIR_B          Folder z trajektoriami warunku B
+#                        (default: $BASE_DIR/workflow_logs/noise_probe/eval_noisy)
+#   PROBE_LABEL_A        Etykieta A na wykresach (default: "clean (noise=0.0)")
+#   PROBE_LABEL_B        Etykieta B na wykresach (default: "noisy")
+#   PROBE_OUTPUT_SUFFIX  Suffix dołączany do output_dir (default: "noise_probe")
+#
+# Examples:
+#   # Porównanie clean vs noisy (0.5) z etykietami:
+#   PROBE_DIR_A=Agents/workflow_logs/noise_probe/eval_clean \
+#   PROBE_DIR_B=Agents/workflow_logs/noise_probe/eval_noisy_05 \
+#   PROBE_LABEL_A="clean (noise=0.0)" \
+#   PROBE_LABEL_B="noisy (noise=0.5)" \
+#   PROBE_OUTPUT_SUFFIX="clean_vs_05" \
+#   sbatch sh_scripts/grpo/eval/run_eval.sh exp4 .
+#
+#   # Porównanie noisy 0.5 vs noisy 1.0:
+#   PROBE_DIR_A=Agents/workflow_logs/noise_probe/eval_noisy_05 \
+#   PROBE_DIR_B=Agents/workflow_logs/noise_probe/eval_noisy_10 \
+#   PROBE_LABEL_A="noisy (noise=0.5)" \
+#   PROBE_LABEL_B="noisy (noise=1.0)" \
+#   PROBE_OUTPUT_SUFFIX="05_vs_10" \
+#   sbatch sh_scripts/grpo/eval/run_eval.sh exp4 .
 #
 # Examples:
 #   # Run all v2 experiments (full run + baseline comparison):
@@ -82,16 +110,17 @@ if [ -z "$LOGS_DIR" ]; then
     exit 1
 fi
 
-if [ ! -d "$LOGS_DIR" ]; then
+# exp4 nie potrzebuje LOGS_DIR — pozwalamy przekazać "." lub dowolny istniejący katalog
+if [ "$EXPERIMENT" != "exp4" ] && [ ! -d "$LOGS_DIR" ]; then
     echo "ERROR: LOGS_DIR does not exist: $LOGS_DIR"
     exit 1
 fi
 
 case "$EXPERIMENT" in
-  exp1|exp2|exp3|all|exp2v2|exp3v2|allv2) ;;
+  exp1|exp2|exp3|all|exp2v2|exp3v2|allv2|exp4) ;;
   *)
     echo "ERROR: Unknown experiment '$EXPERIMENT'."
-    echo "       Valid: exp1 | exp2 | exp3 | all | exp2v2 | exp3v2 | allv2"
+    echo "       Valid: exp1 | exp2 | exp3 | all | exp2v2 | exp3v2 | allv2 | exp4"
     exit 1
     ;;
 esac
@@ -109,6 +138,13 @@ NOISY_LOGS_DIR="${NOISY_LOGS_DIR:-}"
 BASELINE_LOGS_DIR="${BASELINE_LOGS_DIR:-}"
 SKIP_VLLM="${SKIP_VLLM:-false}"
 EMBED_PORT="${EMBED_PORT:-8000}"
+
+# Noise probe (exp4) — zmienne z domyślnym katalogiem noise_probe
+PROBE_DIR_A="${PROBE_DIR_A:-$BASE_DIR/workflow_logs/noise_probe/eval_clean}"
+PROBE_DIR_B="${PROBE_DIR_B:-$BASE_DIR/workflow_logs/noise_probe/eval_noisy}"
+PROBE_LABEL_A="${PROBE_LABEL_A:-"clean (noise=0.0)"}"
+PROBE_LABEL_B="${PROBE_LABEL_B:-"noisy"}"
+PROBE_OUTPUT_SUFFIX="${PROBE_OUTPUT_SUFFIX:-"noise_probe"}"
 
 # Derive output dir from logs dir basename
 RUN_NAME=$(basename "$LOGS_DIR")
@@ -151,7 +187,7 @@ echo "========================================================"
 # =============================================================================
 _needs_vllm() {
     case "$1" in
-        exp2|exp3|all|exp2v2|exp3v2|allv2) return 0 ;;
+        exp2|exp3|all|exp2v2|exp3v2|allv2|exp4) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -276,10 +312,46 @@ run_exp3v2() {
     echo "    Exp 3v2 done → $OUT"
 }
 
+run_exp4() {
+    echo ""
+    echo "─── Experiment 4: Noise Probe (Generator Listening) ─────────"
+
+    local OUT="$EVAL_OUTPUT_DIR/$PROBE_OUTPUT_SUFFIX"
+    mkdir -p "$OUT"
+
+    echo "    Dir A  : $PROBE_DIR_A  (${PROBE_LABEL_A})"
+    echo "    Dir B  : $PROBE_DIR_B  (${PROBE_LABEL_B})"
+    echo "    Output : $OUT"
+
+    if [ ! -d "$PROBE_DIR_A" ]; then
+        echo "ERROR: PROBE_DIR_A nie istnieje: $PROBE_DIR_A"
+        echo "       Ustaw zmienną PROBE_DIR_A lub uruchom run_eval_clean.sh."
+        return 1
+    fi
+    if [ ! -d "$PROBE_DIR_B" ]; then
+        echo "ERROR: PROBE_DIR_B nie istnieje: $PROBE_DIR_B"
+        echo "       Ustaw zmienną PROBE_DIR_B lub uruchom run_eval_noisy.sh."
+        return 1
+    fi
+
+    $VENV_PYTHON "$BASE_DIR/src/eval/eval_noise_probe.py" \
+        --dir_a       "$PROBE_DIR_A" \
+        --dir_b       "$PROBE_DIR_B" \
+        --label_a     "$PROBE_LABEL_A" \
+        --label_b     "$PROBE_LABEL_B" \
+        --output_dir  "$OUT" \
+        --embed_host  "$EMBED_HOST" \
+        --embed_port  "$EMBED_PORT" \
+        --embed_model "$EMBED_MODEL"
+
+    echo "    Exp 4 done → $OUT"
+}
+
 case "$EXPERIMENT" in
     exp1)   run_exp1 ;;
     exp2)   run_exp2 ;;
     exp3)   run_exp3 ;;
+    exp4)   run_exp4 ;;
     all)
         run_exp1
         run_exp2
@@ -303,6 +375,10 @@ cat > "$EVAL_OUTPUT_DIR/eval_manifest.json" <<EOF
   "run_name":           "$RUN_NAME",
   "logs_dir":           "$LOGS_DIR",
   "baseline_logs_dir":  "$BASELINE_LOGS_DIR",
+  "probe_dir_a":        "$PROBE_DIR_A",
+  "probe_dir_b":        "$PROBE_DIR_B",
+  "probe_label_a":      "$PROBE_LABEL_A",
+  "probe_label_b":      "$PROBE_LABEL_B",
   "output_dir":         "$EVAL_OUTPUT_DIR",
   "window_size":        $WINDOW_SIZE,
   "slurm_job_id":       "$SLURM_JOB_ID",
