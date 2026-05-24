@@ -1,8 +1,10 @@
 """
 extract_attention.py
 ====================
-Skrypt do ekstrakcji map uwagi. Generuje zarówno klasyczną 
-heatmapę 2D (.png) jak i interaktywny dokument HTML z podświetlonym tekstem.
+Skrypt do ekstrakcji map uwagi. Generuje:
+1. Wykres aktywności poszczególnych głów (per-head importance).
+2. Klasyczną heatmapę 2D (.png) opartą na TOP K najaktywniejszych głowach.
+3. Interaktywny dokument HTML z podświetlonym tekstem.
 """
 
 import os
@@ -92,7 +94,7 @@ def find_subsequence(full_list, sub_list):
     return None, None
 
 # =============================================================================
-# 3. Inferencja i Generowanie HTML/PNG
+# 3. Inferencja i Generowanie Wykresów
 # =============================================================================
 
 def main():
@@ -124,18 +126,50 @@ def main():
     with torch.no_grad():
         outputs = model(**inputs, output_attentions=True)
         
-    last_layer_attn = outputs.attentions[-1][0] 
+    # Pobieramy 3 ostatnie warstwy i uśredniamy je, by złapać bogatszą semantykę (Odpowiedź na Komentarz 3)
+    # Kształt: tuple -> stackujemy do (3, batch, heads, seq, seq) -> mean do (batch, heads, seq, seq)
+    last_layers = torch.stack(outputs.attentions[-3:])
+    pooled_attn = torch.mean(last_layers, dim=0)[0] # bierzemy batch=0 -> kształt (heads, seq, seq)
     
-    # Rzutowanie na float32 i konwersja do numpy (unika błędu bfloat16)
-    mean_attn = torch.mean(last_layer_attn, dim=0).float().cpu().numpy()
-    focus_matrix = mean_attn[hyp_start:hyp_end, ret_start:ret_end]
+    # Wyciągamy uwagę z Hipotezy na Retrievera per głowa
+    head_importance_matrix = pooled_attn[:, hyp_start:hyp_end, ret_start:ret_end] # (n_heads, hyp_len, ret_len)
     
-    # Etykiety do wykresu 2D
+    # Sumujemy całą uwagę rzuconą przez daną głowę (Odpowiedź na Komentarz 2)
+    per_head_sum = head_importance_matrix.float().sum(dim=(1,2)).cpu().numpy()
+    
+    # =============================================================================
+    # 4. Wykres: Aktywność Głów (Head Specialization)
+    # =============================================================================
+    print("Generowanie wykresu aktywności głów...")
+    plt.figure(figsize=(10, 5))
+    heads_x = np.arange(len(per_head_sum))
+    plt.bar(heads_x, per_head_sum, color='steelblue')
+    plt.title("Wyspecjalizowane głowy uwagi: Aktywność w relacji Hipoteza -> Komunikat")
+    plt.xlabel("Indeks Głowy (Head ID)")
+    plt.ylabel("Suma Wag Uwagi")
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    out_path_heads = os.path.join(OUTPUT_DIR, "head_activity_bar.png")
+    plt.tight_layout()
+    plt.savefig(out_path_heads, dpi=300)
+    print(f"Zapisano wykres głów pod: {out_path_heads}")
+
+    # =============================================================================
+    # Wybieramy tylko TOP 3 najbardziej aktywne głowy do analizy (Zmniejszenie szumu)
+    # =============================================================================
+    top_k = 3
+    top_heads_idx = np.argsort(per_head_sum)[-top_k:]
+    print(f"Najbardziej aktywne 'retrieval heads' to: {top_heads_idx.tolist()}")
+    
+    # Filtrujemy macierz uwagi tylko do najlepszych głów i uśredniamy je
+    best_heads_attn = head_importance_matrix[top_heads_idx]
+    focus_matrix = torch.mean(best_heads_attn, dim=0).float().cpu().numpy()
+    
     y_labels = [tokenizer.decode([t]) for t in full_tokens[hyp_start:hyp_end]]
     x_labels = [tokenizer.decode([t]) for t in full_tokens[ret_start:ret_end]]
 
     # =============================================================================
-    # 4. Budowa pliku PNG (Heatmapa 2D)
+    # 5. Budowa pliku PNG (Heatmapa 2D z najlepszych głów)
     # =============================================================================
     print("Generowanie Heatmapy 2D...")
     plt.figure(figsize=(24, 16))
@@ -148,7 +182,7 @@ def main():
         cbar_kws={'label': 'Siła uwagi (Attention Weight)'}
     )
     
-    plt.title("Uwaga Generatora skierowana na komunikat Retrievera (Ostatnia Warstwa, Średnia z Głów)", fontsize=16)
+    plt.title(f"Uwaga Generatora na Retrievera (Uśrednione z TOP {top_k} najaktywniejszych głów, Ostatnie 3 warstwy)", fontsize=16)
     plt.xlabel("Tokeny Komunikatu Retrievera", fontsize=14)
     plt.ylabel("Generowane Tokeny Hipotezy", fontsize=14)
     
@@ -161,7 +195,7 @@ def main():
     print(f"Zapisano heatmapę pod: {out_path_png}")
 
     # =============================================================================
-    # 5. Budowa pliku HTML (1D Cumulated Attention)
+    # 6. Budowa pliku HTML (1D Cumulated Attention)
     # =============================================================================
     print("Obliczanie sumy uwagi (1D) dla HTML...")
     token_importance = np.sum(focus_matrix, axis=0)
@@ -183,7 +217,7 @@ def main():
         f.write(".tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }\n")
         f.write("</style></head><body>\n")
         
-        f.write("<h2>Na co patrzył Generator?</h2>\n")
+        f.write(f"<h2>Na co patrzył Generator? (Wizualizacja z TOP {top_k} głów uwagi)</h2>\n")
         f.write("<p>Poniżej znajduje się komunikat Retrievera. Kolor czerwony oznacza fragmenty, z których Generator czerpał najwięcej informacji tworząc hipotezę nr 1. Najedź kursorem na wyraz, aby zobaczyć dokładną, skumulowaną wagę uwagi.</p>\n")
         f.write("<div style='background: white; padding: 30px; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: justify;'>\n")
 
