@@ -157,7 +157,7 @@ def main():
     
     # Uśredniamy wagi po wszystkich głowach (heads) w ostatniej warstwie
     # Otrzymujemy matrycę (seq_len, seq_len)
-    mean_attn = torch.mean(last_layer_attn, dim=0).cpu().numpy()
+    mean_attn = torch.mean(last_layer_attn, dim=0).float().cpu().numpy()
     
     # Wycinamy tylko fragment: Jak tokeny Hipotezy (oś Y) patrzyły na tokeny Retrievera (oś X)
     focus_matrix = mean_attn[hyp_start:hyp_end, ret_start:ret_end]
