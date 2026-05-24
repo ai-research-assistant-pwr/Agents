@@ -27,7 +27,7 @@ import argparse
 import json
 import os
 import sys
-import types as _types
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -38,18 +38,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 load_dotenv(PROJECT_ROOT / ".env")
-
-# Stub out the weaviate package so that importing app.api_client.google_client
-# does not fail in environments where weaviate is not installed.
-# The evaluation script only needs the API client, not the explorer.
-_weaviate = _types.ModuleType("weaviate")
-_weaviate_classes = _types.ModuleType("weaviate.classes")
-_weaviate_classes_query = _types.ModuleType("weaviate.classes.query")
-_weaviate_classes_query.MetadataQuery = None  # type: ignore[attr-defined]
-_weaviate.classes = _weaviate_classes  # type: ignore[attr-defined]
-sys.modules.setdefault("weaviate", _weaviate)
-sys.modules.setdefault("weaviate.classes", _weaviate_classes)
-sys.modules.setdefault("weaviate.classes.query", _weaviate_classes_query)
 
 from weaviate.collections.classes.filters import Filter
 
@@ -251,14 +239,14 @@ def _print_summary(all_scores: list[dict], diversity: float, novelty: float) -> 
     for i, scores in enumerate(all_scores, start=1):
         row = f"  {f'#{i}':<14}"
         for m in metrics:
-            s = scores[m]
+            s = scores[m].score
             mx = max_scores[m]
             row += f"  {s}/{mx}{'':>10}"
         print(row)
     _print_rule()
     means_row = f"  {'Mean':<14}"
     for m in metrics:
-        mean = sum(s[m] for s in all_scores) / len(all_scores)
+        mean = sum(s[m].score for s in all_scores) / len(all_scores)
         mx = max_scores[m]
         means_row += f"  {mean:.2f}/{mx}{'':>7}"
     print(means_row)
@@ -277,7 +265,7 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     explorer_data = _load_json(run_dir / "02_explorer.json")
     retriever_path = _find_last_retriever_file(run_dir)
     retriever_data = _load_json(retriever_path)
-    generator_path = run_dir / "04_generator.json"
+    generator_path = run_dir / "05_generator.json"
     if not generator_path.exists():
         print(f"ERROR: Generator output not found at {generator_path}.")
         print("The run may be incomplete (pipeline did not finish).")
@@ -326,9 +314,9 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
 
         all_scores.append(
             {
-                "groundedness": g_result.score,
-                "relevancy": r_result.score,
-                "clarity": c_result.score,
+                "groundedness": g_result,
+                "relevancy": r_result,
+                "clarity": c_result,
             }
         )
 
@@ -337,6 +325,44 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     existing_hypotheses = _get_existing_hypotheses(paper_ids)
     novelty = _calculate_novelty(hypotheses, existing_hypotheses)
     _print_summary(all_scores, diversity, novelty)
+
+    # --- Save evaluation results to run directory ---
+    results = {
+        "metadata": {
+            "judge_model": model,
+            "num_hypotheses": len(hypotheses),
+            "evaluated_at": datetime.now().isoformat(),
+        },
+        "hypotheses": [
+            {
+                "index": i,
+                "hypothesis": h,
+                "groundedness": {"score": all_scores[i - 1]["groundedness"].score, "reasoning": all_scores[i - 1]["groundedness"].reasoning},
+                "relevancy": {"score": all_scores[i - 1]["relevancy"].score, "reasoning": all_scores[i - 1]["relevancy"].reasoning},
+                "clarity": {"score": all_scores[i - 1]["clarity"].score, "reasoning": all_scores[i - 1]["clarity"].reasoning},
+            }
+            for i, h in enumerate(hypotheses, start=1)
+        ],
+        "summary": {
+            "mean_groundedness": round(
+                sum(s["groundedness"].score for s in all_scores) / len(all_scores), 2
+            ),
+            "mean_relevancy": round(
+                sum(s["relevancy"].score for s in all_scores) / len(all_scores), 2
+            ),
+            "mean_clarity": round(
+                sum(s["clarity"].score for s in all_scores) / len(all_scores), 2
+            ),
+            "diversity": round(diversity, 2),
+            "novelty": round(novelty, 2),
+        },
+    }
+
+    save_path = run_dir / "06_evaluation.json"
+    with open(save_path, "w") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
+
+    print(f"\nResults saved to: {save_path.relative_to(PROJECT_ROOT)}")
 
 
 # ---------------------------------------------------------------------------
