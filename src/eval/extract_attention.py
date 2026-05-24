@@ -82,12 +82,30 @@ How can we better interpret the decision process of recurrent attention-based NL
 # 2. Funkcje pomocnicze
 # =============================================================================
 
+# =============================================================================
+# 2. Funkcje pomocnicze
+# =============================================================================
+
 def find_subsequence(full_list, sub_list):
-    """Znajduje indeksy start i end podciągu w liście tokenów."""
-    n = len(sub_list)
+    """Znajduje indeksy start i end podciągu w liście tokenów, z tolerancją na krawędziach."""
+    # Odcinamy pierwszy i ostatni token (narażone na doklejenie do spacji/nowej linii)
+    if len(sub_list) < 3:
+        # Fallback dla bardzo krótkich tekstów
+        n = len(sub_list)
+        for i in range(len(full_list) - n + 1):
+            if full_list[i:i+n] == sub_list:
+                return i, i + n
+        return None, None
+
+    core = sub_list[1:-1]
+    n = len(core)
+    
+    # Szukamy idealnego dopasowania "rdzenia"
     for i in range(len(full_list) - n + 1):
-        if full_list[i:i+n] == sub_list:
-            return i, i + n
+        if full_list[i:i+n] == core:
+            # Zwracamy pozycję z uwzględnieniem odciętych krawędzi (-1 i +1)
+            return i - 1, i + n + 1
+            
     return None, None
 
 # =============================================================================
