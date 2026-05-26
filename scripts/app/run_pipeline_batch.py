@@ -16,6 +16,7 @@ Explorer is selected from config (explorer.type):
     - "neo4j_pagerank"  Neo4jPageRankExplorer  (Personalized PageRank)
     - "agentic"         AgenticExplorer        (LLM-driven tool selection)
     - "const"           ConstExplorer          (placeholder, for testing without a DB)
+    - "none"            NoneExplorer           (pass-through, fetches paper metadata from Weaviate)
 
 For every row a model is randomly selected from the MODELS list below,
 weighted by the 'weight' field. The matching API client is instantiated fresh
@@ -57,6 +58,7 @@ from app.api_client.openai_client import OpenAIAPIClient
 from app.config import load_config
 from app.explorer.agentic_explorer import AgenticExplorer
 from app.explorer.const_explorer import ConstExplorer
+from app.explorer.none_explorer import NoneExplorer
 from app.explorer.neo4j_bfs_explorer import Neo4jBFSExplorer
 from app.explorer.neo4j_pagerank_explorer import Neo4jPageRankExplorer
 from app.explorer.neo4j_random_walk_explorer import Neo4jRandomWalkExplorer
@@ -122,6 +124,8 @@ def build_explorer(config: dict):
     if explorer_type == "const":
         const_text = config.get("explorer", {}).get("const_text")
         return ConstExplorer(text=const_text)
+    if explorer_type == "none":
+        return NoneExplorer(config)
     raise ValueError(f"Unknown explorer type: {explorer_type!r}")
 
 
