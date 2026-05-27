@@ -57,11 +57,11 @@ from hypotheses_evaluation import (
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 DEFAULT_MODELS = {
-    "google": "gemini-3-flash-preview",
-    "openai": "gpt-4o",
+    "google": "gemini-3.5-flash",
+    "openai": "gpt-5.4-mini",
 }
 PROVIDERS = list(DEFAULT_MODELS.keys())
-DEFAULT_PROVIDER = "google"
+DEFAULT_PROVIDER = "openai"
 
 # Width of the label column in the per-hypothesis table.
 _LABEL_W = 15
@@ -337,9 +337,18 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
             {
                 "index": i,
                 "hypothesis": h,
-                "groundedness": {"score": all_scores[i - 1]["groundedness"].score, "reasoning": all_scores[i - 1]["groundedness"].reasoning},
-                "relevancy": {"score": all_scores[i - 1]["relevancy"].score, "reasoning": all_scores[i - 1]["relevancy"].reasoning},
-                "clarity": {"score": all_scores[i - 1]["clarity"].score, "reasoning": all_scores[i - 1]["clarity"].reasoning},
+                "groundedness": {
+                    "score": all_scores[i - 1]["groundedness"].score,
+                    "reasoning": all_scores[i - 1]["groundedness"].reasoning,
+                },
+                "relevancy": {
+                    "score": all_scores[i - 1]["relevancy"].score,
+                    "reasoning": all_scores[i - 1]["relevancy"].reasoning,
+                },
+                "clarity": {
+                    "score": all_scores[i - 1]["clarity"].score,
+                    "reasoning": all_scores[i - 1]["clarity"].reasoning,
+                },
             }
             for i, h in enumerate(hypotheses, start=1)
         ],

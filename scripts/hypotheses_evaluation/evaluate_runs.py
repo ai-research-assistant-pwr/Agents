@@ -67,8 +67,8 @@ from hypotheses_evaluation import (
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 DEFAULT_MODELS = {
-    "google": "gemini-3.1-pro-preview",
-    "openai": "gpt-5.4",
+    "google": "gemini-3.5-flash",
+    "openai": "gpt-5.4-mini",
 }
 PROVIDERS = list(DEFAULT_MODELS.keys())
 DEFAULT_PROVIDER = "openai"
@@ -89,6 +89,7 @@ def _load_json(path: Path) -> dict:
 def _find_run_dirs(runs_dir: Path) -> list[Path]:
     """Return all subdirectories of *runs_dir* sorted by name."""
     dirs = sorted(d for d in runs_dir.iterdir() if d.is_dir())
+    print(f"dirs {dirs}")
     if not dirs:
         raise FileNotFoundError(f"No run subdirectories found in {runs_dir}")
     return dirs
@@ -98,7 +99,7 @@ def _find_last_retriever_file(run_dir: Path) -> Path:
     refinement_files = sorted(run_dir.glob("03_retriever_refinement_turn_*.json"))
     if refinement_files:
         return refinement_files[-1]
-    plain = run_dir / "02_retriever.json"
+    plain = run_dir / "03_retriever.json"
     if plain.exists():
         return plain
     raise FileNotFoundError(f"No retriever output file found in {run_dir}")
@@ -266,7 +267,11 @@ def _print_aggregate_summary(run_results: list[dict]) -> None:
     _print_rule("*", 70)
     print("AGGREGATE SUMMARY  (all runs)")
     _print_rule("*", 70)
-    header = f"  {'Run':<20}" + "".join(f"  {m.capitalize():>13}" for m in metrics) + "  Diversity  Novelty"
+    header = (
+        f"  {'Run':<20}"
+        + "".join(f"  {m.capitalize():>13}" for m in metrics)
+        + "  Diversity  Novelty"
+    )
     print(header)
     _print_rule()
 
@@ -324,14 +329,14 @@ def evaluate_run(
     """
 
     try:
-        explorer_data = _load_json(run_dir / "01_explorer.json")
+        explorer_data = _load_json(run_dir / "02_explorer.json")
         retriever_path = _find_last_retriever_file(run_dir)
         retriever_data = _load_json(retriever_path)
     except (FileNotFoundError, KeyError) as exc:
         print(f"  SKIP: could not load run artifacts — {exc}", file=out)
         return None
 
-    generator_path = run_dir / "04_generator.json"
+    generator_path = run_dir / "05_generator.json"
     if not generator_path.exists():
         print(f"  SKIP: generator output not found (run may be incomplete).", file=out)
         return None
@@ -400,7 +405,9 @@ def evaluate_run(
     _print_run_summary(all_scores, diversity, novelty, out=out)
 
     metrics = ["groundedness", "relevancy", "clarity"]
-    mean_scores = {m: sum(s[m].score for s in all_scores) / len(all_scores) for m in metrics}
+    mean_scores = {
+        m: sum(s[m].score for s in all_scores) / len(all_scores) for m in metrics
+    }
 
     # --- Save per-run evaluation results ---
     save_payload = {
@@ -413,9 +420,18 @@ def evaluate_run(
             {
                 "index": i,
                 "hypothesis": h["text"],
-                "groundedness": {"score": h["groundedness"]["score"], "reasoning": h["groundedness"]["reasoning"]},
-                "relevancy": {"score": h["relevancy"]["score"], "reasoning": h["relevancy"]["reasoning"]},
-                "clarity": {"score": h["clarity"]["score"], "reasoning": h["clarity"]["reasoning"]},
+                "groundedness": {
+                    "score": h["groundedness"]["score"],
+                    "reasoning": h["groundedness"]["reasoning"],
+                },
+                "relevancy": {
+                    "score": h["relevancy"]["score"],
+                    "reasoning": h["relevancy"]["reasoning"],
+                },
+                "clarity": {
+                    "score": h["clarity"]["score"],
+                    "reasoning": h["clarity"]["reasoning"],
+                },
             }
             for i, h in enumerate(hypothesis_results, start=1)
         ],
@@ -466,8 +482,12 @@ def _save_results(runs_dir: Path, model: str, run_results: list[dict]) -> Path:
         aggregate_mean_scores = {m: None for m in metrics}
 
     # Compute aggregate diversity and novelty across all runs
-    diversities = [r.get("diversity", 0.0) for r in run_results if r.get("diversity") is not None]
-    novelties = [r.get("novelty", 0.0) for r in run_results if r.get("novelty") is not None]
+    diversities = [
+        r.get("diversity", 0.0) for r in run_results if r.get("diversity") is not None
+    ]
+    novelties = [
+        r.get("novelty", 0.0) for r in run_results if r.get("novelty") is not None
+    ]
 
     payload = {
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
@@ -475,8 +495,12 @@ def _save_results(runs_dir: Path, model: str, run_results: list[dict]) -> Path:
         "runs_dir": str(runs_dir.relative_to(PROJECT_ROOT)),
         "runs": run_results,
         "aggregate_mean_scores": aggregate_mean_scores,
-        "aggregate_diversity": round(sum(diversities) / len(diversities), 2) if diversities else None,
-        "aggregate_novelty": round(sum(novelties) / len(novelties), 2) if novelties else None,
+        "aggregate_diversity": (
+            round(sum(diversities) / len(diversities), 2) if diversities else None
+        ),
+        "aggregate_novelty": (
+            round(sum(novelties) / len(novelties), 2) if novelties else None
+        ),
     }
 
     out_path = runs_dir / "evaluation_results.json"

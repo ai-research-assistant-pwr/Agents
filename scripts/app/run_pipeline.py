@@ -50,10 +50,10 @@ from app.api_client.openai_client import OpenAIAPIClient
 from app.config import load_config
 from app.explorer.agentic_explorer import AgenticExplorer
 from app.explorer.const_explorer import ConstExplorer
-from app.explorer.none_explorer import NoneExplorer
 from app.explorer.neo4j_bfs_explorer import Neo4jBFSExplorer
 from app.explorer.neo4j_pagerank_explorer import Neo4jPageRankExplorer
 from app.explorer.neo4j_random_walk_explorer import Neo4jRandomWalkExplorer
+from app.explorer.none_explorer import NoneExplorer
 from app.explorer.weaviate_explorer import WeaviateExplorer
 from app.explorer.weaviate_search_explorer import WeaviateSearchExplorer
 from app.generator.api_llm_generator import APILLMGenerator
@@ -72,8 +72,8 @@ PROVIDERS: dict[str, type[BaseAPIClient]] = {
 # Model pool: each entry needs 'name', 'provider', and 'weight'.
 # weight controls relative selection probability (higher = more likely).
 MODELS: list[dict] = [
-    {"name": "gemini-3-flash-preview", "provider": "google", "weight": 1},
-    {"name": "gemini-3.1-flash-lite-preview", "provider": "google", "weight": 1},
+    {"name": "gemini-3.5-flash", "provider": "google", "weight": 1},
+    # {"name": "gemini-3.1-flash-lite-preview", "provider": "google", "weight": 1},
     # {"name": "gpt-5.4-mini", "provider": "openai", "weight": 1},
 ]
 
