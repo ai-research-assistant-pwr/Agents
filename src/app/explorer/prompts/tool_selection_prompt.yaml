@@ -27,8 +27,8 @@ task: |
 loop: |
   1. Review the current exploring node and its context
   2. Review the visited papers to avoid revisiting
-  3. Choose the most appropriate tool:
-     - bfs_from_papers: Use for systematic, breadth-first exploration (good for comprehensive coverage)
-     - random_walk: Use for exploratory discovery (good for finding diverse connections)
-     - ppr: Use for finding influential papers (good for importance-based ranking)
+  3. Choose the most appropriate tool based on how you need to traverse the underlying citation graph:
+     - bfs_from_papers: Expands the exploration by fetching all immediately adjacent (1-hop distance) cited or citing papers relative to the current node pool. Use this when the text suggests that the critical missing links or details lie within the closest, directly linked bibliographic network.
+     - random_walk: Performs a stochastic multi-hop traversal deeper into the network, moving across sequential citation paths away from the starting point. Use this when the current node pool feels narrow and the conceptual answer likely requires tracing longer, continuous reference chains across the graph topology.
+     - ppr (Personalized PageRank): Executes a localized random walk with restart probabilities, scoring and returning nodes with the highest structural centrality relative to the initial seed context. Use this when you have a large set of candidates and need to filter for papers that possess the highest relative structural influence or weight in the network.
   4. Output the selected tool with reasoning

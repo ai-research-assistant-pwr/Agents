@@ -7,7 +7,7 @@ json_schema:
       type: array
       items:
         type: string
-      description: List of paper IDs to add to visited (2-3 papers)
+      description: List of paper IDs to add to visited (3-4 papers)
     current_node:
       type: string
       description: Paper to explore next (must be in selected_nodes)
@@ -28,8 +28,8 @@ task: |
   Find papers related to: {user_query}
 
 loop: |
-  1. Review the tool results (IDs, titles, abstracts)
+  1. Review the tool results (IDs, titles, abstracts, summaries)
   2. Filter out ALL papers that appear in the visited list - these are already explored
-  3. From remaining unvisited papers, select {range} most relevant papers matching the user's query
+  3. From remaining unvisited papers, select {range} papers that offer the highest informational value, potential insights, or direct/indirect context for the user's query.
   4. Pick one from selected_nodes as current_node for next iteration
   6. Output selected node IDs, current_node and reason

@@ -301,12 +301,13 @@ IMPORTANT: You have already visited these papers. Do NOT select them again unles
                     tool_select_context,
                     tool_section,
                 )
-
+                """"
                 print(f"Call 1/2: Tool selection...")
                 print("=" * 60)
                 print("TOOL SELECTION PROMPT:")
                 print(tool_select_prompt)
                 print("=" * 60)
+                """
                 tool_result = _call_llm(
                     llm_model, tok, tool_select_prompt, tool_select_schema, temperature
                 )
@@ -406,12 +407,13 @@ IMPORTANT: Select ONLY papers that are NOT in the visited list above."""
                 node_filter_context,
                 "",
             )
-
+            """
             print(f"Call 2/2: Node filtering...")
             print("=" * 60)
             print("NODE FILTERING PROMPT:")
             print(node_filter_prompt)
             print("=" * 60)
+            """
             filter_result = _call_llm(
                 llm_model, tok, node_filter_prompt, node_filter_schema, temperature
             )
@@ -472,3 +474,4 @@ IMPORTANT: Select ONLY papers that are NOT in the visited list above."""
     print(f"{'='*60}")
 
     return all_papers
+
