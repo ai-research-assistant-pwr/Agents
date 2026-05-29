@@ -362,20 +362,20 @@ def evaluate_run(
     all_scores: list[dict] = []
 
     for i, hypothesis in enumerate(hypotheses, start=1):
-        print(f"\nHypothesis {i}/{len(hypotheses)}", file=out)
-        _print_rule(out=out)
-        print(hypothesis, file=out)
-        _print_rule(out=out)
-        print("  Evaluating...", file=out)
+        # print(f"\nHypothesis {i}/{len(hypotheses)}", file=out)
+        # _print_rule(out=out)
+        # print(hypothesis, file=out)
+        # _print_rule(out=out)
+        # print("  Evaluating...", file=out)
 
         g_result = groundedness_judge.judge(hypothesis=hypothesis, evidence=evidence)
         r_result = relevancy_judge.judge(hypothesis=hypothesis, query=query)
         c_result = clarity_judge.judge(hypothesis=hypothesis)
 
-        print(file=out)
-        _print_score_row("Groundedness", g_result, max_score=4, out=out)
-        _print_score_row("Relevancy", r_result, max_score=4, out=out)
-        _print_score_row("Clarity", c_result, max_score=3, out=out)
+        # print(file=out)
+        # _print_score_row("Groundedness", g_result, max_score=4, out=out)
+        # _print_score_row("Relevancy", r_result, max_score=4, out=out)
+        # _print_score_row("Clarity", c_result, max_score=3, out=out)
 
         hypothesis_results.append(
             {
