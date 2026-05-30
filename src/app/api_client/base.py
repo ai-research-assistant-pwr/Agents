@@ -37,17 +37,32 @@ class BaseAPIClient(ABC):
 
     @overload
     def call(
-        self, messages: list[Message], response_schema: None = ...
+        self,
+        messages: list[Message],
+        response_schema: None = ...,
+        temperature: float | None = None,
+        presence_penalty: float | None = None,
+        frequency_penalty: float | None = None,
     ) -> CallResult[str]: ...
 
     @overload
     def call(
-        self, messages: list[Message], response_schema: type[T]
+        self,
+        messages: list[Message],
+        response_schema: type[T],
+        temperature: float | None = None,
+        presence_penalty: float | None = None,
+        frequency_penalty: float | None = None,
     ) -> CallResult[T]: ...
 
     @abstractmethod
     def call(
-        self, messages: list[Message], response_schema: type[T] | None = None
+        self,
+        messages: list[Message],
+        response_schema: type[T] | None = None,
+        temperature: float | None = None,
+        presence_penalty: float | None = None,
+        frequency_penalty: float | None = None,
     ) -> CallResult[str] | CallResult[T]:
         """Send a list of messages to the LLM and return a CallResult.
 
@@ -56,6 +71,9 @@ class BaseAPIClient(ABC):
             response_schema: Optional Pydantic model or dataclass. When provided,
                 the response is parsed and returned as an instance of this type
                 instead of a plain string.
+            temperature: Sampling temperature (None = provider default).
+            presence_penalty: Presence penalty (None = provider default).
+            frequency_penalty: Frequency penalty (None = provider default).
 
         Returns:
             A CallResult whose .content is a plain string when response_schema

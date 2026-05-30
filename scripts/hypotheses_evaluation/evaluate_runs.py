@@ -15,11 +15,15 @@ degree of parallelism; default is 4).  Each run's output is buffered and
 printed atomically once that run finishes, so the console output remains
 readable even under high concurrency.
 
-Each generated hypothesis is scored on three metrics:
+Each generated hypothesis is scored on two or three metrics:
     Groundedness (0-4) — how well the hypothesis is grounded in the
                           evidence produced by the retriever.
+                          (skipped with ``--skip-groundedness``)
     Relevancy    (0-4) — how relevant the hypothesis is to the user query.
     Clarity      (0-3) — how clear and well-expressed the hypothesis is.
+
+With ``--skip-groundedness``, only relevancy and clarity are evaluated
+(used for pipelines with a single RetrieverGenerator agent).
 
 A per-run summary and a final aggregate summary across all runs are printed at
 the end.
@@ -228,7 +232,7 @@ def _print_run_summary(
     """Print a compact summary table of mean scores for a single run."""
     if not all_scores:
         return
-    metrics = ["groundedness", "relevancy", "clarity"]
+    metrics = list(all_scores[0].keys())
     max_scores = {"groundedness": 4, "relevancy": 4, "clarity": 3}
     _print_rule("=", out=out)
     print("RUN SUMMARY", file=out)
@@ -261,7 +265,7 @@ def _print_aggregate_summary(run_results: list[dict]) -> None:
     """Print a cross-run aggregate summary table."""
     if not run_results:
         return
-    metrics = ["groundedness", "relevancy", "clarity"]
+    metrics = list(run_results[0]["mean_scores"].keys())
     max_scores = {"groundedness": 4, "relevancy": 4, "clarity": 3}
 
     _print_rule("*", 70)
@@ -317,10 +321,11 @@ def _print_aggregate_summary(run_results: list[dict]) -> None:
 def evaluate_run(
     run_dir: Path,
     model: str,
-    groundedness_judge: GroundednessJudge,
     relevancy_judge: RelevancyJudge,
     clarity_judge: ClarityJudge,
     out: IO[str] = sys.stdout,
+    skip_groundedness: bool = False,
+    groundedness_judge: GroundednessJudge | None = None,
 ) -> dict | None:
     """Evaluate a single run directory.
 
@@ -330,8 +335,10 @@ def evaluate_run(
 
     try:
         explorer_data = _load_json(run_dir / "02_explorer.json")
-        retriever_path = _find_last_retriever_file(run_dir)
-        retriever_data = _load_json(retriever_path)
+        if not skip_groundedness:
+            retriever_path = _find_last_retriever_file(run_dir)
+            retriever_data = _load_json(retriever_path)
+            evidence = retriever_data["content"]
     except (FileNotFoundError, KeyError) as exc:
         print(f"  SKIP: could not load run artifacts — {exc}", file=out)
         return None
@@ -344,14 +351,14 @@ def evaluate_run(
     generator_data = _load_json(generator_path)
 
     query: str = explorer_data["metadata"]["prompt"]
-    evidence: str = retriever_data["content"]
     hypotheses: list[str] = generator_data["hypotheses"]
     explorer_metadata = explorer_data.get("metadata", {})
     paper_ids = [p.get("id") for p in explorer_metadata.get("papers", [])]
 
     _print_rule("=", out=out)
     print(f"Run directory : {run_dir.relative_to(PROJECT_ROOT)}", file=out)
-    print(f"Evidence from : {retriever_path.name}", file=out)
+    if not skip_groundedness:
+        print(f"Evidence from : {retriever_path.name}", file=out)
     print(f"Hypotheses    : {len(hypotheses)}", file=out)
     print(f"Judge model   : {model}", file=out)
     _print_rule("=", out=out)
@@ -362,40 +369,25 @@ def evaluate_run(
     all_scores: list[dict] = []
 
     for i, hypothesis in enumerate(hypotheses, start=1):
-        # print(f"\nHypothesis {i}/{len(hypotheses)}", file=out)
-        # _print_rule(out=out)
-        # print(hypothesis, file=out)
-        # _print_rule(out=out)
-        # print("  Evaluating...", file=out)
-
-        g_result = groundedness_judge.judge(hypothesis=hypothesis, evidence=evidence)
+        g_result = groundedness_judge.judge(hypothesis=hypothesis, evidence=evidence) if groundedness_judge else None
         r_result = relevancy_judge.judge(hypothesis=hypothesis, query=query)
         c_result = clarity_judge.judge(hypothesis=hypothesis)
 
-        # print(file=out)
-        # _print_score_row("Groundedness", g_result, max_score=4, out=out)
-        # _print_score_row("Relevancy", r_result, max_score=4, out=out)
-        # _print_score_row("Clarity", c_result, max_score=3, out=out)
+        entry = {"relevancy": r_result, "clarity": c_result}
+        if g_result:
+            entry["groundedness"] = g_result
 
-        hypothesis_results.append(
-            {
-                "text": hypothesis,
-                "groundedness": {
-                    "score": g_result.score,
-                    "reasoning": g_result.reasoning,
-                },
-                "relevancy": {"score": r_result.score, "reasoning": r_result.reasoning},
-                "clarity": {"score": c_result.score, "reasoning": c_result.reasoning},
+        hr_entry = {"text": hypothesis}
+        if g_result:
+            hr_entry["groundedness"] = {
+                "score": g_result.score,
+                "reasoning": g_result.reasoning,
             }
-        )
+        hr_entry["relevancy"] = {"score": r_result.score, "reasoning": r_result.reasoning}
+        hr_entry["clarity"] = {"score": c_result.score, "reasoning": c_result.reasoning}
 
-        all_scores.append(
-            {
-                "groundedness": g_result,
-                "relevancy": r_result,
-                "clarity": c_result,
-            }
-        )
+        hypothesis_results.append(hr_entry)
+        all_scores.append(entry)
 
     diversity = _calculate_diversity(hypotheses)
     existing_hypotheses = _get_existing_hypotheses(paper_ids)
@@ -404,44 +396,38 @@ def evaluate_run(
     print(file=out)
     _print_run_summary(all_scores, diversity, novelty, out=out)
 
-    metrics = ["groundedness", "relevancy", "clarity"]
+    metrics = list(all_scores[0].keys())
     mean_scores = {
         m: sum(s[m].score for s in all_scores) / len(all_scores) for m in metrics
     }
 
     # --- Save per-run evaluation results ---
+    hypothesis_entries = []
+    for i, h in enumerate(hypothesis_results, start=1):
+        entry = {"index": i, "hypothesis": h["text"]}
+        if "groundedness" in h:
+            entry["groundedness"] = h["groundedness"]
+        entry["relevancy"] = h["relevancy"]
+        entry["clarity"] = h["clarity"]
+        hypothesis_entries.append(entry)
+
+    summary = {
+        "mean_relevancy": round(mean_scores["relevancy"], 2),
+        "mean_clarity": round(mean_scores["clarity"], 2),
+        "diversity": round(diversity, 2),
+        "novelty": round(novelty, 2),
+    }
+    if "groundedness" in all_scores[0]:
+        summary["mean_groundedness"] = round(mean_scores["groundedness"], 2)
+
     save_payload = {
         "metadata": {
             "judge_model": model,
             "num_hypotheses": len(hypotheses),
             "evaluated_at": datetime.now().isoformat(),
         },
-        "hypotheses": [
-            {
-                "index": i,
-                "hypothesis": h["text"],
-                "groundedness": {
-                    "score": h["groundedness"]["score"],
-                    "reasoning": h["groundedness"]["reasoning"],
-                },
-                "relevancy": {
-                    "score": h["relevancy"]["score"],
-                    "reasoning": h["relevancy"]["reasoning"],
-                },
-                "clarity": {
-                    "score": h["clarity"]["score"],
-                    "reasoning": h["clarity"]["reasoning"],
-                },
-            }
-            for i, h in enumerate(hypothesis_results, start=1)
-        ],
-        "summary": {
-            "mean_groundedness": round(mean_scores["groundedness"], 2),
-            "mean_relevancy": round(mean_scores["relevancy"], 2),
-            "mean_clarity": round(mean_scores["clarity"], 2),
-            "diversity": round(diversity, 2),
-            "novelty": round(novelty, 2),
-        },
+        "hypotheses": hypothesis_entries,
+        "summary": summary,
     }
 
     save_path = run_dir / "06_evaluation.json"
@@ -470,7 +456,7 @@ def _save_results(runs_dir: Path, model: str, run_results: list[dict]) -> Path:
     The output file is named ``evaluation_results.json``.  Any existing file
     with that name is overwritten.
     """
-    metrics = ["groundedness", "relevancy", "clarity"]
+    metrics = list(run_results[0]["mean_scores"].keys()) if run_results else []
 
     # Compute aggregate means across all evaluated runs
     if run_results:
@@ -585,6 +571,11 @@ def parse_args() -> argparse.Namespace:
             "Set to 1 to disable parallelism."
         ),
     )
+    parser.add_argument(
+        "--skip-groundedness",
+        action="store_true",
+        help="Skip the groundedness judge (for pipelines without a separate retriever step).",
+    )
     return parser.parse_args()
 
 
@@ -594,6 +585,7 @@ def _evaluate_run_worker(
     provider: str,
     run_index: int,
     total_runs: int,
+    skip_groundedness: bool = False,
 ) -> tuple[Path, dict | None, str]:
     """Worker that runs in a thread pool, capturing all output to a buffer.
 
@@ -607,17 +599,18 @@ def _evaluate_run_worker(
     print(f"{'#' * 70}", file=buf)
 
     api_client = _build_api_client(provider, model)
-    groundedness_judge = GroundednessJudge(api_client)
+    groundedness_judge = GroundednessJudge(api_client) if not skip_groundedness else None
     relevancy_judge = RelevancyJudge(api_client)
     clarity_judge = ClarityJudge(api_client)
 
     result = evaluate_run(
         run_dir=run_dir,
         model=model,
-        groundedness_judge=groundedness_judge,
         relevancy_judge=relevancy_judge,
         clarity_judge=clarity_judge,
         out=buf,
+        skip_groundedness=skip_groundedness,
+        groundedness_judge=groundedness_judge,
     )
     return run_dir, result, buf.getvalue()
 
@@ -628,6 +621,7 @@ def main() -> None:
     provider: str = args.provider
     model: str = args.model or DEFAULT_MODELS[provider]
     workers: int = max(1, args.workers)
+    skip_groundedness: bool = args.skip_groundedness
 
     _check_api_key(provider)
 
@@ -645,7 +639,7 @@ def main() -> None:
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_run = {
             executor.submit(
-                _evaluate_run_worker, run_dir, model, provider, idx, len(run_dirs)
+                _evaluate_run_worker, run_dir, model, provider, idx, len(run_dirs), skip_groundedness
             ): run_dir
             for idx, run_dir in enumerate(run_dirs, start=1)
         }

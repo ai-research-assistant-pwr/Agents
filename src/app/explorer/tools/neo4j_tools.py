@@ -33,14 +33,7 @@ def bfs_from_papers(
 ) -> list[dict[str, Any]]:
     """
     BFS traversal from starting papers using APOC path expandConfig.
-
-    Args:
-        start_paper_ids: List of paper IDs to start from
-        max_level: Maximum depth of traversal (0 = only starting papers)
-        direction: "outgoing", "incoming", or "both" (default)
-
-    Returns:
-        List of dicts ordered by level with keys: id, title, abstract, summary, level, source_id
+    Optimized Cypher query using last() and length() functions.
     """
     if not start_paper_ids:
         return []
@@ -51,7 +44,6 @@ def bfs_from_papers(
         )
 
     neo4j_driver = _get_driver()
-
     results: list[dict[str, Any]] = []
 
     if direction == "outgoing":
@@ -62,6 +54,7 @@ def bfs_from_papers(
         rel_filter = "REFERENCES"
 
     with neo4j_driver.session() as session:
+        # 1. Pobranie węzłów startowych
         result = session.run(
             """
             MATCH (p:Paper) WHERE p.paperId IN $paperIds
@@ -83,6 +76,7 @@ def bfs_from_papers(
                 }
             )
 
+        # 2. Zoptymalizowana ekspansja BFS
         if max_level > 0:
             result = session.run(
                 """
@@ -95,13 +89,13 @@ def bfs_from_papers(
                     uniqueness: "node_global"
                 })
                 YIELD path
-                RETURN path,
-                       [node IN nodes(path) | node.paperId][-1] AS id,
-                       [node IN nodes(path) | node.title][-1] AS title,
-                       [node IN nodes(path) | coalesce(node.abstract, '')][-1] AS abstract,
-                       [node IN nodes(path) | coalesce(node.summary, '')][-1] AS summary,
-                       size(nodes(path)) - 1 AS level,
-                       [node IN nodes(path) | node.paperId][0] AS source_id
+                WITH start, path, last(nodes(path)) AS endNode
+                RETURN endNode.paperId AS id,
+                       endNode.title AS title,
+                       coalesce(endNode.abstract, '') AS abstract,
+                       coalesce(endNode.summary, '') AS summary,
+                       length(path) AS level,
+                       start.paperId AS source_id
                 ORDER BY level
                 """,
                 paperIds=list(start_paper_ids),
@@ -121,58 +115,41 @@ def bfs_from_papers(
                 )
 
     results.sort(key=lambda x: x["level"])
-
     return results
 
 
 def random_walk(
-    start_paper_ids: list[str],
-    steps: int,
-    direction: str = "both"
+    start_paper_ids: list[str], steps: int, direction: str = "both"
 ) -> list[dict[str, Any]]:
     """
-    Random walk traversal that collects N nodes per start paper through iterative walks.
-
-    For each start paper:
-    - Each walk has length 4, and the last node becomes the next walk's start.
-    - Continues until visited >= steps for that start paper.
-    - Results from each start paper are combined.
-
-    Args:
-        start_paper_ids: List of paper IDs to start from
-        steps: Target number of nodes to collect per start paper (0 returns just start papers)
-        direction: "outgoing", "incoming", or "both" (default)
-
-    Returns:
-        List of dicts with keys: id, title, abstract, summary, level, source_id
+    True Random Walk traversal with Restart (Teleportation).
+    Iteratively takes one random outgoing/incoming edge. If a dead end or
+    already visited node is reached, it randomly restarts from the seed node.
     """
     if not start_paper_ids:
         return []
 
     if direction not in ("outgoing", "incoming", "both"):
-        raise ValueError(f"Invalid direction: {direction}. Must be 'outgoing', 'incoming', or 'both'")
-
-    WALK_LENGTH = 4
-    target_nodes = steps
+        raise ValueError(f"Invalid direction: {direction}")
 
     neo4j_driver = _get_driver()
-
     all_results: list[dict[str, Any]] = []
 
+    # Mapowanie kierunków na notację Cypher (1-hop)
     if direction == "outgoing":
-        rel_filter = "REFERENCES>"
+        match_pattern = "(curr)-[:REFERENCES]->(next:Paper)"
     elif direction == "incoming":
-        rel_filter = "<REFERENCES"
+        match_pattern = "(curr)<-[:REFERENCES]-(next:Paper)"
     else:
-        rel_filter = "REFERENCES"
+        match_pattern = "(curr)-[:REFERENCES]-(next:Paper)"
 
     with neo4j_driver.session() as session:
         for start_id in start_paper_ids:
             visited_ids: set[str] = {start_id}
-            current_start = start_id
+            current_node = start_id
             results: list[dict[str, Any]] = []
 
-            # Always add starting paper at level 0 (consistent with BFS)
+            # 1. Pobierz dane węzła startowego
             result = session.run(
                 """
                 MATCH (p:Paper {paperId: $startId})
@@ -180,73 +157,72 @@ def random_walk(
                        coalesce(p.abstract, '') AS abstract,
                        coalesce(p.summary, '') AS summary
                 """,
-                startId=start_id
+                startId=start_id,
             )
             record = result.single()
             if record:
-                results.append({
-                    "id": record["id"],
-                    "title": record["title"],
-                    "abstract": record["abstract"],
-                    "summary": record["summary"],
-                    "level": 0,
-                    "source_id": start_id
-                })
+                results.append(
+                    {
+                        "id": record["id"],
+                        "title": record["title"],
+                        "abstract": record["abstract"],
+                        "summary": record["summary"],
+                        "level": 0,
+                        "source_id": start_id,
+                    }
+                )
 
-            if target_nodes == 0:
+            if steps == 0:
                 all_results.extend(results)
                 continue
 
-            while len(visited_ids) < target_nodes:
-                result = session.run(
-                    """
-                    MATCH (start:Paper {paperId: $startId})
-                    CALL apoc.path.expandConfig(start, {
-                        relationshipFilter: $relFilter,
-                        minLevel: $walkLength,
-                        maxLevel: $walkLength,
-                        limit: 20,
-                        bfs: true
-                    }) YIELD path
-                    WITH collect(path) AS paths
-                    RETURN apoc.coll.randomItem(paths) AS randomWalk
-                    """,
-                    startId=current_start,
-                    relFilter=rel_filter,
-                    walkLength=WALK_LENGTH
+            # 2. Prawdziwy Random Walk (węzeł po węźle)
+            consecutive_failures = 0
+
+            while len(visited_ids) - 1 < steps:
+                # Losujemy DOKŁADNIE JEDNEGO sąsiada z obecnego węzła
+                query = f"""
+                MATCH {match_pattern}
+                WHERE curr.paperId = $currId 
+                  AND NOT next.paperId IN $visited
+                RETURN next.paperId AS id, next.title AS title, 
+                       coalesce(next.abstract, '') AS abstract, 
+                       coalesce(next.summary, '') AS summary
+                ORDER BY rand()
+                LIMIT 1
+                """
+
+                step_result = session.run(
+                    query, currId=current_node, visited=list(visited_ids)
                 )
-                record = result.single()
-                if not record or not record["randomWalk"]:
-                    break
+                next_record = step_result.single()
 
-                path = record["randomWalk"]
-                nodes = list(path.nodes)
-                if not nodes:
-                    break
-
-                for level, node in enumerate(nodes):
-                    node_id = node.get("paperId")
-                    if node_id and node_id not in visited_ids:
-                        visited_ids.add(node_id)
-                        results.append({
-                            "id": node_id,
-                            "title": node.get("title", ""),
-                            "abstract": node.get("abstract", ""),
-                            "summary": node.get("summary", ""),
+                if next_record:
+                    # Udany skok do nowego, nieodwiedzonego węzła
+                    next_id = next_record["id"]
+                    visited_ids.add(next_id)
+                    results.append(
+                        {
+                            "id": next_id,
+                            "title": next_record["title"],
+                            "abstract": next_record["abstract"],
+                            "summary": next_record["summary"],
                             "level": len(visited_ids) - 1,
                             "source_id": start_id,
-                        })
+                        }
+                    )
+                    current_node = next_id  # Idziemy dalej z tego węzła
+                    consecutive_failures = 0
+                else:
+                    # Ślepy zaułek (brak nieodwiedzonych sąsiadów) -> TELEPORTACJA (Restart)
+                    consecutive_failures += 1
+                    current_node = (
+                        start_id  # Powrót do korzenia i szukanie innej ścieżki
+                    )
 
-                        if len(visited_ids) >= target_nodes:
-                            break
-
-                if len(visited_ids) >= target_nodes:
-                    break
-
-                next_node = nodes[-1].get("paperId")
-                if not next_node or next_node in visited_ids:
-                    break
-                current_start = next_node
+                    # Zabezpieczenie przed nieskończoną pętlą, jeśli graf wokół start_id jest w 100% wyczerpany
+                    if consecutive_failures > 5:
+                        break
 
             all_results.extend(results)
 
@@ -258,7 +234,7 @@ def personalized_pagerank(
     top_n: int = 15,
     direction: str = "both",
     max_iterations: int = 20,
-    damping_factor: float = 0.85
+    damping_factor: float = 0.85,
 ) -> list[dict[str, Any]]:
     """
     Personalized PageRank using GDS.
@@ -301,7 +277,7 @@ def personalized_pagerank(
                 {REFERENCES: {orientation: $orientation}}
             )
             """,
-            orientation=orientation
+            orientation=orientation,
         )
 
         try:
@@ -326,22 +302,23 @@ def personalized_pagerank(
                 paperIds=list(start_paper_ids),
                 maxIterations=max_iterations,
                 dampingFactor=damping_factor,
-                topN=top_n
+                topN=top_n,
             )
 
             for record in result:
                 score = record["score"]
                 if score <= 0:
                     continue
-                results.append({
-                    "id": record["id"],
-                    "title": record["title"],
-                    "abstract": record["abstract"],
-                    "summary": record["summary"],
-                    "score": score
-                })
+                results.append(
+                    {
+                        "id": record["id"],
+                        "title": record["title"],
+                        "abstract": record["abstract"],
+                        "summary": record["summary"],
+                        "score": score,
+                    }
+                )
         finally:
             session.run("CALL gds.graph.drop('ppr-papers-graph')")
 
     return results
-

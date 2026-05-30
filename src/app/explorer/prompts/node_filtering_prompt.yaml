@@ -32,4 +32,4 @@ loop: |
    2. Filter out ALL papers that appear in the visited list - these are already explored
    3. From remaining unvisited papers, select {range} papers that offer the highest informational value, potential insights, or direct/indirect context for the user's query.
    4. Pick one from selected_nodes as current_node for next iteration
-   6. Output selected node indices, current_node index and reason
+   5. Output selected node indices, current_node index and reason

@@ -8,6 +8,7 @@ wandb/
 logs/
 out/
 MARTI
+build/
 
 .idea/
 gcloud_key.json

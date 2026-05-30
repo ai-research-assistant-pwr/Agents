@@ -26,7 +26,12 @@ class GoogleAPIClient(BaseAPIClient):
         self.client = genai.Client(api_key=api_key)
 
     def call(  # type: ignore[override]
-        self, messages: list[Message], response_schema: type[T] | None = None
+        self,
+        messages: list[Message],
+        response_schema: type[T] | None = None,
+        temperature: float | None = 1.0,  # Zmiana: Domyślna temperatura
+        presence_penalty: float | None = 0.0,  # Zmiana: Domyślny presence_penalty
+        frequency_penalty: float | None = 0.0,  # Zmiana: Domyślny frequency_penalty
     ) -> CallResult[str] | CallResult[T]:
         """Send messages to the Google Gemini model.
 
@@ -58,7 +63,12 @@ class GoogleAPIClient(BaseAPIClient):
                     )
                 )
 
-        config = types.GenerateContentConfig()
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+        )
+
         if system_parts:
             config.system_instruction = "\n".join(system_parts)
 
