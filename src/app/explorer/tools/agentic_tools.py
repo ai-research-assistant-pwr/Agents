@@ -5,12 +5,26 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
 from vllm.inputs import TokensPrompt
 from vllm.sampling_params import StructuredOutputsParams
 
+from app.api_client.base import BaseAPIClient, CallResult, Message
 from app.explorer.tools.tool_definitions import TOOL_DEFINITIONS, get_tool_executor
+
+
+class _ToolSelection(BaseModel):
+    selected_tool: str
+    reason: str
+
+
+class _NodeFiltering(BaseModel):
+    selected_nodes: list[int]
+    current_node: int
+    reason: str
+
 
 DEFAULT_MODEL = "Qwen/Qwen3-4B"
 MAX_MODEL_LEN = 8192
@@ -130,6 +144,19 @@ def _call_llm(
         return {}
 
 
+def _call_api_llm(
+    api_client: BaseAPIClient,
+    prompt: str,
+    response_schema: type[BaseModel] | None,
+) -> dict[str, Any]:
+    """Call LLM via API client and return parsed result as dict."""
+    messages = [Message(role="user", content=prompt)]
+    result = api_client.call(messages, response_schema=response_schema)
+    if response_schema is not None:
+        return result.content.model_dump()
+    return {}
+
+
 def execute_tool_call(tool_name: str, args: dict[str, Any]) -> list[dict[str, Any]]:
     """Execute a tool and return results."""
     executor = get_tool_executor(tool_name)
@@ -179,18 +206,18 @@ def _format_paper_list(
 ) -> str:
     """Format papers as readable text for prompt."""
     lines = []
-    for paper in papers:
+    for i, paper in enumerate(papers):
         paper_id = paper.get("id", "unknown")
         title = paper.get("title", "No title")
         abstract = paper.get("abstract", "") if include_abstracts else ""
         summary = paper.get("summary", "") if include_summary else ""
 
-        lines.append(f"ID: {paper_id}")
-        lines.append(f"Title: {title}")
+        lines.append(f"[{i}] ID: {paper_id}")
+        lines.append(f"    Title: {title}")
         if abstract:
-            lines.append(f"Abstract: {abstract}")
+            lines.append(f"    Abstract: {abstract}")
         if summary:
-            lines.append(f"Summary: \n{summary}")
+            lines.append(f"    Summary: \n{summary}")
         lines.append("")
 
     return "\n".join(lines)
@@ -203,38 +230,47 @@ def agentic_explorer(
     tool_selection_prompt_path: str,
     node_filtering_prompt_path: str,
     user_query: str = "",
-    model_name: str = DEFAULT_MODEL,
+    model_name: str = "Qwen/Qwen3-4B",
     temperature: float = 0.7,
-    max_results_per_tool: int = MAX_RESULTS_PER_TOOL,
+    max_results_per_tool: int = 10,
     include_abstracts: bool = True,
     selected_nodes_count_low: int = 2,
     selected_nodes_count_high: int = 3,
     include_summary: bool = False,
+    api_client: BaseAPIClient | None = None,
 ) -> list[dict[str, Any]]:
     """Agentic graph exploration with 2-phase LLM calls.
 
     Phase 1: Tool selection - LLM chooses which tool to use.
     Phase 2: Node filtering - LLM filters results and selects next node.
     """
-    llm_model, tok = _load_model(model_name)
+    if api_client is None:
+        llm_model, tok = _load_model(model_name)
+    else:
+        llm_model, tok = None, None
 
     tool_select_config = load_prompt(tool_selection_prompt_path)
     node_filter_config = load_prompt(node_filtering_prompt_path)
 
-    tool_select_schema_orig = tool_select_config.get("json_schema", {})
-    tool_select_schema = copy.deepcopy(tool_select_schema_orig)
+    # -------------------------------------------------------------------------
+    # POPRAWKA 1: Użycie schematów Pydantic bezpośrednio do vLLM
+    # -------------------------------------------------------------------------
+    tool_select_schema = _ToolSelection.model_json_schema()
     tool_select_schema["properties"]["selected_tool"]["enum"] = tools
 
-    node_filter_schema_orig = node_filter_config.get("json_schema", {})
-    node_filter_schema = copy.deepcopy(node_filter_schema_orig)
+    node_filter_schema = _NodeFiltering.model_json_schema()
 
     low = min(selected_nodes_count_low, max_results_per_tool)
     high = min(selected_nodes_count_high, max_results_per_tool)
     papers_range = f"{low}-{high}"
 
+    # Dodajemy opisy do wygenerowanego schematu Pydantic
     node_filter_schema["properties"]["selected_nodes"][
         "description"
-    ] = f"List of paper IDs to add to visited ({low}-{high} papers)"
+    ] = f"List of result indices to add to visited ({low}-{high} papers)"
+    node_filter_schema["properties"]["current_node"][
+        "description"
+    ] = "Index of the paper to explore next (must be in selected_nodes indices)"
 
     tool_section = _format_tool_descriptions(tools)
 
@@ -264,7 +300,9 @@ def agentic_explorer(
             print(f"\n{'='*60}")
             print(f"Start: {start_id} | Iteration {iteration + 1}/{iterations}")
             print(f"Current node: {current_node}")
-            print(f"Visited: {len(visited)} nodes")
+            print(
+                f"Visited: {len(visited)} nodes | Collected papers: {len(all_papers)}"
+            )
             print(f"{'='*60}")
 
             if len(tools) == 1:
@@ -302,14 +340,18 @@ IMPORTANT: You have already visited these papers. Do NOT select them again unles
                     tool_section,
                 )
 
-                print(f"Call 1/2: Tool selection...")
-                print("=" * 60)
-                print("TOOL SELECTION PROMPT:")
-                print(tool_select_prompt)
-                print("=" * 60)
-                tool_result = _call_llm(
-                    llm_model, tok, tool_select_prompt, tool_select_schema, temperature
-                )
+                if api_client is not None:
+                    tool_result = _call_api_llm(
+                        api_client, tool_select_prompt, _ToolSelection
+                    )
+                else:
+                    tool_result = _call_llm(
+                        llm_model,
+                        tok,
+                        tool_select_prompt,
+                        tool_select_schema,
+                        temperature,
+                    )
 
                 selected_tool = tool_result.get("selected_tool")
                 tool_reason = tool_result.get("reason", "No reason provided")
@@ -354,9 +396,16 @@ IMPORTANT: You have already visited these papers. Do NOT select them again unles
                 print(f"ERROR: Tool execution failed: {error_msg}")
                 continue
 
+            # -------------------------------------------------------------------------
+            # POPRAWKA 2: Mądrzejsze filtrowanie. Odcinamy level 0 tylko z BFS,
+            # by nie niszczyć wyników zrestartowanego Random Walk
+            # -------------------------------------------------------------------------
             results = [
-                r for r in results if selected_tool == "ppr" or r.get("level", 0) > 0
+                r
+                for r in results
+                if selected_tool != "bfs_from_papers" or r.get("level", 0) > 0
             ]
+
             if len(results) > max_results_per_tool:
                 results = random.sample(results, max_results_per_tool)
 
@@ -389,7 +438,7 @@ IMPORTANT: You have already visited these papers. Do NOT select them again unles
             node_filter_context = f"""Current node: {current_node}
 Tool used: {selected_tool}
 
-RESULTS FROM TOOL:
+RESULTS FROM TOOL (index -> paper):
 {paper_list_str}
 
 VISITED PAPER IDs (DO NOT SELECT THESE):
@@ -407,56 +456,88 @@ IMPORTANT: Select ONLY papers that are NOT in the visited list above."""
                 "",
             )
 
-            print(f"Call 2/2: Node filtering...")
-            print("=" * 60)
-            print("NODE FILTERING PROMPT:")
-            print(node_filter_prompt)
-            print("=" * 60)
-            filter_result = _call_llm(
-                llm_model, tok, node_filter_prompt, node_filter_schema, temperature
-            )
+            if api_client is not None:
+                filter_result = _call_api_llm(
+                    api_client, node_filter_prompt, _NodeFiltering
+                )
+            else:
+                filter_result = _call_llm(
+                    llm_model, tok, node_filter_prompt, node_filter_schema, temperature
+                )
 
-            selected_nodes = filter_result.get("selected_nodes", [])
-            current_node = filter_result.get("current_node")
+            selected_indices = filter_result.get("selected_nodes", [])
+            current_node_index = filter_result.get("current_node")
 
-            print(f"Selected nodes: {selected_nodes}")
-            print(f"Current node: {current_node}")
+            selected_nodes = []
+            for idx in selected_indices:
+                if isinstance(idx, int) and 0 <= idx < len(results):
+                    node_id = results[idx].get("id")
+                    if node_id and node_id not in visited:
+                        selected_nodes.append(node_id)
 
-            if not selected_nodes or not current_node:
-                print("ERROR: No nodes selected")
-                continue
+            if isinstance(current_node_index, int) and 0 <= current_node_index < len(
+                results
+            ):
+                proposed_current_node = results[current_node_index].get("id")
+            else:
+                proposed_current_node = None
 
-            for node_id in selected_nodes:
-                if node_id not in visited:
-                    visited.add(node_id)
-                    selected_paper = next(
-                        (r for r in results if r.get("id") == node_id), None
-                    )
-                    if selected_paper and selected_paper.get("id") not in all_paper_ids:
-                        all_paper_ids.add(selected_paper.get("id"))
-                        all_papers.append(selected_paper)
+            print(f"Selected indices: {selected_indices} -> IDs: {selected_nodes}")
+            print(f"Current index: {current_node_index} -> ID: {proposed_current_node}")
 
-            print(f"Added to visited. Total visited: {len(visited)}")
+            if not selected_nodes or not proposed_current_node:
+                print("ERROR: No valid nodes selected by LLM")
+                if visited:
+                    current_node = random.choice(list(visited))
+                    print(f"Backtracked to: {current_node}")
+                    continue
+                else:
+                    break
 
-            if current_node in visited:
+            # -------------------------------------------------------------------------
+            # POPRAWKA 3: Logika gromadzenia węzłów i weryfikacja current_node
+            # -------------------------------------------------------------------------
+            if proposed_current_node in visited:
                 print(
-                    f"Current node {current_node} is already visited - backtracking..."
+                    f"LLM Error: Proposed node {proposed_current_node} is already visited - backtracking..."
                 )
                 tool_history.append(
                     {
                         "iteration": iteration + 1,
                         "tool": selected_tool,
                         "results_count": len(results),
-                        "selected_node": "BACKTRACK",
+                        "selected_node": "BACKTRACK_LLM_ERROR",
                     }
                 )
-                if visited:
-                    current_node = random.choice(list(visited))
-                    print(f"Backtracked to: {current_node}")
-                else:
-                    print("No nodes to backtrack to - stopping.")
-                    break
+                current_node = random.choice(list(visited))
                 continue
+
+            # Ustawiamy nowy, bezpieczny current_node
+            current_node = proposed_current_node
+
+            # 1. Dodajemy do koszyka i odwiedzonych węzły poboczne (sąsiedztwo)
+            for node_id in selected_nodes:
+                if node_id == current_node:
+                    continue  # Obsłużymy go za chwilę osobno
+
+                visited.add(node_id)
+                selected_paper = next(
+                    (r for r in results if r.get("id") == node_id), None
+                )
+                if selected_paper and selected_paper.get("id") not in all_paper_ids:
+                    all_paper_ids.add(selected_paper.get("id"))
+                    all_papers.append(selected_paper)
+
+            # 2. DODAJEMY CURRENT NODE DO ODWIEDZONYCH (Kluczowe zabezpieczenie przed pętlą!)
+            visited.add(current_node)
+            current_paper = next(
+                (r for r in results if r.get("id") == current_node), None
+            )
+            if current_paper and current_paper.get("id") not in all_paper_ids:
+                all_paper_ids.add(current_paper.get("id"))
+                all_papers.append(current_paper)
+
+            print(f"Nodes successfully added. Total visited: {len(visited)}")
 
             tool_history.append(
                 {

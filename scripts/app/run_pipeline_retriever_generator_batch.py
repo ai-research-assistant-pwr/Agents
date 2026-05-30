@@ -1,47 +1,30 @@
-"""Run the hypothesis generation pipeline over a sample of queries from a CSV file.
+"""Run the simplified hypothesis generation pipeline over a sample of queries
+from a CSV file using a single RetrieverGenerator agent (no separate
+retriever + generator).
 
 Usage:
-    python scripts/app/run_pipeline_batch.py
-    python scripts/app/run_pipeline_batch.py --csv data/synthetic_prompts_gemini-3-flash-preview_simpler.csv
-    python scripts/app/run_pipeline_batch.py --sample-size 20 --seed 123
-    python scripts/app/run_pipeline_batch.py --sample-size 5 --save-steps --refinement-turns 1
-
-Search is selected from config (search.type):
-    - "weaviate"  WeaviateSearchExplorer  (Qwen3 embedding + reranking)
-
-Explorer is selected from config (explorer.type):
-    - "weaviate"        WeaviateExplorer       (direct vector search to content)
-    - "neo4j_bfs"       Neo4jBFSExplorer       (BFS traversal from paper IDs)
-    - "neo4j_random_walk"  Neo4jRandomWalkExplorer (Random walk traversal)
-    - "neo4j_pagerank"  Neo4jPageRankExplorer  (Personalized PageRank)
-    - "agentic"         AgenticExplorer        (LLM-driven tool selection)
-    - "const"           ConstExplorer          (placeholder, for testing without a DB)
-    - "none"            NoneExplorer           (pass-through, fetches paper metadata from Weaviate)
-
-For every row a model is randomly selected from the MODELS list below,
-weighted by the 'weight' field. The matching API client is instantiated fresh
-for that row. Add or adjust entries in MODELS to change the pool.
+    python scripts/app/run_pipeline_retriever_generator_batch.py
+    python scripts/app/run_pipeline_retriever_generator_batch.py --csv data/synthetic_prompts.csv
+    python scripts/app/run_pipeline_retriever_generator_batch.py --sample-size 20 --seed 123
+    python scripts/app/run_pipeline_retriever_generator_batch.py --sample-size 5 --save-steps
 
 Results are written to a CSV file in the outputs/ directory (one row per query).
-
-Requires the API key for each provider you include in MODELS to be set in the
-environment or in a .env file at the project root (GOOGLE_API_KEY,
-OPENAI_API_KEY, or CEREBRAS_API_KEY).
 """
 
 import argparse
 import csv
+import json
 import os
 import random
 import sys
 import time
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
 
-# Resolve project root and add src/ to path
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
@@ -50,7 +33,6 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 env_path = os.path.join(PROJECT_ROOT, ".env")
 load_dotenv(env_path)
 
-from app import App
 from app.api_client.base import BaseAPIClient
 from app.api_client.cerebras_client import CerebrasAPIClient
 from app.api_client.google_client import GoogleAPIClient
@@ -64,44 +46,35 @@ from app.explorer.neo4j_random_walk_explorer import Neo4jRandomWalkExplorer
 from app.explorer.none_explorer import NoneExplorer
 from app.explorer.weaviate_explorer import WeaviateExplorer
 from app.explorer.weaviate_search_explorer import WeaviateSearchExplorer
-from app.generator.api_llm_generator import APILLMGenerator
-from app.retriever.api_llm_retriever import APILLMRetriever
+from app.retriever_generator.api_llm_retriever_generator import APILLMRetrieverGenerator
 
 CONFIG_PATH = "config/app/config.yaml"
 DEFAULT_CSV = "data/prompts.csv"
 QUERY_COLUMN = "generated_prompt"
 DEFAULT_SAMPLE_SIZE = 8
 
-# Maps provider name -> client class.
 PROVIDERS: dict[str, type[BaseAPIClient]] = {
     "google": GoogleAPIClient,
     "openai": OpenAIAPIClient,
     "cerebras": CerebrasAPIClient,
 }
 
-# Model pool: each entry needs 'name', 'provider', and 'weight'.
-# weight controls relative selection probability (higher = more likely).
 MODELS: list[dict] = [
     {"name": "gemini-3.5-flash", "provider": "google", "weight": 1},
-    # {"name": "gemini-3.1-flash-lite-preview", "provider": "google", "weight": 1},
-    # {"name": "gpt-5.4-mini", "provider": "openai", "weight": 1},
 ]
 
 
 def select_model() -> dict:
-    """Randomly pick one model config from MODELS, respecting weights."""
     weights = [m["weight"] for m in MODELS]
     return random.choices(MODELS, weights=weights, k=1)[0]
 
 
 def build_api_client(model_cfg: dict) -> BaseAPIClient:
-    """Instantiate the API client for the given model config dict."""
     client_cls = PROVIDERS[model_cfg["provider"]]
     return client_cls(model=model_cfg["name"])
 
 
 def build_search(config: dict):
-    """Instantiate the search explorer specified by config[search][type]."""
     search_type = config.get("search", {}).get("type")
     if search_type == "weaviate":
         return WeaviateSearchExplorer(config)
@@ -109,7 +82,6 @@ def build_search(config: dict):
 
 
 def build_explorer(config: dict):
-    """Instantiate the explorer specified by config[explorer][type]."""
     explorer_type = config.get("explorer", {}).get("type", "const")
     if explorer_type == "weaviate":
         return WeaviateExplorer(config)
@@ -129,9 +101,16 @@ def build_explorer(config: dict):
     raise ValueError(f"Unknown explorer type: {explorer_type!r}")
 
 
+def _save_step(save_dir: Path, name: str, data: dict) -> None:
+    path = save_dir / f"{name}.json"
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the pipeline over a sample of queries from a CSV file."
+        description="Run the simplified pipeline over a sample of queries "
+        "(single RetrieverGenerator agent)."
     )
     parser.add_argument(
         "--csv",
@@ -149,7 +128,7 @@ def parse_args() -> argparse.Namespace:
         "--sample-size",
         type=int,
         default=DEFAULT_SAMPLE_SIZE,
-        help=f"Number of rows to sample from the CSV (default: {DEFAULT_SAMPLE_SIZE}). "
+        help=f"Number of rows to sample (default: {DEFAULT_SAMPLE_SIZE}). "
         "Pass -1 to run all rows.",
     )
     parser.add_argument(
@@ -164,12 +143,6 @@ def parse_args() -> argparse.Namespace:
         help="Save intermediate pipeline step outputs to disk for each query.",
     )
     parser.add_argument(
-        "--refinement-turns",
-        type=int,
-        default=0,
-        help="Number of retriever<->generator refinement rounds (default: 0).",
-    )
-    parser.add_argument(
         "--output",
         type=str,
         default=None,
@@ -181,11 +154,6 @@ def parse_args() -> argparse.Namespace:
 def load_queries(
     csv_path: str, query_column: str, sample_size: int, seed: int
 ) -> pd.DataFrame:
-    """Load and optionally sample rows from the CSV file.
-
-    Returns a DataFrame with at least the query column. All original columns
-    are kept so that metadata can be written to the output file.
-    """
     abs_path = (
         csv_path if os.path.isabs(csv_path) else os.path.join(PROJECT_ROOT, csv_path)
     )
@@ -211,7 +179,6 @@ def main() -> None:
     search_type = config.get("search", {}).get("type", "weaviate")
     explorer_type = config.get("explorer", {}).get("type", "const")
 
-    # Load queries
     df = load_queries(args.csv, args.query_column, args.sample_size, args.seed)
     n_queries = len(df)
 
@@ -221,34 +188,29 @@ def main() -> None:
     print(f"Search          : {search_type}")
     print(f"Explorer        : {explorer_type}")
     print(f"Model pool      : {model_pool}")
-    print(f"Refinements     : {args.refinement_turns}")
     print(f"Save steps      : {args.save_steps}")
     print(f"CSV file        : {args.csv}")
     print(f"Query column    : {args.query_column}")
     print(f"Sample size     : {n_queries} queries (seed={args.seed})")
     print()
 
-    # Search and explorer are shared across all queries (may hold DB connections).
     search_explorer = build_search(config)
     explorer = build_explorer(config)
 
-    # Prepare output path
     if args.output:
         output_path = Path(args.output)
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = Path(PROJECT_ROOT) / "outputs"
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"batch_{timestamp}.csv"
+        output_path = output_dir / f"batch_retriever_generator_{timestamp}.csv"
 
-    # Collect results
     results: list[dict] = []
     errors: list[dict] = []
 
     for idx, row in df.iterrows():
         query = row[args.query_column]
 
-        # Select a model for this row and build a fresh client.
         model_cfg = select_model()
         model_name = model_cfg["name"]
         provider = model_cfg["provider"]
@@ -259,22 +221,30 @@ def main() -> None:
 
         t0 = time.time()
         try:
+            save_dir = None
+            if args.save_steps:
+                save_root = config.get("pipeline", {}).get("save_dir", "outputs")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                save_dir = Path(PROJECT_ROOT) / save_root / timestamp
+                save_dir.mkdir(parents=True, exist_ok=True)
+
             api_client = build_api_client(model_cfg)
-            retriever = APILLMRetriever(api_client=api_client)
-            generator = APILLMGenerator(api_client=api_client)
-
-            app = App(
-                search_explorer=search_explorer,
-                explorer=explorer,
-                retriever=retriever,
-                generator=generator,
-                config_path=CONFIG_PATH,
+            retriever_generator = APILLMRetrieverGenerator(
+                api_client=api_client,
             )
-            app.config.setdefault("pipeline", {})
-            app.config["pipeline"]["save_steps"] = args.save_steps
-            app.config["pipeline"]["refinement_turns"] = args.refinement_turns
 
-            result = app.run(query)
+            paper_ids = search_explorer.search(query)
+            if save_dir:
+                _save_step(save_dir, "01_search", {"paper_ids": paper_ids})
+
+            explorer_output = explorer.explore(query, paper_ids)
+            if save_dir:
+                _save_step(save_dir, "02_explorer", asdict(explorer_output))
+
+            result = retriever_generator.generate(query, explorer_output)
+            if save_dir:
+                _save_step(save_dir, "05_generator", asdict(result))
+
             elapsed = time.time() - t0
 
             record = row.to_dict()
@@ -285,7 +255,8 @@ def main() -> None:
             results.append(record)
 
             print(
-                f"  Done in {elapsed:.1f}s  |  model={record['model_used']}  |  hypotheses={len(result.hypotheses)}"
+                f"  Done in {elapsed:.1f}s  |  model={record['model_used']}  |  "
+                f"hypotheses={len(result.hypotheses)}"
             )
             for i, h in enumerate(result.hypotheses, start=1):
                 print(f"    {i}. {h[:100]}{'...' if len(h) > 100 else ''}")
@@ -303,7 +274,6 @@ def main() -> None:
 
         print()
 
-    # Write results CSV
     results_df = pd.DataFrame(results)
     results_df.to_csv(output_path, index=False, quoting=csv.QUOTE_ALL)
 

@@ -18,6 +18,10 @@ Each generated hypothesis is scored on three metrics:
 If the run includes retriever-refinement turns the last refined retriever
 output is used as the evidence source for groundedness evaluation.
 
+Use ``--skip-groundedness`` for pipelines that use a single
+RetrieverGenerator agent (no separate retriever step). Groundedness
+cannot be evaluated without a dedicated retriever evidence file.
+
 Requires GOOGLE_API_KEY (for --provider google) or OPENAI_API_KEY (for
 --provider openai) to be set in the environment or in a .env file at the
 project root.
@@ -57,11 +61,11 @@ from hypotheses_evaluation import (
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 DEFAULT_MODELS = {
-    "google": "gemini-3-flash-preview",
-    "openai": "gpt-4o",
+    "google": "gemini-3.5-flash",
+    "openai": "gpt-5.4-mini",
 }
 PROVIDERS = list(DEFAULT_MODELS.keys())
-DEFAULT_PROVIDER = "google"
+DEFAULT_PROVIDER = "openai"
 
 # Width of the label column in the per-hypothesis table.
 _LABEL_W = 15
@@ -226,7 +230,7 @@ def _print_summary(all_scores: list[dict], diversity: float, novelty: float) -> 
     """Print a compact summary table of mean scores across all hypotheses."""
     if not all_scores:
         return
-    metrics = ["groundedness", "relevancy", "clarity"]
+    metrics = list(all_scores[0].keys())
     max_scores = {"groundedness": 4, "relevancy": 4, "clarity": 3}
     _print_rule("=")
     print("SUMMARY")
@@ -260,11 +264,13 @@ def _print_summary(all_scores: list[dict], diversity: float, novelty: float) -> 
 # ---------------------------------------------------------------------------
 
 
-def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
+def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient, skip_groundedness: bool = False) -> None:
     # --- Load pipeline artifacts ---
     explorer_data = _load_json(run_dir / "02_explorer.json")
-    retriever_path = _find_last_retriever_file(run_dir)
-    retriever_data = _load_json(retriever_path)
+    if not skip_groundedness:
+        retriever_path = _find_last_retriever_file(run_dir)
+        retriever_data = _load_json(retriever_path)
+        evidence = retriever_data["content"]
     generator_path = run_dir / "05_generator.json"
     if not generator_path.exists():
         print(f"ERROR: Generator output not found at {generator_path}.")
@@ -273,7 +279,6 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     generator_data = _load_json(generator_path)
 
     query: str = explorer_data["metadata"]["prompt"]
-    evidence: str = retriever_data["content"]
     hypotheses: list[str] = generator_data["hypotheses"]
     explorer_metadata = explorer_data.get("metadata", {})
     paper_ids = [p.get("id") for p in explorer_metadata.get("papers", [])]
@@ -281,7 +286,8 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     # --- Summarise what we loaded ---
     _print_rule("=")
     print(f"Run directory : {run_dir.relative_to(PROJECT_ROOT)}")
-    print(f"Evidence from : {retriever_path.name}")
+    if not skip_groundedness:
+        print(f"Evidence from : {retriever_path.name}")
     print(f"Hypotheses    : {len(hypotheses)}")
     print(f"Judge model   : {model}")
     _print_rule("=")
@@ -289,7 +295,7 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     _print_rule()
 
     # --- Instantiate judges ---
-    groundedness_judge = GroundednessJudge(api_client)
+    groundedness_judge = GroundednessJudge(api_client) if not skip_groundedness else None
     relevancy_judge = RelevancyJudge(api_client)
     clarity_judge = ClarityJudge(api_client)
 
@@ -303,22 +309,20 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
         _print_rule()
         print("  Evaluating...")
 
-        g_result = groundedness_judge.judge(hypothesis=hypothesis, evidence=evidence)
+        g_result = groundedness_judge.judge(hypothesis=hypothesis, evidence=evidence) if groundedness_judge else None
         r_result = relevancy_judge.judge(hypothesis=hypothesis, query=query)
         c_result = clarity_judge.judge(hypothesis=hypothesis)
 
         print()
-        _print_score_row("Groundedness", g_result, max_score=4)
+        if g_result:
+            _print_score_row("Groundedness", g_result, max_score=4)
         _print_score_row("Relevancy", r_result, max_score=4)
         _print_score_row("Clarity", c_result, max_score=3)
 
-        all_scores.append(
-            {
-                "groundedness": g_result,
-                "relevancy": r_result,
-                "clarity": c_result,
-            }
-        )
+        entry = {"relevancy": r_result, "clarity": c_result}
+        if g_result:
+            entry["groundedness"] = g_result
+        all_scores.append(entry)
 
     print()
     diversity = _calculate_diversity(hypotheses)
@@ -327,35 +331,47 @@ def evaluate_run(run_dir: Path, model: str, api_client: BaseAPIClient) -> None:
     _print_summary(all_scores, diversity, novelty)
 
     # --- Save evaluation results to run directory ---
+    hypothesis_entries = []
+    for i, h in enumerate(hypotheses, start=1):
+        entry = {"index": i, "hypothesis": h}
+        if "groundedness" in all_scores[i - 1]:
+            entry["groundedness"] = {
+                "score": all_scores[i - 1]["groundedness"].score,
+                "reasoning": all_scores[i - 1]["groundedness"].reasoning,
+            }
+        entry["relevancy"] = {
+            "score": all_scores[i - 1]["relevancy"].score,
+            "reasoning": all_scores[i - 1]["relevancy"].reasoning,
+        }
+        entry["clarity"] = {
+            "score": all_scores[i - 1]["clarity"].score,
+            "reasoning": all_scores[i - 1]["clarity"].reasoning,
+        }
+        hypothesis_entries.append(entry)
+
+    summary = {
+        "mean_relevancy": round(
+            sum(s["relevancy"].score for s in all_scores) / len(all_scores), 2
+        ),
+        "mean_clarity": round(
+            sum(s["clarity"].score for s in all_scores) / len(all_scores), 2
+        ),
+        "diversity": round(diversity, 2),
+        "novelty": round(novelty, 2),
+    }
+    if "groundedness" in all_scores[0]:
+        summary["mean_groundedness"] = round(
+            sum(s["groundedness"].score for s in all_scores) / len(all_scores), 2
+        )
+
     results = {
         "metadata": {
             "judge_model": model,
             "num_hypotheses": len(hypotheses),
             "evaluated_at": datetime.now().isoformat(),
         },
-        "hypotheses": [
-            {
-                "index": i,
-                "hypothesis": h,
-                "groundedness": {"score": all_scores[i - 1]["groundedness"].score, "reasoning": all_scores[i - 1]["groundedness"].reasoning},
-                "relevancy": {"score": all_scores[i - 1]["relevancy"].score, "reasoning": all_scores[i - 1]["relevancy"].reasoning},
-                "clarity": {"score": all_scores[i - 1]["clarity"].score, "reasoning": all_scores[i - 1]["clarity"].reasoning},
-            }
-            for i, h in enumerate(hypotheses, start=1)
-        ],
-        "summary": {
-            "mean_groundedness": round(
-                sum(s["groundedness"].score for s in all_scores) / len(all_scores), 2
-            ),
-            "mean_relevancy": round(
-                sum(s["relevancy"].score for s in all_scores) / len(all_scores), 2
-            ),
-            "mean_clarity": round(
-                sum(s["clarity"].score for s in all_scores) / len(all_scores), 2
-            ),
-            "diversity": round(diversity, 2),
-            "novelty": round(novelty, 2),
-        },
+        "hypotheses": hypothesis_entries,
+        "summary": summary,
     }
 
     save_path = run_dir / "06_evaluation.json"
@@ -403,6 +419,11 @@ def parse_args() -> argparse.Namespace:
             + "."
         ),
     )
+    parser.add_argument(
+        "--skip-groundedness",
+        action="store_true",
+        help="Skip the groundedness judge (for pipelines without a separate retriever step).",
+    )
     return parser.parse_args()
 
 
@@ -441,7 +462,12 @@ def main() -> None:
 
     run_dir = _resolve_run_dir(args.run_dir)
     api_client = _build_api_client(provider, model)
-    evaluate_run(run_dir=run_dir, model=model, api_client=api_client)
+    evaluate_run(
+        run_dir=run_dir,
+        model=model,
+        api_client=api_client,
+        skip_groundedness=args.skip_groundedness,
+    )
 
 
 if __name__ == "__main__":

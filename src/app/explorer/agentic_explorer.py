@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from app.api_client.base import BaseAPIClient
 from app.explorer.base import BaseExplorer
 from app.explorer.tools.agentic_tools import (
     MAX_ITERATIONS,
@@ -16,7 +17,7 @@ class AgenticExplorer(BaseExplorer):
     the Neo4j knowledge graph based on relevance to the user query.
     """
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict, api_client: BaseAPIClient | None = None) -> None:
         agentic_cfg = config.get("explorer", {}).get("agentic", {})
         self.iterations = agentic_cfg.get("iterations", MAX_ITERATIONS)
         self.tools = agentic_cfg.get("tools", ["bfs_from_papers", "random_walk", "ppr"])
@@ -33,6 +34,20 @@ class AgenticExplorer(BaseExplorer):
         self.include_summary = agentic_cfg.get("include_summary", False)
         self.selected_nodes_count_low = agentic_cfg.get("selected_nodes_count_low", 2)
         self.selected_nodes_count_high = agentic_cfg.get("selected_nodes_count_high", 3)
+
+        self.api_client = api_client
+        if self.api_client is None:
+            provider = agentic_cfg.get("provider")
+            if provider is not None:
+                api_model = agentic_cfg.get("api_model") or agentic_cfg.get("model_name")
+                if provider == "google":
+                    from app.api_client.google_client import GoogleAPIClient
+                    self.api_client = GoogleAPIClient(model=api_model)
+                elif provider == "openai":
+                    from app.api_client.openai_client import OpenAIAPIClient
+                    self.api_client = OpenAIAPIClient(model=api_model)
+                else:
+                    raise ValueError(f"Unknown provider for agentic explorer: {provider}")
 
     def explore(self, prompt: str, paper_ids: list[str]) -> ExplorerResult:
         """Explore knowledge graph using LLM-driven tool selection.
@@ -71,6 +86,7 @@ class AgenticExplorer(BaseExplorer):
             selected_nodes_count_low=self.selected_nodes_count_low,
             selected_nodes_count_high=self.selected_nodes_count_high,
             include_summary=self.include_summary,
+            api_client=self.api_client,
         )
 
         if not results:

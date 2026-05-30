@@ -5,7 +5,7 @@ pipeline:
 
 api_client:
   type: "google"
-  model: "gemini-3-flash-preview"
+  model: "gemini-3.5-flash"
 
 search:
   type: "weaviate"     # weaviate: vector search for paper IDs
@@ -14,14 +14,14 @@ search:
     rerank_top_k: 3                   # number of results after reranking
 
 explorer:
-  type: "neo4j_pagerank"    # neo4j_bfs, neo4j_random_walk, neo4j_pagerank, agentic
+  type: "agentic"    # neo4j_bfs, neo4j_random_walk, neo4j_pagerank, agentic
   neo4j:
     max_level: 1       # for BFS: maximum depth of traversal
     direction: "both"  # outgoing, incoming, or both
     # for Random Walk:
-    steps: 5          # number of steps for random walk
+    steps: 10          # number of steps for random walk
     # for PageRank:
-    top_n: 15          # number of top results from PageRank
+    top_n: 30          # number of top results from PageRank
     max_iterations: 20
     damping_factor: 0.85
   agentic:
@@ -30,12 +30,15 @@ explorer:
     tool_selection_prompt: "tool_selection_prompt.yaml"
     node_filtering_prompt: "node_filtering_prompt.yaml"
     model_name: "Qwen/Qwen3-4B"
+    provider: "google"
+    api_model: "gemini-3.5-flash"
     temperature: 0.7
     max_results_per_tool: 10
     include_abstracts: true
     include_summary: false
-    selected_nodes_count_low: 2
-    selected_nodes_count_high: 3
+    selected_nodes_count_low: 3
+    selected_nodes_count_high: 4
+
   ## legacy
   weaviate:
     url: "http://localhost:8080"
@@ -48,7 +51,6 @@ explorer:
 
 retriever:
   type: "llm"
-  top_k: 5
 
 generator:
   type: "llm"

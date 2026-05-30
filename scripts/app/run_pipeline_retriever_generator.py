@@ -1,39 +1,34 @@
-"""Run the hypothesis generation pipeline for a single query.
+"""Run the simplified hypothesis generation pipeline for a single query
+using a single RetrieverGenerator agent (no separate retriever + generator).
 
 Usage:
-    python scripts/app/run_pipeline.py --query "Your research question here"
-    python scripts/app/run_pipeline.py --query "Your research question" --save-steps
-    python scripts/app/run_pipeline.py  # uses default query
+    python scripts/app/run_pipeline_retriever_generator.py --query "Your research question here"
+    python scripts/app/run_pipeline_retriever_generator.py  # uses default query
 
 Search is selected from config (search.type):
     - "weaviate"  WeaviateSearchExplorer  (Qwen3 embedding + reranking)
 
 Explorer is selected from config (explorer.type):
-    - "weaviate"        WeaviateExplorer       (direct vector search to content)
-    - "neo4j_bfs"       Neo4jBFSExplorer       (BFS traversal from paper IDs)
-    - "neo4j_random_walk"  Neo4jRandomWalkExplorer (Random walk traversal)
-    - "neo4j_pagerank"  Neo4jPageRankExplorer  (Personalized PageRank)
-    - "agentic"         AgenticExplorer        (LLM-driven tool selection)
-    - "const"           ConstExplorer          (placeholder, for testing without a DB)
-    - "none"            NoneExplorer           (pass-through, fetches paper metadata from Weaviate)
-
-A model is randomly selected once at startup from the MODELS list below,
-weighted by the 'weight' field. The matching API client is then instantiated
-and used for the entire run. Add or adjust entries in MODELS to change the pool.
-
-Requires the API key for the selected provider to be set in the environment or
-in a .env file at the project root (GOOGLE_API_KEY, OPENAI_API_KEY, or
-CEREBRAS_API_KEY).
+    - "weaviate"        WeaviateExplorer
+    - "neo4j_bfs"       Neo4jBFSExplorer
+    - "neo4j_random_walk"  Neo4jRandomWalkExplorer
+    - "neo4j_pagerank"  Neo4jPageRankExplorer
+    - "agentic"         AgenticExplorer
+    - "const"           ConstExplorer
+    - "none"            NoneExplorer
 """
 
 import argparse
+import json
 import os
 import random
 import sys
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Resolve project root and add src/ to path
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
@@ -42,7 +37,6 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 env_path = os.path.join(PROJECT_ROOT, ".env")
 load_dotenv(env_path)
 
-from app import App
 from app.api_client.base import BaseAPIClient
 from app.api_client.cerebras_client import CerebrasAPIClient
 from app.api_client.google_client import GoogleAPIClient
@@ -56,42 +50,33 @@ from app.explorer.neo4j_random_walk_explorer import Neo4jRandomWalkExplorer
 from app.explorer.none_explorer import NoneExplorer
 from app.explorer.weaviate_explorer import WeaviateExplorer
 from app.explorer.weaviate_search_explorer import WeaviateSearchExplorer
-from app.generator.api_llm_generator import APILLMGenerator
-from app.retriever.api_llm_retriever import APILLMRetriever
+from app.retriever_generator.api_llm_retriever_generator import APILLMRetrieverGenerator
 
 CONFIG_PATH = "config/app/config.yaml"
 DEFAULT_QUERY = "I am interested in Mixtures of Experts (MoE) models for efficient inference. What are some recent research papers on this topic, and what hypotheses can we generate about future directions in this area?"
 
-# Maps provider name -> client class.
 PROVIDERS: dict[str, type[BaseAPIClient]] = {
     "google": GoogleAPIClient,
     "openai": OpenAIAPIClient,
     "cerebras": CerebrasAPIClient,
 }
 
-# Model pool: each entry needs 'name', 'provider', and 'weight'.
-# weight controls relative selection probability (higher = more likely).
 MODELS: list[dict] = [
     {"name": "gemini-3.5-flash", "provider": "google", "weight": 1},
-    # {"name": "gemini-3.1-flash-lite-preview", "provider": "google", "weight": 1},
-    # {"name": "gpt-5.4-mini", "provider": "openai", "weight": 1},
 ]
 
 
 def select_model() -> dict:
-    """Randomly pick one model config from MODELS, respecting weights."""
     weights = [m["weight"] for m in MODELS]
     return random.choices(MODELS, weights=weights, k=1)[0]
 
 
 def build_api_client(model_cfg: dict) -> BaseAPIClient:
-    """Instantiate the API client for the given model config dict."""
     client_cls = PROVIDERS[model_cfg["provider"]]
     return client_cls(model=model_cfg["name"])
 
 
 def build_search(config: dict):
-    """Instantiate the search explorer specified by config[search][type]."""
     search_type = config.get("search", {}).get("type")
     if search_type == "weaviate":
         return WeaviateSearchExplorer(config)
@@ -99,7 +84,6 @@ def build_search(config: dict):
 
 
 def build_explorer(config: dict):
-    """Instantiate the explorer specified by config[explorer][type]."""
     explorer_type = config.get("explorer", {}).get("type", "const")
     if explorer_type == "weaviate":
         return WeaviateExplorer(config)
@@ -119,9 +103,16 @@ def build_explorer(config: dict):
     raise ValueError(f"Unknown explorer type: {explorer_type!r}")
 
 
+def _save_step(save_dir: Path, name: str, data: dict) -> None:
+    path = save_dir / f"{name}.json"
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the scientific hypothesis generation pipeline."
+        description="Run the simplified hypothesis generation pipeline "
+        "(single RetrieverGenerator agent)."
     )
     parser.add_argument(
         "--query",
@@ -134,12 +125,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Save intermediate pipeline step outputs to disk.",
     )
-    parser.add_argument(
-        "--refinement-turns",
-        type=int,
-        default=0,
-        help="Number of retriever<->generator refinement rounds (default: 0).",
-    )
     return parser.parse_args()
 
 
@@ -150,7 +135,6 @@ def main() -> None:
     search_type = config.get("search", {}).get("type", "weaviate")
     explorer_type = config.get("explorer", {}).get("type", "const")
 
-    # Select a model once for this run.
     model_cfg = select_model()
     model_name = model_cfg["name"]
     provider = model_cfg["provider"]
@@ -158,47 +142,48 @@ def main() -> None:
     print(f"Search        : {search_type}")
     print(f"Explorer      : {explorer_type}")
     print(f"Model         : {model_name}  (provider={provider})")
-    print(f"Refinements   : {args.refinement_turns}")
     print(f"Save steps    : {args.save_steps}")
     print(f"Query         : {args.query}")
     print()
 
-    # Instantiate the client (raises ValueError if the API key is missing).
     api_client = build_api_client(model_cfg)
     search_explorer = build_search(config)
     explorer = build_explorer(config)
-    retriever = APILLMRetriever(api_client=api_client)
-    generator = APILLMGenerator(api_client=api_client)
-
-    app = App(
-        search_explorer=search_explorer,
-        explorer=explorer,
-        retriever=retriever,
-        generator=generator,
-        config_path=CONFIG_PATH,
+    retriever_generator = APILLMRetrieverGenerator(
+        api_client=api_client,
     )
 
-    # Override config values from CLI flags
-    app.config.setdefault("pipeline", {})
-    app.config["pipeline"]["save_steps"] = args.save_steps
-    app.config["pipeline"]["refinement_turns"] = args.refinement_turns
-
-    print("Running pipeline...")
+    print("Running simplified pipeline (search → explorer → retriever_generator)...")
     print("-" * 60)
 
-    result = app.run(args.query)
+    save_dir = None
+    if args.save_steps:
+        save_root = config.get("pipeline", {}).get("save_dir", "outputs")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_dir = Path(PROJECT_ROOT) / save_root / timestamp
+        save_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Model used   : {result.metadata.get('model', 'unknown')}")
+    paper_ids = search_explorer.search(args.query)
+    if save_dir:
+        _save_step(save_dir, "01_search", {"paper_ids": paper_ids})
+
+    explorer_output = explorer.explore(args.query, paper_ids)
+    if save_dir:
+        _save_step(save_dir, "02_explorer", asdict(explorer_output))
+
+    result = retriever_generator.generate(args.query, explorer_output)
+    if save_dir:
+        _save_step(save_dir, "05_generator", asdict(result))
+
+    if save_dir:
+        print(f"Step outputs saved to: {save_dir}")
+
+    print(f"Model used    : {result.metadata.get('model', 'unknown')}")
     print()
     print("Generated hypotheses:")
     print("-" * 60)
     for i, hypothesis in enumerate(result.hypotheses, start=1):
         print(f"{i}. {hypothesis}")
-
-    if args.save_steps:
-        save_dir = app.config.get("pipeline", {}).get("save_dir", "outputs")
-        print()
-        print(f"Step outputs saved to: {os.path.join(PROJECT_ROOT, save_dir)}/")
 
 
 if __name__ == "__main__":
