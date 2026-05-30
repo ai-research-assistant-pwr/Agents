@@ -1,17 +1,24 @@
 """Vendi Score-based diversity calculation using embeddings or an LLM judge.
 
 Usage:
-    from hypotheses_evaluation.diversity import calculate_diversity, calculate_judge_diversity
+    from hypotheses_evaluation.diversity import (
+        calculate_diversity,
+        calculate_judge_diversity,
+        calculate_judge_diversity_gemini,
+    )
 
     score = calculate_diversity(hypotheses=["hyp1", "hyp2", ...])
     score = calculate_judge_diversity(hypotheses=["hyp1", "hyp2", ...])
+    score = calculate_judge_diversity_gemini(hypotheses=["hyp1", "hyp2", ...])
 """
 
 from __future__ import annotations
 
 import itertools
 import json
-from typing import Optional
+from typing import Literal, Optional
+
+from pydantic import BaseModel
 
 import numpy as np
 import scipy.linalg
@@ -19,6 +26,20 @@ import torch
 from sentence_transformers import SentenceTransformer
 from vllm import LLM, SamplingParams
 from vllm.sampling_params import StructuredOutputsParams
+
+from app.api_client.base import Message
+from app.api_client.google_client import GoogleAPIClient
+
+# ---------------------------------------------------------------------------
+# Pydantic schemas for judge-based diversity
+# ---------------------------------------------------------------------------
+
+
+class _SimilarityJudgment(BaseModel):
+    """Structured output schema for pairwise similarity judgment via Gemini."""
+
+    similarity: Literal["0", "1"]
+
 
 # ---------------------------------------------------------------------------
 # Embedding-based diversity (SPECTER2)
@@ -141,6 +162,38 @@ def calculate_judge_diversity(hypotheses: list[str]) -> float:
 
     for i, j in itertools.combinations(range(n), 2):
         sim_score = _call_local_judge(hypotheses[i], hypotheses[j], model)
+        similarity_matrix[i, j] = sim_score
+        similarity_matrix[j, i] = sim_score
+
+    vendi = _vendi_score(similarity_matrix)
+    return vendi / n
+
+
+def calculate_judge_diversity_gemini(
+    hypotheses: list[str],
+    model: str = "gemini-3.5-flash",
+) -> float:
+    n = len(hypotheses)
+    if n < 2:
+        return 1.0
+
+    client = GoogleAPIClient(model=model)
+    similarity_matrix = np.zeros((n, n))
+    np.fill_diagonal(similarity_matrix, 1.0)
+
+    for i, j in itertools.combinations(range(n), 2):
+        messages = [
+            Message(
+                role="system",
+                content="You are a rigorous scientific reviewer. Evaluate whether two hypotheses propose THE SAME fundamental research mechanism (architecture, method, algorithm). Ignore the fact that they share the same general topic. Return only JSON.",
+            ),
+            Message(
+                role="user",
+                content=f"Idea A: {hypotheses[i]}\nIdea B: {hypotheses[j]}\n\nReturn the result:\n{{\"similarity\": 1}} - if they propose the same idea/method.\n{{\"similarity\": 0}} - if they propose fundamentally different research paths.",
+            ),
+        ]
+        result = client.call(messages, response_schema=_SimilarityJudgment)
+        sim_score = float(result.content.similarity)
         similarity_matrix[i, j] = sim_score
         similarity_matrix[j, i] = sim_score
 

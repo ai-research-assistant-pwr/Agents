@@ -38,7 +38,12 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 from hypotheses_evaluation.diversity import (
     calculate_diversity as compute_vendi_embedding,
+)
+from hypotheses_evaluation.diversity import (
     calculate_judge_diversity as compute_vendi_judge,
+)
+from hypotheses_evaluation.diversity import (
+    calculate_judge_diversity_gemini as compute_vendi_gemini,
 )
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
@@ -111,11 +116,14 @@ def _get_hypotheses(run_dir: Path) -> list[str] | None:
 
 METHOD_LABELS = {
     "embedding": "all-mpnet-base-v2",
-    "judge": "Qwen/Qwen2.5-7B-Instruct",
+    "judge": "Qwen/Qwen3-4B-Instruct-2507",
+    "gemini": "gemini-3.5-flash",
 }
 
 
-def _save_vendi_score(run_dir: Path, score: float, num_hypotheses: int, method: str) -> Path:
+def _save_vendi_score(
+    run_dir: Path, score: float, num_hypotheses: int, method: str
+) -> Path:
     payload = {
         "method": method,
         "model": METHOD_LABELS[method],
@@ -134,6 +142,8 @@ def _compute(method: str, hypotheses: list[str], batch_size: int) -> float:
         return compute_vendi_embedding(hypotheses, batch_size=batch_size)
     elif method == "judge":
         return compute_vendi_judge(hypotheses)
+    elif method == "gemini":
+        return compute_vendi_gemini(hypotheses)
     else:
         raise ValueError(f"Unknown method: {method}")
 
@@ -150,7 +160,12 @@ def process_run(run_dir: Path, batch_size: int, method: str) -> dict | None:
     save_path = _save_vendi_score(run_dir, score, len(hypotheses), method)
     print(f"  Saved to: {save_path.relative_to(PROJECT_ROOT)}")
 
-    return {"run": run_dir.name, "method": method, "vendi_score": score, "num_hypotheses": len(hypotheses)}
+    return {
+        "run": run_dir.name,
+        "method": method,
+        "vendi_score": score,
+        "num_hypotheses": len(hypotheses),
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -174,7 +189,7 @@ def parse_args() -> argparse.Namespace:
         "--method",
         type=str,
         default="embedding",
-        choices=["embedding", "judge"],
+        choices=["embedding", "judge", "gemini"],
         help="Diversity method: 'embedding' (SPECTER2 cosine) or 'judge' (LLM pairwise).",
     )
     parser.add_argument(
@@ -204,7 +219,9 @@ def main() -> None:
         print(f"\n{'=' * 50}")
         print(f"Processed {len(results)} run(s)")
         for r in results:
-            print(f"  {r['run']}: Vendi Score = {r['vendi_score']:.4f}  (n={r['num_hypotheses']})")
+            print(
+                f"  {r['run']}: Vendi Score = {r['vendi_score']:.4f}  (n={r['num_hypotheses']})"
+            )
 
         if results:
             mean_vendi = sum(r["vendi_score"] for r in results) / len(results)

@@ -129,3 +129,47 @@ CLARITY_USER_TEMPLATE = (
     "clarity components (conciseness, informativeness, ease of understanding) "
     "independently, then assign a score from 0 to 3 according to the rubric."
 )
+
+
+DIVERSITY_SYSTEM_PROMPT = (
+    "You are an Expert Scientific Evaluator specializing in assessing the "
+    "conceptual diversity of a set of research hypotheses.\n\n"
+    "## Your Task\n\n"
+    "You will be given the original user query and a set of generated "
+    "hypotheses. Your job is to evaluate the set as a whole and determine "
+    "the degree of conceptual, methodological, and paradigmatic variance "
+    "among them.\n\n"
+    "## Scoring Rubric\n\n"
+    "Assign an integer score from 0 to 4 according to the following scale:\n\n"
+    "0 — No Diversity (Cloning): The hypotheses are virtually identical in "
+    "meaning, differing only in wording, synonyms, or sentence structure.\n"
+    "1 — Superficial Diversity: The hypotheses share the exact same core "
+    "method and domain, altering only minor, inconsequential details.\n"
+    "2 — Parametric Diversity: The hypotheses share the same core "
+    "methodology, but test fundamentally different key variables or targets.\n"
+    "3 — Methodological Diversity: The hypotheses propose completely "
+    "different mechanisms, algorithms, or architectures to solve the problem.\n"
+    "4 — Paradigmatic Diversity: The hypotheses represent a complete "
+    "conceptual spread, crossing into entirely different scientific domains "
+    "or offering radically opposing paradigms (counter-hypotheses).\n\n"
+    "## Evaluation Guidelines\n\n"
+    "- Focus exclusively on the variance and spread BETWEEN the hypotheses "
+    "in the set. Do not consider their individual relevancy or correctness "
+    "— those are separate metrics.\n"
+    "- Look past surface-level jargon. If two hypotheses use different "
+    "terminology but describe the exact same underlying mechanism, they "
+    "lack diversity.\n"
+    "- Provide a brief reasoning that explains the structural relationships "
+    "between the hypotheses and justifies the chosen level, then assign "
+    "the final score."
+)
+
+DIVERSITY_USER_TEMPLATE = (
+    "## User Query\n{query}\n\n"
+    "## Set of Hypotheses\n{hypotheses_list}\n\n"
+    "---\n\n"
+    "Evaluate the conceptual diversity of the set of hypotheses above in "
+    "the context of the user query. Identify the underlying mechanisms "
+    "proposed across the set, compare them to one another to check for "
+    "overlap, and then assign a score from 0 to 4 according to the rubric."
+)

@@ -8,6 +8,10 @@ from app.api_client.base import BaseAPIClient, CallResult, Message
 
 T = TypeVar("T")
 
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
+    "/home/martkans/projects/pwr/Agents/gcloud_key.json"
+)
+
 
 class GoogleAPIClient(BaseAPIClient):
     """Google Gemini API client using the google-genai SDK.
@@ -17,13 +21,12 @@ class GoogleAPIClient(BaseAPIClient):
 
     def __init__(self, model: str = "gemini-2.5-flash") -> None:
         self.model = model
-        api_key = os.environ.get("GOOGLE_API_KEY")
-        if api_key is None:
-            raise ValueError(
-                "GOOGLE_API_KEY environment variable is not set. "
-                "Set it or add it to a .env file."
-            )
-        self.client = genai.Client(api_key=api_key)
+
+        self.client = genai.Client(
+            vertexai=True,
+            project="gen-lang-client-0174725019",
+            location="global",  # Or your preferred region
+        )
 
     def call(  # type: ignore[override]
         self,

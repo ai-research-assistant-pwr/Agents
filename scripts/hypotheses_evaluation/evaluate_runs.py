@@ -15,15 +15,16 @@ degree of parallelism; default is 4).  Each run's output is buffered and
 printed atomically once that run finishes, so the console output remains
 readable even under high concurrency.
 
-Each generated hypothesis is scored on two or three metrics:
+Each generated hypothesis is scored on relevant metrics. Additionally,
+the diversity of the full set of hypotheses is evaluated.
+
     Groundedness (0-4) — how well the hypothesis is grounded in the
                           evidence produced by the retriever.
                           (skipped with ``--skip-groundedness``)
     Relevancy    (0-4) — how relevant the hypothesis is to the user query.
     Clarity      (0-3) — how clear and well-expressed the hypothesis is.
-
-With ``--skip-groundedness``, only relevancy and clarity are evaluated
-(used for pipelines with a single RetrieverGenerator agent).
+                          (skipped with ``--skip-clarity``)
+    Diversity    (0-4) — how conceptually diverse the hypothesis set is.
 
 A per-run summary and a final aggregate summary across all runs are printed at
 the end.
@@ -52,18 +53,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 load_dotenv(PROJECT_ROOT / ".env")
 
-import numpy as np
-from weaviate.collections.classes.filters import Filter
-
 from app.api_client.base import BaseAPIClient
 from app.api_client.google_client import GoogleAPIClient
 from app.api_client.openai_client import OpenAIAPIClient
-from app.explorer.tools.weaviate_tools import (
-    _get_weaviate_client,
-    _load_embedding_model,
-)
 from hypotheses_evaluation import (
     ClarityJudge,
+    DiversityJudge,
     GroundednessJudge,
     JudgeResult,
     RelevancyJudge,
@@ -157,77 +152,8 @@ def _print_score_row(
         print(f"{indent}{ln}", file=out)
 
 
-def _calculate_diversity(hypotheses: list[str]) -> float:
-    if len(hypotheses) < 2:
-        return 0.0
-
-    model = _load_embedding_model()
-    embeddings = model.embed(hypotheses)
-    embeddings = np.array([e.outputs.embedding for e in embeddings])
-
-    embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
-
-    similarity_matrix = embeddings @ embeddings.T
-
-    n = len(hypotheses)
-    diversities = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            diversities.append(1 - similarity_matrix[i, j])
-
-    return np.mean(diversities) if diversities else 0.0
-
-
-def _get_existing_hypotheses(paper_ids: list[str]) -> list[str]:
-    if not paper_ids:
-        return []
-
-    weaviate_client = _get_weaviate_client()
-    collection = weaviate_client.collections.get("ResearchPapers")
-
-    type_filter = Filter.by_property("type").equal("HYPOTHESIS")
-    paper_filter = Filter.by_property("paperId").contains_any(paper_ids)
-    combined_filter = type_filter & paper_filter
-
-    response = collection.query.fetch_objects(
-        filters=combined_filter,
-        limit=1000,
-        return_properties=["content"],
-    )
-
-    return [obj.properties.get("content", "") for obj in response.objects]
-
-
-def _calculate_novelty(
-    generated_hypotheses: list[str], existing_hypotheses: list[str]
-) -> float:
-    if not generated_hypotheses or not existing_hypotheses:
-        return 0.0
-
-    model = _load_embedding_model()
-
-    generated_embeddings = model.embed(generated_hypotheses)
-    generated_embeddings = np.array([e.outputs.embedding for e in generated_embeddings])
-    generated_embeddings = generated_embeddings / np.linalg.norm(
-        generated_embeddings, axis=1, keepdims=True
-    )
-
-    existing_embeddings = model.embed(existing_hypotheses)
-    existing_embeddings = np.array([e.outputs.embedding for e in existing_embeddings])
-    existing_embeddings = existing_embeddings / np.linalg.norm(
-        existing_embeddings, axis=1, keepdims=True
-    )
-
-    similarities = []
-    for gen_emb in generated_embeddings:
-        for exist_emb in existing_embeddings:
-            similarities.append(1 - np.dot(gen_emb, exist_emb))
-
-    return np.mean(similarities) if similarities else 0.0
-
-
 def _print_run_summary(
-    all_scores: list[dict], diversity: float, novelty: float, out: IO[str] = sys.stdout
+    all_scores: list[dict], out: IO[str] = sys.stdout
 ) -> None:
     """Print a compact summary table of mean scores for a single run."""
     if not all_scores:
@@ -256,8 +182,6 @@ def _print_run_summary(
         mx = max_scores[m]
         means_row += f"  {mean:.2f}/{mx}{'':>7}"
     print(means_row, file=out)
-    print(f"  {'Diversity':<14}  {diversity:.2f}/1.00", file=out)
-    print(f"  {'Novelty':<14}  {novelty:.2f}/1.00", file=out)
     _print_rule("=", out=out)
 
 
@@ -267,6 +191,7 @@ def _print_aggregate_summary(run_results: list[dict]) -> None:
         return
     metrics = list(run_results[0]["mean_scores"].keys())
     max_scores = {"groundedness": 4, "relevancy": 4, "clarity": 3}
+    has_diversity = "diversity" in run_results[0]
 
     _print_rule("*", 70)
     print("AGGREGATE SUMMARY  (all runs)")
@@ -274,14 +199,13 @@ def _print_aggregate_summary(run_results: list[dict]) -> None:
     header = (
         f"  {'Run':<20}"
         + "".join(f"  {m.capitalize():>13}" for m in metrics)
-        + "  Diversity  Novelty"
+        + ("  Diversity" if has_diversity else "")
     )
     print(header)
     _print_rule()
 
     grand: dict[str, list[float]] = {m: [] for m in metrics}
-    grand_diversity: list[float] = []
-    grand_novelty: list[float] = []
+    grand_diversity: list[int] = []
 
     for result in run_results:
         name = result["run_name"]
@@ -291,14 +215,13 @@ def _print_aggregate_summary(run_results: list[dict]) -> None:
             mean = scores[m]
             mx = max_scores[m]
             row += f"  {mean:.2f}/{mx}{'':>7}"
-        div = result.get("diversity", 0.0)
-        nov = result.get("novelty", 0.0)
-        row += f"  {div:<9.2f}  {nov:<7.2f}"
+        if has_diversity:
+            d = result["diversity"]["score"]
+            row += f"  {d}/4{'':>7}"
+            grand_diversity.append(d)
         print(row)
         for m in metrics:
             grand[m].append(scores[m])
-        grand_diversity.append(div)
-        grand_novelty.append(nov)
 
     _print_rule()
     grand_row = f"  {'Grand Mean':<20}"
@@ -306,9 +229,9 @@ def _print_aggregate_summary(run_results: list[dict]) -> None:
         gm = sum(grand[m]) / len(grand[m]) if grand[m] else 0.0
         mx = max_scores[m]
         grand_row += f"  {gm:.2f}/{mx}{'':>7}"
-    gdiv = sum(grand_diversity) / len(grand_diversity) if grand_diversity else 0.0
-    gnov = sum(grand_novelty) / len(grand_novelty) if grand_novelty else 0.0
-    grand_row += f"  {gdiv:<9.2f}  {gnov:<7.2f}"
+    if has_diversity:
+        gd = sum(grand_diversity) / len(grand_diversity) if grand_diversity else 0.0
+        grand_row += f"  {gd:.2f}/4{'':>6}"
     print(grand_row)
     _print_rule("*", 70)
 
@@ -322,7 +245,8 @@ def evaluate_run(
     run_dir: Path,
     model: str,
     relevancy_judge: RelevancyJudge,
-    clarity_judge: ClarityJudge,
+    clarity_judge: ClarityJudge | None = None,
+    diversity_judge: DiversityJudge | None = None,
     out: IO[str] = sys.stdout,
     skip_groundedness: bool = False,
     groundedness_judge: GroundednessJudge | None = None,
@@ -330,7 +254,7 @@ def evaluate_run(
     """Evaluate a single run directory.
 
     Returns a dict with keys ``query``, ``hypotheses``, ``mean_scores``,
-    ``diversity``, and ``novelty``, or None if the run is incomplete.
+    or None if the run is incomplete.
     """
 
     try:
@@ -352,8 +276,6 @@ def evaluate_run(
 
     query: str = explorer_data["metadata"]["prompt"]
     hypotheses: list[str] = generator_data["hypotheses"]
-    explorer_metadata = explorer_data.get("metadata", {})
-    paper_ids = [p.get("id") for p in explorer_metadata.get("papers", [])]
 
     _print_rule("=", out=out)
     print(f"Run directory : {run_dir.relative_to(PROJECT_ROOT)}", file=out)
@@ -371,11 +293,13 @@ def evaluate_run(
     for i, hypothesis in enumerate(hypotheses, start=1):
         g_result = groundedness_judge.judge(hypothesis=hypothesis, evidence=evidence) if groundedness_judge else None
         r_result = relevancy_judge.judge(hypothesis=hypothesis, query=query)
-        c_result = clarity_judge.judge(hypothesis=hypothesis)
+        c_result = clarity_judge.judge(hypothesis=hypothesis) if clarity_judge else None
 
-        entry = {"relevancy": r_result, "clarity": c_result}
+        entry = {"relevancy": r_result}
         if g_result:
             entry["groundedness"] = g_result
+        if c_result:
+            entry["clarity"] = c_result
 
         hr_entry = {"text": hypothesis}
         if g_result:
@@ -384,17 +308,20 @@ def evaluate_run(
                 "reasoning": g_result.reasoning,
             }
         hr_entry["relevancy"] = {"score": r_result.score, "reasoning": r_result.reasoning}
-        hr_entry["clarity"] = {"score": c_result.score, "reasoning": c_result.reasoning}
+        if c_result:
+            hr_entry["clarity"] = {"score": c_result.score, "reasoning": c_result.reasoning}
 
         hypothesis_results.append(hr_entry)
         all_scores.append(entry)
 
-    diversity = _calculate_diversity(hypotheses)
-    existing_hypotheses = _get_existing_hypotheses(paper_ids)
-    novelty = _calculate_novelty(hypotheses, existing_hypotheses)
-
     print(file=out)
-    _print_run_summary(all_scores, diversity, novelty, out=out)
+    _print_run_summary(all_scores, out=out)
+
+    # --- Diversity (set-level evaluation) ---
+    div_result = diversity_judge.judge(hypotheses=hypotheses, query=query) if diversity_judge else None
+    if div_result:
+        print(file=out)
+        _print_score_row("Diversity", div_result, max_score=4, out=out)
 
     metrics = list(all_scores[0].keys())
     mean_scores = {
@@ -408,17 +335,19 @@ def evaluate_run(
         if "groundedness" in h:
             entry["groundedness"] = h["groundedness"]
         entry["relevancy"] = h["relevancy"]
-        entry["clarity"] = h["clarity"]
+        if "clarity" in h:
+            entry["clarity"] = h["clarity"]
         hypothesis_entries.append(entry)
 
     summary = {
         "mean_relevancy": round(mean_scores["relevancy"], 2),
-        "mean_clarity": round(mean_scores["clarity"], 2),
-        "diversity": round(diversity, 2),
-        "novelty": round(novelty, 2),
     }
     if "groundedness" in all_scores[0]:
         summary["mean_groundedness"] = round(mean_scores["groundedness"], 2)
+    if "clarity" in all_scores[0]:
+        summary["mean_clarity"] = round(mean_scores["clarity"], 2)
+    if div_result:
+        summary["diversity"] = {"score": div_result.score, "reasoning": div_result.reasoning}
 
     save_payload = {
         "metadata": {
@@ -436,13 +365,14 @@ def evaluate_run(
 
     print(f"\nResults saved to: {save_path.relative_to(PROJECT_ROOT)}", file=out)
 
-    return {
+    ret = {
         "query": query,
         "hypotheses": hypothesis_results,
         "mean_scores": mean_scores,
-        "diversity": diversity,
-        "novelty": novelty,
     }
+    if div_result:
+        ret["diversity"] = {"score": div_result.score, "reasoning": div_result.reasoning}
+    return ret
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +387,7 @@ def _save_results(runs_dir: Path, model: str, run_results: list[dict]) -> Path:
     with that name is overwritten.
     """
     metrics = list(run_results[0]["mean_scores"].keys()) if run_results else []
+    has_diversity = run_results and "diversity" in run_results[0]
 
     # Compute aggregate means across all evaluated runs
     if run_results:
@@ -467,27 +398,18 @@ def _save_results(runs_dir: Path, model: str, run_results: list[dict]) -> Path:
     else:
         aggregate_mean_scores = {m: None for m in metrics}
 
-    # Compute aggregate diversity and novelty across all runs
-    diversities = [
-        r.get("diversity", 0.0) for r in run_results if r.get("diversity") is not None
-    ]
-    novelties = [
-        r.get("novelty", 0.0) for r in run_results if r.get("novelty") is not None
-    ]
-
     payload = {
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "runs_dir": str(runs_dir.relative_to(PROJECT_ROOT)),
         "runs": run_results,
         "aggregate_mean_scores": aggregate_mean_scores,
-        "aggregate_diversity": (
-            round(sum(diversities) / len(diversities), 2) if diversities else None
-        ),
-        "aggregate_novelty": (
-            round(sum(novelties) / len(novelties), 2) if novelties else None
-        ),
     }
+    if has_diversity:
+        diversity_scores = [r["diversity"]["score"] for r in run_results]
+        payload["aggregate_diversity"] = round(
+            sum(diversity_scores) / len(diversity_scores), 2
+        )
 
     out_path = runs_dir / "evaluation_results.json"
     with open(out_path, "w", encoding="utf-8") as fh:
@@ -576,6 +498,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip the groundedness judge (for pipelines without a separate retriever step).",
     )
+    parser.add_argument(
+        "--skip-clarity",
+        action="store_true",
+        help="Skip the clarity judge.",
+    )
     return parser.parse_args()
 
 
@@ -586,6 +513,7 @@ def _evaluate_run_worker(
     run_index: int,
     total_runs: int,
     skip_groundedness: bool = False,
+    skip_clarity: bool = False,
 ) -> tuple[Path, dict | None, str]:
     """Worker that runs in a thread pool, capturing all output to a buffer.
 
@@ -601,13 +529,15 @@ def _evaluate_run_worker(
     api_client = _build_api_client(provider, model)
     groundedness_judge = GroundednessJudge(api_client) if not skip_groundedness else None
     relevancy_judge = RelevancyJudge(api_client)
-    clarity_judge = ClarityJudge(api_client)
+    clarity_judge = ClarityJudge(api_client) if not skip_clarity else None
+    diversity_judge = DiversityJudge(api_client)
 
     result = evaluate_run(
         run_dir=run_dir,
         model=model,
         relevancy_judge=relevancy_judge,
         clarity_judge=clarity_judge,
+        diversity_judge=diversity_judge,
         out=buf,
         skip_groundedness=skip_groundedness,
         groundedness_judge=groundedness_judge,
@@ -622,6 +552,7 @@ def main() -> None:
     model: str = args.model or DEFAULT_MODELS[provider]
     workers: int = max(1, args.workers)
     skip_groundedness: bool = args.skip_groundedness
+    skip_clarity: bool = args.skip_clarity
 
     _check_api_key(provider)
 
@@ -639,7 +570,7 @@ def main() -> None:
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_run = {
             executor.submit(
-                _evaluate_run_worker, run_dir, model, provider, idx, len(run_dirs), skip_groundedness
+                _evaluate_run_worker, run_dir, model, provider, idx, len(run_dirs), skip_groundedness, skip_clarity
             ): run_dir
             for idx, run_dir in enumerate(run_dirs, start=1)
         }
