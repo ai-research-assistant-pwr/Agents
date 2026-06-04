@@ -27,9 +27,10 @@ class AgenticExplorer(BaseExplorer):
         self.node_filtering_prompt = agentic_cfg.get(
             "node_filtering_prompt", "node_filtering_prompt.yaml"
         )
-        self.model_name = agentic_cfg.get("model_name", "Qwen/Qwen3-4B")
         self.temperature = agentic_cfg.get("temperature", 0.7)
-        self.max_results_per_tool = agentic_cfg.get("max_results_per_tool", MAX_RESULTS_PER_TOOL)
+        self.max_results_per_tool = agentic_cfg.get(
+            "max_results_per_tool", MAX_RESULTS_PER_TOOL
+        )
         self.include_abstracts = agentic_cfg.get("include_abstracts", True)
         self.include_summary = agentic_cfg.get("include_summary", False)
         self.selected_nodes_count_low = agentic_cfg.get("selected_nodes_count_low", 2)
@@ -39,15 +40,21 @@ class AgenticExplorer(BaseExplorer):
         if self.api_client is None:
             provider = agentic_cfg.get("provider")
             if provider is not None:
-                api_model = agentic_cfg.get("api_model") or agentic_cfg.get("model_name")
+                api_model = agentic_cfg.get("api_model") or agentic_cfg.get(
+                    "model_name"
+                )
                 if provider == "google":
                     from app.api_client.google_client import GoogleAPIClient
+
                     self.api_client = GoogleAPIClient(model=api_model)
                 elif provider == "openai":
                     from app.api_client.openai_client import OpenAIAPIClient
+
                     self.api_client = OpenAIAPIClient(model=api_model)
                 else:
-                    raise ValueError(f"Unknown provider for agentic explorer: {provider}")
+                    raise ValueError(
+                        f"Unknown provider for agentic explorer: {provider}"
+                    )
 
     def explore(self, prompt: str, paper_ids: list[str]) -> ExplorerResult:
         """Explore knowledge graph using LLM-driven tool selection.
@@ -79,7 +86,6 @@ class AgenticExplorer(BaseExplorer):
             tool_selection_prompt_path=tool_selection_path,
             node_filtering_prompt_path=node_filtering_path,
             user_query=prompt,
-            model_name=self.model_name,
             temperature=self.temperature,
             max_results_per_tool=self.max_results_per_tool,
             include_abstracts=self.include_abstracts,
@@ -126,3 +132,4 @@ class AgenticExplorer(BaseExplorer):
                 "papers": results,
             },
         )
+

@@ -1,4 +1,4 @@
-import copy
+import csv
 import json
 import random
 from pathlib import Path
@@ -6,12 +6,8 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel
-from transformers import AutoTokenizer
-from vllm import LLM, SamplingParams
-from vllm.inputs import TokensPrompt
-from vllm.sampling_params import StructuredOutputsParams
 
-from app.api_client.base import BaseAPIClient, CallResult, Message
+from app.api_client.base import BaseAPIClient, Message
 from app.explorer.tools.tool_definitions import TOOL_DEFINITIONS, get_tool_executor
 
 
@@ -26,42 +22,33 @@ class _NodeFiltering(BaseModel):
     reason: str
 
 
-DEFAULT_MODEL = "Qwen/Qwen3-4B"
-MAX_MODEL_LEN = 8192
 MAX_ITERATIONS = 5
 MAX_RESULTS_PER_TOOL = 10
 
-llm: LLM | None = None
-tokenizer: AutoTokenizer | None = None
 
+PAPER_METRICS_MAP = {}
 
-def _load_model(model_name: str = DEFAULT_MODEL) -> tuple[LLM, AutoTokenizer]:
-    global llm, tokenizer
-    if llm is None:
-        print(f"Loading model {model_name}...")
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_name, padding_side="left", trust_remote_code=True
+with open("data/citations_map.csv", "r", encoding="utf-8") as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        paper_id = str(row["paperId"])
+
+        influential = (
+            int(row["influentialCitationCount"])
+            if row["influentialCitationCount"]
+            else 0
         )
-        tokenizer.pad_token = tokenizer.eos_token
 
-        llm = LLM(
-            model=model_name,
-            max_model_len=MAX_MODEL_LEN,
-            trust_remote_code=True,
-            enforce_eager=True,
-            gpu_memory_utilization=0.3,
+        citations = int(row["citationCount"]) if row["citationCount"] else 0
+
+        date_str = row["publicationDate"]
+        year = (
+            int(date_str[:4])
+            if date_str and len(date_str) >= 4 and date_str[:4].isdigit()
+            else 0
         )
-        print("Model loaded.")
-    return llm, tokenizer
 
-
-def reload_model(model_name: str = DEFAULT_MODEL) -> tuple[LLM, AutoTokenizer]:
-    global llm, tokenizer
-    if llm is not None:
-        del llm
-        llm = None
-        tokenizer = None
-    return _load_model(model_name)
+        PAPER_METRICS_MAP[paper_id] = (influential, citations, year)
 
 
 def load_prompt(prompt_path: str) -> dict[str, Any]:
@@ -109,49 +96,17 @@ Do not include any explanations, greetings, or extra newlines.
 JSON output:"""
 
 
-def _call_llm(
-    llm_model: LLM,
-    tokenizer: AutoTokenizer,
-    prompt: str,
-    json_schema: dict[str, Any] | None,
-    temperature: float = 0.7,
-) -> dict[str, Any]:
-    """Call LLM and parse JSON response."""
-    messages = [{"role": "user", "content": prompt}]
-
-    processed = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
-    processed = tokenizer(processed, add_special_tokens=False).input_ids
-
-    inputs = [TokensPrompt(prompt_token_ids=processed)]
-
-    sampling_params = SamplingParams(
-        temperature=temperature,
-        max_tokens=512,
-        structured_outputs=(
-            StructuredOutputsParams(json=json_schema) if json_schema else None
-        ),
-        stop=["<|im_end|>"],
-    )
-
-    outputs = llm_model.generate(inputs, sampling_params, use_tqdm=False)
-
-    try:
-        return json.loads(outputs[0].outputs[0].text)
-    except json.JSONDecodeError:
-        print(f"ERROR: Could not parse JSON")
-        return {}
-
-
 def _call_api_llm(
     api_client: BaseAPIClient,
     prompt: str,
     response_schema: type[BaseModel] | None,
+    temperature: float | None = None,
 ) -> dict[str, Any]:
     """Call LLM via API client and return parsed result as dict."""
     messages = [Message(role="user", content=prompt)]
-    result = api_client.call(messages, response_schema=response_schema)
+    result = api_client.call(
+        messages, response_schema=response_schema, temperature=temperature
+    )
     if response_schema is not None:
         return result.content.model_dump()
     return {}
@@ -229,48 +184,26 @@ def agentic_explorer(
     tools: list[str],
     tool_selection_prompt_path: str,
     node_filtering_prompt_path: str,
+    api_client: BaseAPIClient,
     user_query: str = "",
-    model_name: str = "Qwen/Qwen3-4B",
-    temperature: float = 0.7,
     max_results_per_tool: int = 10,
     include_abstracts: bool = True,
     selected_nodes_count_low: int = 2,
     selected_nodes_count_high: int = 3,
     include_summary: bool = False,
-    api_client: BaseAPIClient | None = None,
+    temperature: float | None = None,
 ) -> list[dict[str, Any]]:
     """Agentic graph exploration with 2-phase LLM calls.
 
     Phase 1: Tool selection - LLM chooses which tool to use.
     Phase 2: Node filtering - LLM filters results and selects next node.
     """
-    if api_client is None:
-        llm_model, tok = _load_model(model_name)
-    else:
-        llm_model, tok = None, None
-
     tool_select_config = load_prompt(tool_selection_prompt_path)
     node_filter_config = load_prompt(node_filtering_prompt_path)
-
-    # -------------------------------------------------------------------------
-    # POPRAWKA 1: Użycie schematów Pydantic bezpośrednio do vLLM
-    # -------------------------------------------------------------------------
-    tool_select_schema = _ToolSelection.model_json_schema()
-    tool_select_schema["properties"]["selected_tool"]["enum"] = tools
-
-    node_filter_schema = _NodeFiltering.model_json_schema()
 
     low = min(selected_nodes_count_low, max_results_per_tool)
     high = min(selected_nodes_count_high, max_results_per_tool)
     papers_range = f"{low}-{high}"
-
-    # Dodajemy opisy do wygenerowanego schematu Pydantic
-    node_filter_schema["properties"]["selected_nodes"][
-        "description"
-    ] = f"List of result indices to add to visited ({low}-{high} papers)"
-    node_filter_schema["properties"]["current_node"][
-        "description"
-    ] = "Index of the paper to explore next (must be in selected_nodes indices)"
 
     tool_section = _format_tool_descriptions(tools)
 
@@ -278,7 +211,7 @@ def agentic_explorer(
     all_paper_ids: set[str] = set()
 
     for start_id in start_nodes:
-        visited: set[str] = {start_id}
+        visited: dict[str, str] = {}
         current_node = start_id
         tool_history: list[dict[str, Any]] = []
 
@@ -292,6 +225,7 @@ def agentic_explorer(
         )
         if results and "error" not in results[0] and results[0].get("id"):
             start_paper = results[0]
+            visited[start_paper["id"]] = start_paper.get("title", "")
             if start_paper.get("id") not in all_paper_ids:
                 all_paper_ids.add(start_paper.get("id"))
                 all_papers.append(start_paper)
@@ -309,8 +243,12 @@ def agentic_explorer(
                 selected_tool = tools[0]
                 tool_reason = "Only one tool available"
             else:
-                visited_list = sorted(visited)
-                visited_str = ", ".join(visited_list)
+                visited_str = "\n".join(
+                    [
+                        f"- ID: {pid} | Title: {title}"
+                        for pid, title in sorted(visited.items())
+                    ]
+                )
                 tool_history_str = _format_tool_history(tool_history)
 
                 tool_loop_descriptions = []
@@ -324,7 +262,8 @@ def agentic_explorer(
 {tool_history_str}
 
 Current exploring node: {current_node}
-Visited paper IDs: [{visited_str}]
+Visited papers:
+{visited_str}
 (User query: {user_query})
 
 Available tools:
@@ -340,18 +279,12 @@ IMPORTANT: You have already visited these papers. Do NOT select them again unles
                     tool_section,
                 )
 
-                if api_client is not None:
-                    tool_result = _call_api_llm(
-                        api_client, tool_select_prompt, _ToolSelection
-                    )
-                else:
-                    tool_result = _call_llm(
-                        llm_model,
-                        tok,
-                        tool_select_prompt,
-                        tool_select_schema,
-                        temperature,
-                    )
+                tool_result = _call_api_llm(
+                    api_client,
+                    tool_select_prompt,
+                    _ToolSelection,
+                    temperature=temperature,
+                )
 
                 selected_tool = tool_result.get("selected_tool")
                 tool_reason = tool_result.get("reason", "No reason provided")
@@ -407,13 +340,22 @@ IMPORTANT: You have already visited these papers. Do NOT select them again unles
             ]
 
             if len(results) > max_results_per_tool:
-                results = random.sample(results, max_results_per_tool)
+                # Pobieramy krotkę z RAM. Jeśli węzła nie ma w słowniku, dajemy mu (0, 0, 0)
+                results.sort(
+                    key=lambda x: PAPER_METRICS_MAP.get(str(x.get("id")), (0, 0, 0)),
+                    reverse=True,
+                )
+                results = results[:max_results_per_tool]
 
             paper_list_str = _format_paper_list(
                 results, include_abstracts, include_summary
             )
-            visited_list = sorted(visited)
-            visited_str = ", ".join(visited_list)
+            visited_str = "\n".join(
+                [
+                    f"- ID: {pid} | Title: {title}"
+                    for pid, title in sorted(visited.items())
+                ]
+            )
 
             unvisited_in_results = [r for r in results if r.get("id") not in visited]
 
@@ -441,8 +383,8 @@ Tool used: {selected_tool}
 RESULTS FROM TOOL (index -> paper):
 {paper_list_str}
 
-VISITED PAPER IDs (DO NOT SELECT THESE):
-[{visited_str}]
+VISITED PAPERS (DO NOT SELECT THESE):
+{visited_str}
 
 (User query: {user_query})
 
@@ -456,14 +398,12 @@ IMPORTANT: Select ONLY papers that are NOT in the visited list above."""
                 "",
             )
 
-            if api_client is not None:
-                filter_result = _call_api_llm(
-                    api_client, node_filter_prompt, _NodeFiltering
-                )
-            else:
-                filter_result = _call_llm(
-                    llm_model, tok, node_filter_prompt, node_filter_schema, temperature
-                )
+            filter_result = _call_api_llm(
+                api_client,
+                node_filter_prompt,
+                _NodeFiltering,
+                temperature=temperature,
+            )
 
             selected_indices = filter_result.get("selected_nodes", [])
             current_node_index = filter_result.get("current_node")
@@ -471,14 +411,14 @@ IMPORTANT: Select ONLY papers that are NOT in the visited list above."""
             selected_nodes = []
             for idx in selected_indices:
                 if isinstance(idx, int) and 0 <= idx < len(results):
-                    node_id = results[idx].get("id")
+                    node_id = str(results[idx].get("id"))
                     if node_id and node_id not in visited:
                         selected_nodes.append(node_id)
 
             if isinstance(current_node_index, int) and 0 <= current_node_index < len(
                 results
             ):
-                proposed_current_node = results[current_node_index].get("id")
+                proposed_current_node = str(results[current_node_index].get("id"))
             else:
                 proposed_current_node = None
 
@@ -520,18 +460,22 @@ IMPORTANT: Select ONLY papers that are NOT in the visited list above."""
                 if node_id == current_node:
                     continue  # Obsłużymy go za chwilę osobno
 
-                visited.add(node_id)
                 selected_paper = next(
                     (r for r in results if r.get("id") == node_id), None
+                )
+                visited[node_id] = (
+                    selected_paper.get("title", "") if selected_paper else ""
                 )
                 if selected_paper and selected_paper.get("id") not in all_paper_ids:
                     all_paper_ids.add(selected_paper.get("id"))
                     all_papers.append(selected_paper)
 
             # 2. DODAJEMY CURRENT NODE DO ODWIEDZONYCH (Kluczowe zabezpieczenie przed pętlą!)
-            visited.add(current_node)
             current_paper = next(
                 (r for r in results if r.get("id") == current_node), None
+            )
+            visited[current_node] = (
+                current_paper.get("title", "") if current_paper else ""
             )
             if current_paper and current_paper.get("id") not in all_paper_ids:
                 all_paper_ids.add(current_paper.get("id"))

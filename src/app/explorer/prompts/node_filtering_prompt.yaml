@@ -3,21 +3,21 @@ description: "Filters tool results and selects next nodes to explore"
 json_schema:
   type: object
   properties:
+    reason:
+      type: string
+      description: First, explicitly evaluate the novelty, relevance, and interdisciplinary value of the candidate papers. Explain which ones should be kept and why.
     selected_nodes:
       type: array
       items:
         type: integer
-      description: List of result indices to add to visited (3-4 papers)
+      description: List of result indices to add to visited (2-3 papers), based on your reasoning.
     current_node:
       type: integer
-      description: Index of the paper to explore next (must be in selected_nodes indices)
-    reason:
-      type: string
-      description: Explanation of why these papers are selected
+      description: Index of the paper to explore next (must be one of the integers strictly present in selected_nodes)
   required:
+    - reason
     - selected_nodes
     - current_node
-    - reason
 
 system: |
   You are a research paper relevance analyzer. Your task is to analyze papers
@@ -28,8 +28,8 @@ task: |
   Find papers related to: {user_query}
 
 loop: |
-   1. Review the tool results (index, ID, title, abstract, summary)
-   2. Filter out ALL papers that appear in the visited list - these are already explored
-   3. From remaining unvisited papers, select {range} papers that offer the highest informational value, potential insights, or direct/indirect context for the user's query.
-   4. Pick one from selected_nodes as current_node for next iteration
-   5. Output selected node indices, current_node index and reason
+  1. Review the tool results (index, ID, title, abstract, summary).
+  2. Filter out ALL papers that appear in the visited list - these are already explored.
+  3. From remaining unvisited papers, select {range} papers. Prioritize not only direct informational value but also NOVELTY and INTERDISCIPLINARY potential. If a paper connects the user's query to an unexpected domain or offers a non-standard perspective, you MUST favor it to ensure a highly diverse conceptual exploration.
+  4. Pick one from selected_nodes as current_node for next iteration.
+  5. OUTPUT INSTRUCTION: First write your detailed reasoning, then output the selected_nodes array, and finally the current_node integer.

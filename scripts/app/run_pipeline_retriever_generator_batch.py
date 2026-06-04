@@ -143,10 +143,12 @@ def parse_args() -> argparse.Namespace:
         help="Save intermediate pipeline step outputs to disk for each query.",
     )
     parser.add_argument(
-        "--output",
+        "--output-dir",
         type=str,
         default=None,
-        help="Path to write the results CSV. Defaults to outputs/batch_<timestamp>.csv.",
+        help="Directory to write all results into. "
+        "CSV will be saved as results.csv and per-query step folders "
+        "will be placed here. Overrides --output.",
     )
     return parser.parse_args()
 
@@ -197,13 +199,14 @@ def main() -> None:
     search_explorer = build_search(config)
     explorer = build_explorer(config)
 
-    if args.output:
-        output_path = Path(args.output)
+    if args.output_dir:
+        run_dir = Path(args.output_dir)
+        run_dir.mkdir(parents=True, exist_ok=True)
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path(PROJECT_ROOT) / "outputs"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"batch_retriever_generator_{timestamp}.csv"
+        run_dir = Path(PROJECT_ROOT) / "outputs" / f"run_{timestamp}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+    output_path = run_dir / "results.csv"
 
     results: list[dict] = []
     errors: list[dict] = []
@@ -223,9 +226,7 @@ def main() -> None:
         try:
             save_dir = None
             if args.save_steps:
-                save_root = config.get("pipeline", {}).get("save_dir", "outputs")
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                save_dir = Path(PROJECT_ROOT) / save_root / timestamp
+                save_dir = run_dir / f"query_{idx}"
                 save_dir.mkdir(parents=True, exist_ok=True)
 
             api_client = build_api_client(model_cfg)
