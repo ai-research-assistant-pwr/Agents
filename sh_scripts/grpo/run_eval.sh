@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# run_eval.sh — Unified Evaluation Launcher (Multi-Folder Support & Auto-Download)
+# run_eval.sh — Unified Evaluation Launcher (Multi-Folder Support)
 # =============================================================================
 #SBATCH --job-name=eval_emergent
 #SBATCH --output=Agents/out/%x_%j.out
@@ -44,14 +44,7 @@ MY_DISK="$SLURM_SUBMIT_DIR"
 BASE_DIR="$MY_DISK/Agents"
 VENV_PATH="$BASE_DIR/venv"
 
-# Automatyczne parsowanie nazwy modelu i tworzenie lokalnej ścieżki
-EMBED_MODEL_REPO="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
-MODEL_BASENAME=$(basename "$EMBED_MODEL_REPO")
-LOCAL_MODEL_DIR="$BASE_DIR/models/$MODEL_BASENAME"
-
-# Podmieniamy EMBED_MODEL, aby serwer vLLM czytał z lokalnego dysku
-EMBED_MODEL="$LOCAL_MODEL_DIR"
-
+EMBED_MODEL="${EMBED_MODEL:-"Qwen/Qwen3-Embedding-4B"}"
 WINDOW_SIZE="${WINDOW_SIZE:-50}"
 NOISY_LOGS_DIR="${NOISY_LOGS_DIR:-}"
 BASELINE_LOGS_DIR="${BASELINE_LOGS_DIR:-}"
@@ -79,6 +72,9 @@ export XDG_CACHE_HOME="$MY_NEW_TMP/xdg_cache"
 export TRITON_CACHE_DIR="$MY_NEW_TMP/triton_cache"
 mkdir -p "$MY_NEW_TMP" "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR"
 
+# Ustawiamy, gdzie system (vLLM i HF) ma trzymać pobrane modele
+export HF_HOME="$MY_NEW_TMP/huggingface"
+
 EMBED_HOST="${EMBED_HOST:-localhost}"
 VLLM_PID=""
 
@@ -91,37 +87,11 @@ _needs_vllm() {
 }
 
 # =============================================================================
-# 2.5. Auto-Download Model & Offline Enforcement
-# =============================================================================
-if _needs_vllm "$EXPERIMENT" && [ "$SKIP_VLLM" != "true" ]; then
-    if [ ! -f "$LOCAL_MODEL_DIR/config.json" ]; then
-        echo "=> Model not found locally at $LOCAL_MODEL_DIR. Downloading..."
-        $VENV_PYTHON -m pip install -U "huggingface_hub[cli]" > /dev/null 2>&1
-        
-        # Pobieranie modelu (wylapie blad jesli wezel nie ma neta)
-        if ! $VENV_PYTHON -m huggingface_hub.cli.cli download "$EMBED_MODEL_REPO" --local-dir "$LOCAL_MODEL_DIR"; then
-            echo "ERROR: Failed to download the model."
-            echo "Twój węzeł obliczeniowy prawdopodobnie blokuje dostęp do internetu."
-            echo "Uruchom raz na węźle logowania (bez sbatch!):"
-            echo "  bash run_eval.sh $EXPERIMENT $LOGS_DIRS"
-            echo "aby pobrać model, a potem używaj sbatch normalnie."
-            exit 1
-        fi
-        echo "=> Model downloaded successfully!"
-    else
-        echo "=> Model found locally at $LOCAL_MODEL_DIR."
-    fi
-
-    # ZABEZPIECZENIE: Całkowicie odcinamy vLLM i HF od internetu
-    export HF_HUB_OFFLINE=1
-    export HF_DATASETS_OFFLINE=1
-fi
-
-# =============================================================================
 # 3. Start vLLM Embedding Server (if needed) - URUCHAMIANY TYLKO RAZ
 # =============================================================================
 if _needs_vllm "$EXPERIMENT" && [ "$SKIP_VLLM" != "true" ]; then
     echo "=> Starting vLLM Embedding Server on localhost:$EMBED_PORT..."
+    echo "   (If model is missing from HF_HOME, it will be downloaded now)"
     $VENV_PYTHON -m vllm.entrypoints.openai.api_server \
         --model "$EMBED_MODEL" \
         --host 0.0.0.0 \
@@ -129,11 +99,11 @@ if _needs_vllm "$EXPERIMENT" && [ "$SKIP_VLLM" != "true" ]; then
         --max-model-len 4096 &
     VLLM_PID=$!
 
-    MAX_WAIT=120; WAITED=0
+    MAX_WAIT=300; WAITED=0  # Wydłużono czas oczekiwania do 5 minut na wypadek pobierania
     while ! curl -s http://localhost:$EMBED_PORT/v1/models > /dev/null 2>&1; do
         sleep 5; WAITED=$((WAITED+5))
         if [ $WAITED -ge $MAX_WAIT ]; then
-            echo "ERROR: vLLM server did not start. Aborting."
+            echo "ERROR: vLLM server did not start within 5 minutes. Aborting."
             [ -n "$VLLM_PID" ] && kill "$VLLM_PID" 2>/dev/null
             exit 1
         fi
