@@ -197,148 +197,111 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     print(f"Saved Top 5 words evolution to: {json_path}")
 
     # ==========================================
-    # Plot Generation
+    # Plot Generation (Minimalist Academic Style)
     # ==========================================
     plt.rcParams.update({
         'font.family':      'serif',
-        'font.size':        10,
-        'axes.labelsize':   10,
-        'axes.titlesize':   11,
-        'legend.fontsize':   9,
-        'xtick.labelsize':   9,
-        'ytick.labelsize':   9,
+        'font.size':        11,
+        'axes.labelsize':   11,
+        'axes.titlesize':   12,
+        'legend.fontsize':   10,
+        'xtick.labelsize':   10,
+        'ytick.labelsize':   10,
         'axes.spines.top':  False,
         'axes.spines.right': False,
-        'axes.linewidth':   0.6,
+        'axes.linewidth':   0.8,
         'figure.facecolor': 'white',
         'axes.facecolor':   'white',
     })
 
     ACCENT   = '#1a1a1a'
     GREY_MID = '#666666'
-    GREY_REF = '#aaaaaa'
+    GREY_REF = '#cccccc'
     RED_ACCENT = '#d62728'
     x_axis = df["Window_Index"]
 
     # --- Plot 1: Compression vs Total Reward ---
-    fig1, (ax_r, ax_l) = plt.subplots(2, 1, figsize=(7, 5), sharex=True, gridspec_kw={'hspace': 0.12})
-    ax_r.plot(x_axis, df["Avg_Total_Reward"], color=ACCENT, lw=1.2)
+    fig1, (ax_r, ax_l) = plt.subplots(2, 1, figsize=(8, 5), sharex=True, gridspec_kw={'hspace': 0.15})
+    ax_r.plot(x_axis, df["Avg_Total_Reward"], color=ACCENT, lw=1.5)
     ax_r.fill_between(x_axis, df["Avg_Total_Reward"], alpha=0.06, color=ACCENT)
-    ax_r.set_ylabel('Total reward')
-    ax_r.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
-    ax_r.set_title('Experiment 1 — Information Bottleneck: compression vs. total reward', pad=8)
-    ax_l.plot(x_axis, df["Avg_Message_Length"], color=ACCENT, lw=1.2)
+    ax_r.set_ylabel('Całkowita nagroda')
+    ax_r.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
+    ax_r.set_title('Kompresja a nagroda całkowita', pad=10)
+    
+    ax_l.plot(x_axis, df["Avg_Message_Length"], color=ACCENT, lw=1.5)
     ax_l.fill_between(x_axis, df["Avg_Message_Length"], alpha=0.06, color=ACCENT)
-    ax_l.set_ylabel('Message length (tokens)')
-    ax_l.set_xlabel('Training window')
-    ax_l.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
+    ax_l.set_ylabel('Długość komunikatu (tokeny)')
+    ax_l.set_xlabel('Okno treningowe')
+    ax_l.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
+    
     plt.savefig(os.path.join(output_dir, "exp1_compression_vs_reward.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    # --- Plot 2: Entropy and Vocab ---
-    fig2, (ax_e, ax_en, ax_v) = plt.subplots(3, 1, figsize=(7, 7), sharex=True, gridspec_kw={'hspace': 0.12})
-    ax_e.plot(x_axis, df["Unigram_Entropy"], color=ACCENT, lw=1.2)
-    ax_e.set_ylabel('Entropy (bits)')
-    ax_e.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
-    ax_e.set_title(f'Experiment 1 — Token distribution entropy and vocabulary size\n(window = {window_size} trajectories)', pad=8)
-    ax_en.plot(x_axis, df["Unigram_Entropy_Norm"], color=ACCENT, lw=1.2)
-    ax_en.set_ylabel('H / log₂(V)')
-    ax_en.set_ylim(0, 1.05)
-    ax_en.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
-    ax_v.plot(x_axis, df["Active_Vocab_Size"], color=ACCENT, lw=1.2)
-    ax_v.set_ylabel('Vocabulary size')
-    ax_v.set_xlabel('Training window')
-    ax_v.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
-    plt.savefig(os.path.join(output_dir, "exp1_entropy_and_vocab.png"), dpi=300, bbox_inches='tight')
-    plt.close()
-
-    # --- Plot 3: Reward Evolution ---
-    fig3, (ax_r_main, ax_pen) = plt.subplots(2, 1, figsize=(7, 5), sharex=True, gridspec_kw={'hspace': 0.12})
-    ax_r_main.plot(x_axis, df["Avg_Task_Reward"], color=GREY_MID, lw=1.2, ls='--', label='Task Reward')
-    ax_r_main.plot(x_axis, df["Avg_Total_Reward"], color=ACCENT, lw=1.2, label='Total Reward')
-    ax_r_main.fill_between(x_axis, df["Avg_Total_Reward"], df["Avg_Task_Reward"], color=RED_ACCENT, alpha=0.1, label='Penalty Gap')
-    ax_r_main.set_ylabel('Reward Score')
-    ax_r_main.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
-    ax_r_main.set_title('Experiment 1 — Reward Dynamics: Task Quality vs. Length Penalty', pad=8)
+    # --- Plot 2: Reward Evolution ---
+    fig3, (ax_r_main, ax_pen) = plt.subplots(2, 1, figsize=(8, 5), sharex=True, gridspec_kw={'hspace': 0.15})
+    ax_r_main.plot(x_axis, df["Avg_Task_Reward"], color=GREY_MID, lw=1.5, ls='--', label='Nagroda za zadanie')
+    ax_r_main.plot(x_axis, df["Avg_Total_Reward"], color=ACCENT, lw=1.5, label='Nagroda całkowita')
+    ax_r_main.fill_between(x_axis, df["Avg_Total_Reward"], df["Avg_Task_Reward"], color=RED_ACCENT, alpha=0.1, label='Wpływ kary')
+    ax_r_main.set_ylabel('Wartość nagrody')
+    ax_r_main.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
+    ax_r_main.set_title('Jakość zadania i kara za długość komunikatu', pad=10)
     ax_r_main.legend(frameon=False, loc='lower left')
-    ax_pen.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, lw=1.2)
-    ax_pen.set_ylabel('Length Penalty')
-    ax_pen.set_xlabel('Training window')
-    ax_pen.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
+    
+    ax_pen.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, lw=1.5)
+    ax_pen.set_ylabel('Kara za długość')
+    ax_pen.set_xlabel('Okno treningowe')
+    ax_pen.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
+    
     plt.savefig(os.path.join(output_dir, "exp1_rewards_evolution.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    # --- Plot 4: Detailed Component Breakdown ---
-    fig4, ax_comp = plt.subplots(figsize=(8, 4.5))
-    ax_comp.plot(x_axis, df["Avg_Similarity"], color='#1f77b4', lw=1.2, label='Similarity')
-    ax_comp.plot(x_axis, df["Avg_Diversity"], color='#ff7f0e', lw=1.2, label='Diversity')
-    ax_comp.plot(x_axis, df["Avg_Groundedness"], color='#2ca02c', lw=1.2, label='Groundedness')
-    ax_comp.plot(x_axis, df["Avg_Relevancy"], color='#9467bd', lw=1.2, label='Relevancy')
-    ax_comp.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, lw=1.5, ls='--', label='Length Penalty')
-    ax_comp.set_ylabel('Component Score / Penalty')
-    ax_comp.set_xlabel('Training window')
-    ax_comp.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
-    ax_comp.set_title('Experiment 1 — Evolution of Individual Reward Components', pad=8)
-    ax_comp.legend(frameon=False, loc='upper left', bbox_to_anchor=(1.02, 1))
+    # --- Plot 3: Detailed Component Breakdown (Stacked) ---
+    fig4, (ax_penalty, ax_components) = plt.subplots(2, 1, figsize=(8, 6), sharex=True, gridspec_kw={'hspace': 0.15, 'height_ratios': [1, 2]})
+    
+    # Górny wykres: Tylko kara za długość
+    ax_penalty.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, lw=1.5, label='Kara za długość')
+    ax_penalty.set_ylabel('Kara')
+    ax_penalty.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
+    ax_penalty.set_title('Ewolucja komponentów nagrody', pad=10)
+    ax_penalty.legend(frameon=False, loc='upper left', bbox_to_anchor=(1.02, 1))
+
+    # Dolny wykres: Pozostałe komponenty
+    ax_components.plot(x_axis, df["Avg_Similarity"], color='#1f77b4', lw=1.5, label='Podobieństwo')
+    ax_components.plot(x_axis, df["Avg_Diversity"], color='#ff7f0e', lw=1.5, label='Różnorodność')
+    ax_components.plot(x_axis, df["Avg_Groundedness"], color='#2ca02c', lw=1.5, label='Ugruntowanie')
+    ax_components.plot(x_axis, df["Avg_Relevancy"], color='#9467bd', lw=1.5, label='Trafność')
+    ax_components.set_ylabel('Wartość komponentu')
+    ax_components.set_xlabel('Okno treningowe')
+    ax_components.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
+    ax_components.legend(frameon=False, loc='upper left', bbox_to_anchor=(1.02, 1))
+    
     plt.savefig(os.path.join(output_dir, "exp1_reward_components.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    # --- Plot 5: Lexical Rank Trajectories (Initial vs Final Top 3 with Local Smoothing) ---
-    DISPLAY_MAX_RANK = 20
-    SMOOTHING_WINDOW = 5
-    
-    top3_first = [word for word, count in window_vocabs_raw[0][1].most_common(3)]
-    top3_last = [word for word, count in window_vocabs_raw[-1][1].most_common(3)]
-    
-    ranks_first = {word: [] for word in top3_first}
-    ranks_last = {word: [] for word in top3_last}
-    
-    for w_idx, vocab in window_vocabs_raw:
-        sorted_words = [word for word, count in vocab.most_common()]
-        
-        for word in top3_first:
-            rank = sorted_words.index(word) + 1 if word in sorted_words else (DISPLAY_MAX_RANK + 1)
-            ranks_first[word].append(min(rank, DISPLAY_MAX_RANK + 1))
-            
-        for word in top3_last:
-            rank = sorted_words.index(word) + 1 if word in sorted_words else (DISPLAY_MAX_RANK + 1)
-            ranks_last[word].append(min(rank, DISPLAY_MAX_RANK + 1))
-            
-    def smooth_series(series, window):
-        return pd.Series(series).rolling(window=window, min_periods=1, center=True).mean()
+    # --- Plot 4: Top 5 Words Bar Charts (Initial vs Final) ---
+    top5_first = window_vocabs_raw[0][1].most_common(5)
+    top5_last = window_vocabs_raw[-1][1].most_common(5)
 
-    fig5, (ax_f, ax_l) = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
+    fig5, (ax_f, ax_l) = plt.subplots(1, 2, figsize=(9, 4), gridspec_kw={'wspace': 0.3})
     
-    for word in top3_first:
-        smoothed_ranks = smooth_series(ranks_first[word], SMOOTHING_WINDOW)
-        ax_f.plot(x_axis, smoothed_ranks, lw=2.0, label=f"'{word}'")
-        
-    ax_f.set_title("Rank Evolution: Initial Top 3 Tokens (Smoothed)", fontsize=11, pad=8)
-    ax_f.set_xlabel("Training window")
-    ax_f.set_ylabel("Vocabulary Rank (Top 1 is Highest)")
-    ax_f.set_ylim(0.5, DISPLAY_MAX_RANK + 1.5)
-    ax_f.invert_yaxis()
-    ax_f.set_yticks([1, 5, 10, 15, 20, DISPLAY_MAX_RANK + 1])
-    ax_f.set_yticklabels(['1', '5', '10', '15', '20', '>20'])
-    ax_f.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
-    ax_f.legend(frameon=False, loc='lower left', title="Initial Elite")
+    words_f = [w for w, c in top5_first]
+    counts_f = [c for w, c in top5_first]
+    ax_f.barh(words_f[::-1], counts_f[::-1], color='#4C72B0', alpha=0.85)
+    ax_f.set_title('5 najczęstszych słów - Początek treningu', fontsize=11)
+    ax_f.set_xlabel('Liczba wystąpień')
+    ax_f.grid(axis='x', lw=0.4, color=GREY_REF, ls='--')
+
+    words_l = [w for w, c in top5_last]
+    counts_l = [c for w, c in top5_last]
+    ax_l.barh(words_l[::-1], counts_l[::-1], color='#55A868', alpha=0.85)
+    ax_l.set_title('5 najczęstszych słów - Koniec treningu', fontsize=11)
+    ax_l.set_xlabel('Liczba wystąpień')
+    ax_l.grid(axis='x', lw=0.4, color=GREY_REF, ls='--')
     
-    for word in top3_last:
-        smoothed_ranks = smooth_series(ranks_last[word], SMOOTHING_WINDOW)
-        ax_l.plot(x_axis, smoothed_ranks, lw=2.0, label=f"'{word}'")
-        
-    ax_l.set_title("Rank Evolution: Final Top 3 Tokens (Smoothed)", fontsize=11, pad=8)
-    ax_l.set_xlabel("Training window")
-    ax_l.set_ylim(0.5, DISPLAY_MAX_RANK + 1.5)
-    ax_l.invert_yaxis()
-    ax_l.grid(axis='y', lw=0.4, color=GREY_REF, ls=':')
-    ax_l.legend(frameon=False, loc='lower left', title="Emergent Jargon")
-    
-    fig5.tight_layout()
     plt.savefig(os.path.join(output_dir, "exp1_lexical_evolution.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-    print(f"Completed analysis. All 5 high-resolution plots saved to: {output_dir}")
+    print(f"Completed analysis. All high-resolution plots saved to: {output_dir}")
 
 if __name__ == "__main__":
     import argparse
