@@ -182,36 +182,61 @@ async def analyse_run_windowed(
 # ---------------------------------------------------------------------------
 
 _STYLE = {
-    "font.family": "serif", "font.size": 10, "axes.labelsize": 10, "axes.titlesize": 11,
-    "legend.fontsize": 8, "axes.spines.top": False, "axes.spines.right": False,
-    "figure.facecolor": "white", "axes.facecolor": "white",
+    'font.family':      'serif',
+    'font.size':        11,
+    'axes.labelsize':   11,
+    'axes.titlesize':   12,
+    'legend.fontsize':   10,
+    'xtick.labelsize':   10,
+    'ytick.labelsize':   10,
+    'axes.spines.top':  False,
+    'axes.spines.right': False,
+    'axes.linewidth':   0.8,
+    'figure.facecolor': 'white',
+    'axes.facecolor':   'white',
 }
 
 def plot_windowed_metrics(df: pd.DataFrame, output_dir: str):
     plt.rcParams.update(_STYLE)
     
+    GREY_REF = '#cccccc'
+    
     # 1. Dispersion
-    fig, ax = plt.subplots(figsize=(7, 4))
+    fig1, ax1 = plt.subplots(figsize=(8, 4.5))
     for label, group in df.groupby("Run"):
-        ax.plot(group["Window_Index"], group["Mean_Dispersion"], label=label, lw=1.5)
-        ax.fill_between(group["Window_Index"], group["Mean_Dispersion"] - group["Std_Dispersion"], 
-                        group["Mean_Dispersion"] + group["Std_Dispersion"], alpha=0.1)
-    ax.set(title="Experiment 2 — Intra-window signal dispersion", xlabel="Training Window", ylabel="Mean Cosine Distance")
-    ax.legend(frameon=False)
+        ax1.plot(group["Window_Index"], group["Mean_Dispersion"], label=label, lw=1.5)
+        ax1.fill_between(group["Window_Index"], 
+                         group["Mean_Dispersion"] - group["Std_Dispersion"], 
+                         group["Mean_Dispersion"] + group["Std_Dispersion"], alpha=0.1)
+    
+    ax1.set_title("Dyspersja sygnału wewnątrz okna treningowego", pad=10)
+    ax1.set_xlabel("Okno treningowe")
+    ax1.set_ylabel("Średni dystans kosinusowy")
+    ax1.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
+    # Legenda wyciągnięta na zewnątrz po prawej stronie
+    ax1.legend(frameon=False, loc='center left', bbox_to_anchor=(1.02, 0.5))
+    
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "exp2_dispersion_over_time.png"), dpi=300)
+    plt.savefig(os.path.join(output_dir, "exp2_dispersion_over_time.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
     # 2. Grounding
-    fig, ax = plt.subplots(figsize=(7, 4))
+    fig2, ax2 = plt.subplots(figsize=(8, 4.5))
     for label, group in df.groupby("Run"):
-        ax.plot(group["Window_Index"], group["Mean_Grounding"], label=label, lw=1.5)
-        ax.fill_between(group["Window_Index"], group["Mean_Grounding"] - group["Std_Grounding"], 
-                        group["Mean_Grounding"] + group["Std_Grounding"], alpha=0.1)
-    ax.set(title="Experiment 2 — Signal-prompt alignment (Grounding)", xlabel="Training Window", ylabel="Cosine Similarity")
-    ax.legend(frameon=False)
+        ax2.plot(group["Window_Index"], group["Mean_Grounding"], label=label, lw=1.5)
+        ax2.fill_between(group["Window_Index"], 
+                         group["Mean_Grounding"] - group["Std_Grounding"], 
+                         group["Mean_Grounding"] + group["Std_Grounding"], alpha=0.1)
+        
+    ax2.set_title("Ugruntowanie (Podobieństwo sygnału do zapytania)", pad=10)
+    ax2.set_xlabel("Okno treningowe")
+    ax2.set_ylabel("Podobieństwo kosinusowe")
+    ax2.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
+    # Legenda wyciągnięta na zewnątrz po prawej stronie
+    ax2.legend(frameon=False, loc='center left', bbox_to_anchor=(1.02, 0.5))
+    
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "exp2_grounding_over_time.png"), dpi=300)
+    plt.savefig(os.path.join(output_dir, "exp2_grounding_over_time.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
 # ---------------------------------------------------------------------------
