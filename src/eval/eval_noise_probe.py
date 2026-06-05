@@ -369,8 +369,23 @@ def wilcoxon_gt0(values: np.ndarray, metric: str) -> Dict:
 
 
 # =============================================================================
-# Wykresy
+# Wykresy (Uspójnione: Minimalistyczny Styl Akademicki)
 # =============================================================================
+
+_STYLE = {
+    'font.family':      'serif',
+    'font.size':        11,
+    'axes.labelsize':   11,
+    'axes.titlesize':   12,
+    'legend.fontsize':  10,
+    'xtick.labelsize':  10,
+    'ytick.labelsize':  10,
+    'axes.spines.top':  False,
+    'axes.spines.right': False,
+    'axes.linewidth':   0.8,
+    'figure.facecolor': 'white',
+    'axes.facecolor':   'white',
+}
 
 def _sig_stars(p: float) -> str:
     if p < 0.001: return "***"
@@ -378,92 +393,77 @@ def _sig_stars(p: float) -> str:
     if p < 0.05:  return "*"
     return "ns"
 
-
-def plot_boxplot(
-    data_a: np.ndarray,
-    data_b: np.ndarray,
-    label_a: str,
-    label_b: str,
-    title: str,
-    ylabel: str,
-    path: str,
-    p_value: Optional[float] = None,
-) -> None:
-    fig, ax = plt.subplots(figsize=(5, 4.5))
+def plot_boxplot(data_a, data_b, label_a, label_b, title, ylabel, path, p_value=None):
+    plt.rcParams.update(_STYLE)
+    fig, ax = plt.subplots(figsize=(6, 4.5)) # Nieco szerszy dla lepszej czytelności
+    
     bp = ax.boxplot(
         [data_a, data_b],
         labels=[label_a, label_b],
         patch_artist=True,
-        medianprops=dict(color="black", linewidth=1.8),
+        medianprops=dict(color="black", linewidth=1.5),
         whiskerprops=dict(lw=0.8),
         capprops=dict(lw=0.8),
-        flierprops=dict(marker="o", markersize=3, alpha=0.35, linestyle="none"),
+        flierprops=dict(marker="o", markersize=3, alpha=0.3, linestyle="none"),
     )
-    for patch, color in zip(bp["boxes"], [COLOR_A, COLOR_B]):
+    
+    # Kolory dopasowane do reszty zestawu
+    colors = ['#4C72B0', '#DD8452']
+    for patch, color in zip(bp["boxes"], colors):
         patch.set_facecolor(color)
-        patch.set_alpha(0.75)
+        patch.set_alpha(0.7)
 
-    ax.set_title(title, pad=8)
+    ax.set_title(title, pad=15)
     ax.set_ylabel(ylabel)
-    ax.grid(axis="y", lw=0.4, ls=":", color=COLOR_REF)
+    ax.grid(axis="y", lw=0.4, color='#cccccc', ls='--')
 
     if p_value is not None:
         stars = _sig_stars(p_value)
         combined = np.concatenate([data_a, data_b])
-        y_top = float(np.percentile(combined, 97)) if len(combined) else 1.0
-        y_ann = y_top + abs(y_top) * 0.07
+        y_max = np.max(combined)
+        y_min = np.min(combined)
+        y_range = y_max - y_min
+        y_ann = y_max + y_range * 0.05
+        
         ax.annotate(stars, xy=(1.5, y_ann), ha="center", fontsize=14, color="black")
-        ax.annotate(
-            f"p={p_value:.3f}", xy=(1.5, y_ann),
-            xytext=(0, -14), textcoords="offset points",
-            ha="center", fontsize=8, color="#444",
-        )
+        ax.annotate(f"p={p_value:.3f}", xy=(1.5, y_ann), xytext=(0, -14), 
+                    textcoords="offset points", ha="center", fontsize=9, color="#444")
 
     plt.tight_layout()
-    plt.savefig(path, dpi=300, bbox_inches="tight")
+    plt.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"  Wykres: {path}")
+    print(f"  [✓] Wykres zapisany: {path}")
 
-
-def plot_divergence(
-    values: np.ndarray,
-    title: str,
-    path: str,
-    p_value: Optional[float] = None,
-) -> None:
-    """Boxplot dywergencji per prompt_id z linią referencyjną zero."""
-    fig, ax = plt.subplots(figsize=(4.5, 4.5))
+def plot_divergence(values, title, path, p_value=None):
+    plt.rcParams.update(_STYLE)
+    fig, ax = plt.subplots(figsize=(5, 4.5))
+    
     bp = ax.boxplot(
         values,
         patch_artist=True,
-        medianprops=dict(color="black", linewidth=1.8),
+        medianprops=dict(color="black", linewidth=1.5),
         whiskerprops=dict(lw=0.8),
         capprops=dict(lw=0.8),
-        flierprops=dict(marker="o", markersize=3, alpha=0.35, linestyle="none"),
     )
     bp["boxes"][0].set_facecolor("#8172B2")
-    bp["boxes"][0].set_alpha(0.75)
+    bp["boxes"][0].set_alpha(0.7)
 
-    ax.axhline(0, color="red", lw=1.2, ls="--", label="zero (brak dywergencji)")
-    ax.set_xticklabels(["Per-prompt_id\ndywergencja"])
-    ax.set_ylabel("Średnia cosine distance\n(1 − cos(hyp_a, hyp_b))")
-    ax.set_title(title, pad=8)
-    ax.grid(axis="y", lw=0.4, ls=":", color=COLOR_REF)
-    ax.legend(frameon=False, fontsize=8)
+    ax.axhline(0, color="#d62728", lw=1.2, ls="--", label="zero (brak)")
+    ax.set_ylabel("Średni dystans kosinusowy")
+    ax.set_title(title, pad=15)
+    ax.grid(axis="y", lw=0.4, color='#cccccc', ls='--')
+    ax.legend(frameon=False, loc='upper right')
 
     if p_value is not None:
         stars = _sig_stars(p_value)
         med = float(np.median(values))
-        ax.annotate(
-            f"{stars}  p={p_value:.3f}",
-            xy=(1, med), xytext=(12, 6), textcoords="offset points",
-            fontsize=9, color="black",
-        )
+        ax.annotate(f"{stars}  p={p_value:.3f}", xy=(1, med), xytext=(12, 6), 
+                    textcoords="offset points", fontsize=9, color="black")
 
     plt.tight_layout()
-    plt.savefig(path, dpi=300, bbox_inches="tight")
+    plt.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"  Wykres: {path}")
+    print(f"  [✓] Wykres zapisany: {path}")
 
 
 # =============================================================================
