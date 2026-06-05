@@ -261,18 +261,22 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     # --- Plot 3: Detailed Component Breakdown (Stacked) ---
     fig4, (ax_penalty, ax_components) = plt.subplots(2, 1, figsize=(8, 6), sharex=True, gridspec_kw={'hspace': 0.15, 'height_ratios': [1, 2]})
     
+    # Górny wykres: Kara za długość (skala 0 do 3)
     ax_penalty.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, lw=1.5, label='Kara za długość')
     ax_penalty.set_ylabel('Kara')
+    ax_penalty.set_ylim(0, 3)  # <--- Ustawienie skali od 0 do 3
     ax_penalty.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
     ax_penalty.set_title('Ewolucja komponentów nagrody', pad=10)
     ax_penalty.legend(frameon=False, loc='center left', bbox_to_anchor=(1.02, 0.5))
 
+    # Dolny wykres: Pozostałe komponenty (skala 0 do 1)
     ax_components.plot(x_axis, df["Avg_Similarity"], color='#1f77b4', lw=1.5, label='Podobieństwo')
     ax_components.plot(x_axis, df["Avg_Diversity"], color='#ff7f0e', lw=1.5, label='Różnorodność')
     ax_components.plot(x_axis, df["Avg_Groundedness"], color='#2ca02c', lw=1.5, label='Ugruntowanie')
     ax_components.plot(x_axis, df["Avg_Relevancy"], color='#9467bd', lw=1.5, label='Trafność')
     ax_components.set_ylabel('Wartość komponentu')
     ax_components.set_xlabel('Okno treningowe')
+    ax_components.set_ylim(0, 1)  # <--- Ustawienie skali od 0 do 1
     ax_components.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
     ax_components.legend(frameon=False, loc='upper left', bbox_to_anchor=(1.02, 1))
     
