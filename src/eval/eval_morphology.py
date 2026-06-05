@@ -238,6 +238,27 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     plt.savefig(os.path.join(output_dir, "exp1_compression_vs_reward.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
+    # --- Plot 2: Vocabulary Size & Unigram Entropy (Bits) ---
+    fig2, (ax_vocab, ax_entropy) = plt.subplots(2, 1, figsize=(8, 5), sharex=True, gridspec_kw={'hspace': 0.15})
+    
+    # Górny wykres: Rozmiar aktywnego słownika
+    ax_vocab.plot(x_axis, df["Active_Vocab_Size"], color='#4C72B0', lw=1.5)
+    ax_vocab.fill_between(x_axis, df["Active_Vocab_Size"], alpha=0.06, color='#4C72B0')
+    ax_vocab.set_ylabel('Rozmiar słownika')
+    ax_vocab.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
+    ax_vocab.set_title('Ewolucja słownika i entropii', pad=10)
+    
+    # Dolny wykres: Entropia (bity)
+    ax_entropy.plot(x_axis, df["Unigram_Entropy"], color='#DD8452', lw=1.5)
+    ax_entropy.fill_between(x_axis, df["Unigram_Entropy"], alpha=0.06, color='#DD8452')
+    ax_entropy.set_ylabel('Entropia (bity)')
+    ax_entropy.set_xlabel('Okno treningowe')
+    ax_entropy.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
+    
+    fig2.align_ylabels() # Zrównanie etykiet osi Y
+    plt.savefig(os.path.join(output_dir, "exp1_entropy_and_vocab.png"), dpi=300, bbox_inches='tight')
+    plt.close()
+
     # --- Plot 2: Reward Evolution ---
     fig3, (ax_r_main, ax_pen) = plt.subplots(2, 1, figsize=(8, 5), sharex=True, gridspec_kw={'hspace': 0.15})
     ax_r_main.plot(x_axis, df["Avg_Task_Reward"], color=GREY_MID, lw=1.5, ls='--', label='Nagroda za zadanie')
