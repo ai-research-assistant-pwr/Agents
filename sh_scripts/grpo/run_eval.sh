@@ -64,7 +64,7 @@ module load Python/3.12.3-GCCcore-13.3.0
 source $VENV_PATH/bin/activate
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-$VENV_PYTHON -m pip install -q -U transformers
+# $VENV_PYTHON -m pip install -q -U transformers
 
 export PYTHONPATH="$BASE_DIR:$PYTHONPATH"
 MY_NEW_TMP="$MY_DISK/tmp"
