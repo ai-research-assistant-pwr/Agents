@@ -234,6 +234,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     ax_l.set_xlabel('Okno treningowe')
     ax_l.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
     
+    fig1.align_ylabels() # Zrównanie etykiet osi Y
     plt.savefig(os.path.join(output_dir, "exp1_compression_vs_reward.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
@@ -245,27 +246,27 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     ax_r_main.set_ylabel('Wartość nagrody')
     ax_r_main.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
     ax_r_main.set_title('Jakość zadania i kara za długość komunikatu', pad=10)
-    ax_r_main.legend(frameon=False, loc='lower left')
+    # Legenda wyciągnięta na prawą stronę
+    ax_r_main.legend(frameon=False, loc='center left', bbox_to_anchor=(1.02, 0.5))
     
     ax_pen.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, lw=1.5)
     ax_pen.set_ylabel('Kara za długość')
     ax_pen.set_xlabel('Okno treningowe')
     ax_pen.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
     
+    fig3.align_ylabels() # Zrównanie etykiet osi Y
     plt.savefig(os.path.join(output_dir, "exp1_rewards_evolution.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
     # --- Plot 3: Detailed Component Breakdown (Stacked) ---
     fig4, (ax_penalty, ax_components) = plt.subplots(2, 1, figsize=(8, 6), sharex=True, gridspec_kw={'hspace': 0.15, 'height_ratios': [1, 2]})
     
-    # Górny wykres: Tylko kara za długość
     ax_penalty.plot(x_axis, df["Avg_Length_Penalty"], color=RED_ACCENT, lw=1.5, label='Kara za długość')
     ax_penalty.set_ylabel('Kara')
     ax_penalty.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
     ax_penalty.set_title('Ewolucja komponentów nagrody', pad=10)
-    ax_penalty.legend(frameon=False, loc='upper left', bbox_to_anchor=(1.02, 1))
+    ax_penalty.legend(frameon=False, loc='center left', bbox_to_anchor=(1.02, 0.5))
 
-    # Dolny wykres: Pozostałe komponenty
     ax_components.plot(x_axis, df["Avg_Similarity"], color='#1f77b4', lw=1.5, label='Podobieństwo')
     ax_components.plot(x_axis, df["Avg_Diversity"], color='#ff7f0e', lw=1.5, label='Różnorodność')
     ax_components.plot(x_axis, df["Avg_Groundedness"], color='#2ca02c', lw=1.5, label='Ugruntowanie')
@@ -275,6 +276,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     ax_components.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
     ax_components.legend(frameon=False, loc='upper left', bbox_to_anchor=(1.02, 1))
     
+    fig4.align_ylabels() # Zrównanie etykiet osi Y
     plt.savefig(os.path.join(output_dir, "exp1_reward_components.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
