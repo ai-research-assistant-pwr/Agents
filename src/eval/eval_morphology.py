@@ -253,6 +253,7 @@ def run_morphology_analysis(logs_dir: str, output_dir: str, window_size: int = 5
     ax_entropy.fill_between(x_axis, df["Unigram_Entropy"], alpha=0.06, color='#DD8452')
     ax_entropy.set_ylabel('Entropia (bity)')
     ax_entropy.set_xlabel('Okno treningowe')
+    ax_entropy.set_ylim(8, None)
     ax_entropy.grid(axis='y', lw=0.4, color=GREY_REF, ls='--')
     
     fig2.align_ylabels() # Zrównanie etykiet osi Y
