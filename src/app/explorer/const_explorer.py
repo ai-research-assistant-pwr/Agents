@@ -17,7 +17,7 @@ class ConstExplorer(BaseExplorer):
     def __init__(self, text: str | None = None) -> None:
         self.text = text if text is not None else self.DEFAULT_TEXT
 
-    def explore(self, prompt: str) -> ExplorerResult:
+    def explore(self, prompt: str, paper_ids: list[str] | None = None) -> ExplorerResult:
         """Return constant text regardless of the prompt.
 
         Args:

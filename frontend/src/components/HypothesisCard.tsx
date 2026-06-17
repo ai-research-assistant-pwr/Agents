@@ -1,0 +1,62 @@
+import type { Hypothesis } from '../types';
+
+interface Props {
+  hypothesis: Hypothesis;
+  selected: boolean;
+  dimmed: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}
+
+export default function HypothesisCard({ hypothesis, selected, dimmed, disabled, onSelect }: Props) {
+  const cls = [
+    'hyp-card',
+    selected ? 'selected' : '',
+    dimmed ? 'dimmed' : '',
+    disabled ? 'disabled' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <button
+      type="button"
+      className={cls}
+      onClick={onSelect}
+      disabled={disabled}
+      aria-pressed={selected}
+    >
+      {selected && <span className="hyp-card-badge">Selected</span>}
+
+      <div className="hyp-card-head">
+        <div>
+          <div className="hyp-card-id">Hypothesis {hypothesis.id}</div>
+          <div className="hyp-card-class">{hypothesis.classification}</div>
+        </div>
+        <span className={`radio${selected ? ' on' : ''}`} aria-hidden="true" />
+      </div>
+
+      <h3 className="hyp-card-headline">{hypothesis.headline}</h3>
+      <p className="hyp-card-statement">{hypothesis.statement}</p>
+
+      <div className="hyp-card-bottom">
+        {hypothesis.drawnFrom.length > 0 && (
+          <>
+            <div className="micro-label">Drawn from</div>
+            <div className="chip-row drawn-from">
+              {hypothesis.drawnFrom.map((c) => (
+                <span key={c} className="chip chip-outline">{c}</span>
+              ))}
+            </div>
+          </>
+        )}
+        {hypothesis.falsifiablePrediction && (
+          <div className={`prediction${selected ? ' prediction-selected' : ''}`}>
+            <div className="micro-label">Falsifiable prediction</div>
+            <div className="prediction-text">{hypothesis.falsifiablePrediction}</div>
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
