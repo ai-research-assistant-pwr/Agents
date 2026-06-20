@@ -4,8 +4,14 @@ pipeline:
   save_dir: "outputs"   # directory for saved step outputs (relative to project root)
 
 api_client:
-  type: "google"
-  model: "gemini-3-flash-preview"
+  # Set type to "vllm" to use the locally served Qwen3-4B weights.
+  # Set type to "google" / "openai_compatible" for cloud providers.
+  type: "vllm"
+  model: "/models"          # path vLLM was started with (matches --model arg)
+  base_url: "http://localhost:8017/v1"
+  # --- cloud fallback (used when type != "vllm") ---
+  # type: "google"
+  # model: "gemini-3-flash-preview"
 
 search:
   type: "weaviate"     # weaviate: vector search for paper IDs
@@ -14,7 +20,7 @@ search:
     rerank_top_k: 3                   # number of results after reranking
 
 explorer:
-  type: "neo4j_pagerank"    # neo4j_bfs, neo4j_random_walk, neo4j_pagerank, agentic
+  type: "neo4j_random_walk"    # neo4j_bfs, neo4j_random_walk, neo4j_pagerank, agentic
   neo4j:
     max_level: 1       # for BFS: maximum depth of traversal
     direction: "both"  # outgoing, incoming, or both
@@ -53,3 +59,5 @@ retriever:
 generator:
   type: "llm"
   temperature: 0.7
+  port: 8017
+  weights: "models/example_checkpoint/global_step75_hf"  # local path to fine-tuned Qwen3-4B weights (relative to project root)

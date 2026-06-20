@@ -1,0 +1,59 @@
+# vLLM server for locally fine-tuned Qwen3-4B weights.
+#
+# Model path and port are read from config/app/config.yaml via serve_vllm.sh,
+# which sets VLLM_MODEL and VLLM_PORT before calling docker compose.
+#
+# Usage (from the project root):
+#   ./sh_scripts/serve_vllm.sh
+#
+# GPU requirements: sm_75+ (Turing / RTX 20xx or newer).
+# GTX 10xx (Pascal, sm_61) is NOT supported — vLLM images that include
+# Qwen3 support bundle PyTorch 2.4+ which dropped sm_60/sm_61 kernels.
+#
+# VRAM-saving flags:
+#   --dtype bfloat16               native Qwen3 precision (~8 GB for 4B params)
+#   --gpu-memory-utilization 0.85  leave 15 % headroom for CUDA overhead
+#   --max-model-len 8192           cap KV-cache; drop to 4096 for tighter VRAM
+#   --max-num-seqs 4               limit concurrent generation streams
+#   --enable-chunked-prefill       prevent OOM spikes on long prompts
+#   --reasoning-parser qwen3       separate <think>…</think> into reasoning_content
+#
+# For further VRAM reduction add: --quantization fp8  (Ada+) or
+#                                  --quantization bitsandbytes  (any GPU, slower)
+
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_DATASETS_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+    volumes:
+      - ../../models:/models:ro
+    ports:
+      - "${VLLM_PORT:-8017}:8000"
+    ipc: host
+    command: >
+      --model ${VLLM_MODEL:-/models}
+      --dtype bfloat16
+      --gpu-memory-utilization 0.85
+      --max-model-len 8192
+      --max-num-seqs 4
+      --enable-chunked-prefill
+      --reasoning-parser qwen3
+      --port 8000
+      --host 0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s

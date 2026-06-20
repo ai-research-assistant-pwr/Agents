@@ -528,7 +528,7 @@ def _run_real(question: str) -> SessionOut:
     config = load_config("config/app/config.yaml")
     provider = config.get("api_client", {}).get("type", "openai")
     model = config.get("api_client", {}).get("model", "gpt-4o-mini")
-    api_client = _build_api_client(provider, model)
+    api_client = _build_api_client(provider, model, config)
 
     explorer = _build_explorer(config)
     search_explorer = _build_search(config)
@@ -564,10 +564,11 @@ def _run_real(question: str) -> SessionOut:
     )
 
 
-def _build_api_client(provider: str, model: str):
-    if provider in ("openai", "openai_compatible"):
+def _build_api_client(provider: str, model: str, config: dict | None = None):
+    if provider in ("openai", "openai_compatible", "vllm"):
         from app.api_client.openai_compatible_client import OpenAICompatibleClient  # noqa: PLC0415
-        return OpenAICompatibleClient(model=model)
+        base_url = (config or {}).get("api_client", {}).get("base_url") if config else None
+        return OpenAICompatibleClient(model=model, base_url=base_url)
     if provider == "google":
         from app.api_client.google_client import GoogleAPIClient  # noqa: PLC0415
         return GoogleAPIClient(model=model)
