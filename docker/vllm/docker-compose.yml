@@ -58,3 +58,35 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+
+  embedding:
+    image: vllm/vllm-openai:latest
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_DATASETS_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+    volumes:
+      - ../../models:/models:ro
+    ports:
+      - "${VLLM_EMBED_PORT:-8005}:8005"
+    ipc: host
+    command: >
+      --model ${VLLM_EMBED_MODEL:-Qwen/Qwen3-Embedding-4B}
+      --port 8005
+      --host 0.0.0.0
+      --max-model-len 4096
+      --gpu-memory-utilization 0.4
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
