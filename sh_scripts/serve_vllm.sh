@@ -39,6 +39,18 @@ if $USE_DOCKER; then
 else
   #HOST_MODEL="$PROJECT_ROOT/$WEIGHTS"
   HOST_MODEL=$WEIGHTS
+  # Patch prometheus-fastapi-instrumentator for FastAPI _IncludedRouter compatibility.
+  # See: https://github.com/vllm-project/vllm/issues — upstream bug, not fixed in the package.
+  ROUTING_FILE=$(python3 -c \
+    "import prometheus_fastapi_instrumentator.routing as r, inspect; print(inspect.getfile(r))" \
+    2>/dev/null || true)
+  if [ -n "$ROUTING_FILE" ]; then
+    sed -i \
+      's/            route_name = route\.path/            if not hasattr(route, "path"):\n                continue\n            route_name = route.path/' \
+      "$ROUTING_FILE" 2>/dev/null || true
+    echo "Patched $ROUTING_FILE"
+  fi
+
   echo "Starting vLLM directly (model=$HOST_MODEL)"
   PYTHONUNBUFFERED=1 vllm serve "$HOST_MODEL" \
       --served-model-name Qwen/Qwen3-4B \

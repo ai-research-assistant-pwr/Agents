@@ -59,7 +59,7 @@ def _split_reasoning(text: str) -> tuple[str, str]:
 
 def _reasoning_content(choice) -> str:
     """Return ``reasoning_content`` set by vLLM's reasoning parser, or ``""``."""
-    return getattr(choice.message, "reasoning_content", None) or ""
+    return getattr(choice.message, "reasoning_content", None) or getattr(choice.message, "reasoning", None) or ""
 
 
 class OpenAICompatibleClient(BaseAPIClient):
