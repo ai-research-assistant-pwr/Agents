@@ -1,4 +1,4 @@
-from app.app import App
+from app.app import Pipeline
 from app.models import ExplorerResult, GeneratorResult, RetrieverResult
 
-__all__ = ["App", "ExplorerResult", "RetrieverResult", "GeneratorResult"]
+__all__ = ["Pipeline", "ExplorerResult", "RetrieverResult", "GeneratorResult"]

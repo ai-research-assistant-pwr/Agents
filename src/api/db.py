@@ -1,22 +1,23 @@
 """SQLAlchemy database layer.
 
 DATABASE_URL controls the backend:
-  - Not set / empty → defaults to  sqlite:///./hypothesis_forge.db  (dev)
-  - sqlite:///:memory: → in-process SQLite, useful for tests (use StaticPool)
-  - postgresql://user:pass@host/db → production PostgreSQL
+  - Not set / empty -> defaults to sqlite:///./hypothesis_forge.db (dev)
+  - sqlite:///:memory: -> in-process SQLite, useful for tests (use StaticPool)
+  - postgresql://user:pass@host/db -> production PostgreSQL
 
 The engine and table definitions live here.  Call init_db() once at startup
 to create any missing tables.
 """
 
-import os
 from uuid import uuid4
 from datetime import datetime, timezone
 
 from sqlalchemy import Column, JSON, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./hypothesis_forge.db")
+from api.config import get_settings
+
+DATABASE_URL: str = get_settings().database_url
 
 _kwargs: dict = {}
 _pool_kwargs: dict = {}

@@ -2,18 +2,20 @@ import json
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Mapping
 
-from app.config import PROJECT_ROOT, load_config
 from app.explorer.base import BaseExplorer, BaseSearchExplorer
 from app.generator.base import BaseGenerator
 from app.models import GeneratorResult
 from app.retriever.base import BaseRetriever
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-class App:
+
+class Pipeline:
     """Orchestrator for the scientific hypothesis generation pipeline.
 
-    Reads configuration from a YAML file and runs the full pipeline:
+    Runs the full pipeline from an injected configuration mapping:
     search -> explorer -> retriever -> (optional refinement loop) -> generator.
     """
 
@@ -23,9 +25,9 @@ class App:
         explorer: BaseExplorer,
         retriever: BaseRetriever,
         generator: BaseGenerator,
-        config_path: str = "config/app/config.yaml",
+        config: Mapping[str, Any],
     ) -> None:
-        self.config = load_config(config_path)
+        self.config = dict(config)
         self.search_explorer = search_explorer
         self.explorer = explorer
         self.retriever = retriever

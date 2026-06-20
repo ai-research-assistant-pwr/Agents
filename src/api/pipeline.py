@@ -22,10 +22,11 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from api.mocks import MOCK_KG, MOCK_TRACE, H_A, H_B, mock_chat_reply, run_mock
+from api.config import get_settings
+from api.mocks import mock_chat_reply, run_mock
 from api.models import (
+    ExplorationStats,
     HypothesisOut,
-    Message,
     ReasoningStep,
     SessionOut,
 )
@@ -83,12 +84,13 @@ def _build_system_prompt(session: SessionOut) -> str:
 
 
 def generate_chat_reply(session: SessionOut, user_message: str) -> str:
-    if os.getenv("PIPELINE_USE_MOCK", "true").lower() != "false":
+    settings = get_settings()
+    if settings.pipeline_use_mock:
         return mock_chat_reply(session, user_message)
-    return _real_chat_reply(session, user_message)
+    return _real_chat_reply(session, user_message, settings=settings)
 
 
-def _real_chat_reply(session: SessionOut, user_message: str) -> str:
+def _real_chat_reply(session: SessionOut, user_message: str, settings=None) -> str:
     """Context-aware chat using OpenAI-compatible tool calling.
 
     Works with any OpenAI-compatible endpoint:
@@ -96,15 +98,15 @@ def _real_chat_reply(session: SessionOut, user_message: str) -> str:
       - vLLM:    set OPENAI_BASE_URL=http://host:8000/v1  OPENAI_API_KEY=dummy
       - Ollama:  set OPENAI_BASE_URL=http://localhost:11434/v1
 
-    Model is read from CHAT_MODEL (default: gpt-4o-mini).
+    Model is read from API settings.
     """
     from openai import OpenAI  # noqa: PLC0415
 
+    settings = settings or get_settings()
     client = OpenAI(
-        api_key=os.getenv("OPENAI_API_KEY", "dummy"),
-        base_url=os.getenv("OPENAI_BASE_URL"),  # None → use OpenAI directly
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
     )
-    model = os.getenv("CHAT_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
 
     messages: list[dict] = [{"role": "system", "content": _build_system_prompt(session)}]
 
@@ -118,7 +120,7 @@ def _real_chat_reply(session: SessionOut, user_message: str) -> str:
     last_content = ""
     for _ in range(5):
         response = client.chat.completions.create(
-            model=model,
+            model=settings.chat_model,
             messages=messages,
             tools=CHAT_TOOLS,
             tool_choice="auto",
@@ -163,9 +165,10 @@ def _real_chat_reply(session: SessionOut, user_message: str) -> str:
 
 
 def run_pipeline(question: str) -> SessionOut:
-    if os.getenv("PIPELINE_USE_MOCK", "true").lower() != "false":
+    settings = get_settings()
+    if settings.pipeline_use_mock:
         return run_mock(question)
-    return _run_real(question)
+    return _run_real(question, settings=settings)
 
 
 # ---------------------------------------------------------------------------
@@ -173,20 +176,20 @@ def run_pipeline(question: str) -> SessionOut:
 # ---------------------------------------------------------------------------
 
 
-def _run_real(question: str) -> SessionOut:
+def _run_real(question: str, settings=None) -> SessionOut:
     """Run the full pipeline with real models and knowledge graph.
 
-    Requires: config/app/config.yaml, API keys, and DB connections.
+    Requires API settings, API keys, and DB connections.
     See INTEGRATION.md for full setup instructions.
     """
     _ensure_src_on_path()
 
-    from app.app import App  # noqa: PLC0415
-    from app.config import load_config  # noqa: PLC0415
+    from app.app import Pipeline  # noqa: PLC0415
     from app.retriever.api_llm_retriever import APILLMRetriever  # noqa: PLC0415
     from app.generator.api_llm_generator import APILLMGenerator  # noqa: PLC0415
 
-    config = load_config("config/app/config.yaml")
+    settings = settings or get_settings()
+    config = settings.pipeline_config()
     provider = config.get("api_client", {}).get("type", "openai")
     model = config.get("api_client", {}).get("model", "gpt-4o-mini")
     api_client = _build_api_client(provider, model)
@@ -194,16 +197,16 @@ def _run_real(question: str) -> SessionOut:
     explorer = _build_explorer(config)
     search_explorer = _build_search(config)
 
-    app = App(
+    pipeline = Pipeline(
         search_explorer=search_explorer,
         explorer=explorer,
         retriever=APILLMRetriever(api_client=api_client),
         generator=APILLMGenerator(api_client=api_client),
-        config_path="config/app/config.yaml",
+        config=config,
     )
 
     t0 = time.monotonic()
-    result = app.run(question)
+    result = pipeline.run(question)
     elapsed = round(time.monotonic() - t0, 3)
 
     trace = [

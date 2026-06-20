@@ -19,18 +19,18 @@ with tests and dev use.
 
 Configuration
 -------------
-PIPELINE_USE_MOCK   "true" (default) → mock, no external services.
+PIPELINE_USE_MOCK   "true" (default) -> mock, no external services.
 DATABASE_URL        SQLAlchemy URL; defaults to sqlite:///./hypothesis_forge.db.
 JWT_SECRET          Secret for signing tokens. Override in production.
 CORS_ORIGINS        Comma-separated allowed origins (defaults to "*").
 """
 
-import os
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from api import session_store
 from api.auth import (
     authenticate_user,
     create_token,
@@ -38,6 +38,7 @@ from api.auth import (
     get_user_by_id,
     register_user,
 )
+from api.config import get_settings
 from api.models import (
     ChatRequest,
     ChatResponse,
@@ -54,18 +55,13 @@ from api.models import (
     UserOut,
 )
 from api.pipeline import generate_chat_reply, run_pipeline
-from api import session_store
 
-app = FastAPI(title="Hypothesis Forge API", version="0.3.0")
+settings = get_settings()
 
-_cors_origins = (
-    os.getenv("CORS_ORIGINS", "").split(",")
-    if os.getenv("CORS_ORIGINS")
-    else ["*"]
-)
+app = FastAPI(title=settings.api_title, version=settings.api_version)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
+    allow_origins=settings.cors_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )
