@@ -13,7 +13,7 @@ from api import session_store
 from api.db import Base, engine
 
 RETRIEVER_MODEL_NAME = "gpt-5.4-mini"
-GENERATOR_MODEL_NAME = "gemini-3-flash-preview"
+GENERATOR_MODEL_NAME = "gemini-3.1-flash-lite"
 
 
 @pytest.fixture(autouse=True)
@@ -103,8 +103,8 @@ def test_list_models(client):
     resp = client.get("/api/models")
     assert resp.status_code == 200
     assert resp.json() == {
-        "retrieverModels": ["gpt-5.4-mini", "gemini-3-flash-preview"],
-        "generatorModels": ["gpt-5.4-mini", "gemini-3-flash-preview"],
+        "retrieverModels": ["gpt-5.4-mini", "gemini-3.1-flash-lite"],
+        "generatorModels": ["gpt-5.4-mini", "gemini-3.1-flash-lite"],
     }
 
 

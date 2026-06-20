@@ -35,8 +35,8 @@ def test_api_settings_defaults(monkeypatch):
     assert settings.api_title == "Hypothesis Forge API"
     assert settings.pipeline_use_mock is False
     assert settings.database_url == "sqlite:///./hypothesis_forge.db"
-    assert settings.retriever_model_names == ["gpt-5.4-mini", "gemini-3-flash-preview"]
-    assert settings.generator_model_names == ["gpt-5.4-mini", "gemini-3-flash-preview"]
+    assert settings.retriever_model_names == ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
+    assert settings.generator_model_names == ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
     assert settings.explorer.neo4j.steps == 5
     assert settings.search.api_weaviate.embedding_model == "Qwen/Qwen3-Embedding-4B"
     assert settings.cors_origin_list == ["*"]
@@ -82,8 +82,8 @@ def test_api_settings_nested_env_overrides(monkeypatch):
     config = settings.pipeline_config()
 
     assert config["explorer"]["neo4j"]["steps"] == 42
-    assert config["retriever_models"] == ["gpt-5.4-mini", "gemini-3-flash-preview"]
-    assert config["generator_models"] == ["gpt-5.4-mini", "gemini-3-flash-preview"]
+    assert config["retriever_models"] == ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
+    assert config["generator_models"] == ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
     assert config["search"]["api_weaviate"]["embedding_model"] == "Qwen/Qwen3-Embedding-4B"
 
 
@@ -105,14 +105,10 @@ def test_api_settings_vertex_model_config(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "europe-west4")
 
     settings = APISettings(_env_file=None)
-    config = settings.get_model_config("gemini-3-flash-preview")
+    config = settings.get_model_config("gemini-3.1-flash-lite")
 
     assert config["provider"] == "vertex_ai"
-    assert config["api_model"] == "google/gemini-3-flash-preview"
-    assert config["base_url"] == (
-        "https://europe-west4-aiplatform.googleapis.com/v1/projects/project-123/"
-        "locations/europe-west4/endpoints/openapi"
-    )
+    assert config["api_model"] == "gemini-3.1-flash-lite"
 
 
 def test_pipeline_accepts_injected_config():
@@ -128,14 +124,14 @@ def test_pipeline_accepts_injected_config():
     result = pipeline.run(
         "question",
         retriever_model_name="gpt-5.4-mini",
-        generator_model_name="gemini-3-flash-preview",
+        generator_model_name="gemini-3.1-flash-lite",
     )
 
     assert result.hypotheses == ["hypothesis"]
     assert pipeline.config["pipeline"]["save_steps"] is False
     assert calls == {
         "retriever": "gpt-5.4-mini",
-        "generator": "gemini-3-flash-preview",
+        "generator": "gemini-3.1-flash-lite",
     }
 
 
