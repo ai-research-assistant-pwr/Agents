@@ -24,6 +24,7 @@ class CallResult(Generic[T]):
 
     content: T  # str for plain text, or a parsed schema instance
     model: str  # model identifier that produced this response
+    reasoning: str = ""  # inner monologue from reasoning models (e.g. Qwen3 <think> blocks)
 
 
 class BaseAPIClient(ABC):
