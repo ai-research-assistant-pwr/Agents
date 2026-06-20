@@ -53,6 +53,7 @@ def _row_to_out(row: DBSession) -> SessionOut:
     return SessionOut(
         sessionId=row.id,
         question=row.question,
+        modelName=row.model_name or "",
         createdAt=row.created_at,
         exploration=exploration,
         hypotheses=hypotheses,
@@ -75,6 +76,7 @@ def save_session(session: SessionOut, user_id: str = "anonymous") -> None:
             id=session.sessionId,
             user_id=user_id,
             question=session.question,
+            model_name=session.modelName,
             created_at=session.createdAt,
             exploration=session.exploration.model_dump(),
             hypotheses=[h.model_dump() for h in session.hypotheses],

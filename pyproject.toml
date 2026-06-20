@@ -21,6 +21,7 @@ dependencies = [
     "torch",
     "pyyaml",
     "google-genai",
+    "google-auth",
     "openai",
     "cerebras-cloud-sdk",
     "neo4j",

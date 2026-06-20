@@ -2,11 +2,11 @@
 
 Configuration is defined by code defaults and can be overridden with `.env` or
 environment variables. Nested pipeline settings use `__` as a delimiter, e.g.
-`EXPLORER__TYPE=neo4j_pagerank`.
+`EXPLORER__NEO4J__STEPS=8`.
 """
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,9 +18,10 @@ class PipelineConfig(BaseModel):
     save_dir: str = "outputs"
 
 
-class APIClientConfig(BaseModel):
-    type: str = "google"
-    model: str = "gemini-3-flash-preview"
+class SupportedModelConfig(BaseModel):
+    provider: Literal["openai", "vertex_ai"]
+    api_model: str
+    base_url: str | None = None
 
 
 class SearchWeaviateConfig(BaseModel):
@@ -33,44 +34,13 @@ class SearchConfig(BaseModel):
     weaviate: SearchWeaviateConfig = Field(default_factory=SearchWeaviateConfig)
 
 
-class Neo4jConfig(BaseModel):
-    max_level: int = 1
-    direction: str = "both"
+class Neo4jRandomWalkConfig(BaseModel):
     steps: int = 5
-    top_n: int = 15
-    max_iterations: int = 20
-    damping_factor: float = 0.85
-
-
-class AgenticConfig(BaseModel):
-    iterations: int = 5
-    tools: list[str] = Field(default_factory=lambda: ["bfs_from_papers", "random_walk", "ppr"])
-    tool_selection_prompt: str = "tool_selection_prompt.yaml"
-    node_filtering_prompt: str = "node_filtering_prompt.yaml"
-    model_name: str = "Qwen/Qwen3-4B"
-    temperature: float = 0.7
-    max_results_per_tool: int = 10
-    include_abstracts: bool = True
-    include_summary: bool = False
-    selected_nodes_count_low: int = 2
-    selected_nodes_count_high: int = 3
-
-
-class ExplorerWeaviateConfig(BaseModel):
-    url: str = "http://localhost:8080"
-    collection: str = "ResearchPapers"
-    top_k: int = 10
-    embedding_model: str = "Qwen/Qwen3-Embedding-4B"
-    max_tokens: int = 8192
-    grpc_port: int = 50051
+    direction: str = "both"
 
 
 class ExplorerConfig(BaseModel):
-    type: str = "neo4j_pagerank"
-    neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
-    agentic: AgenticConfig = Field(default_factory=AgenticConfig)
-    weaviate: ExplorerWeaviateConfig = Field(default_factory=ExplorerWeaviateConfig)
-    const_text: str = "No knowledge graph connected. Using placeholder context."
+    neo4j: Neo4jRandomWalkConfig = Field(default_factory=Neo4jRandomWalkConfig)
 
 
 class RetrieverConfig(BaseModel):
@@ -104,9 +74,22 @@ class APISettings(BaseSettings):
     )
     openai_api_key: str = "dummy"
     openai_base_url: str | None = None
+    google_cloud_project: str | None = None
+    google_cloud_location: str = "us-central1"
 
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
-    api_client: APIClientConfig = Field(default_factory=APIClientConfig)
+    supported_models: dict[str, SupportedModelConfig] = Field(
+        default_factory=lambda: {
+            "gpt-5.4-mini": SupportedModelConfig(
+                provider="openai",
+                api_model="gpt-5.4-mini",
+            ),
+            "gemini-3-flash-preview": SupportedModelConfig(
+                provider="vertex_ai",
+                api_model="google/gemini-3-flash-preview",
+            ),
+        }
+    )
     search: SearchConfig = Field(default_factory=SearchConfig)
     explorer: ExplorerConfig = Field(default_factory=ExplorerConfig)
     retriever: RetrieverConfig = Field(default_factory=RetrieverConfig)
@@ -121,12 +104,34 @@ class APISettings(BaseSettings):
     def pipeline_config(self) -> dict[str, Any]:
         return {
             "pipeline": self.pipeline.model_dump(),
-            "api_client": self.api_client.model_dump(),
+            "supported_models": {
+                name: config.model_dump()
+                for name, config in self.supported_models.items()
+            },
             "search": self.search.model_dump(),
             "explorer": self.explorer.model_dump(),
             "retriever": self.retriever.model_dump(),
             "generator": self.generator.model_dump(),
         }
+
+    @property
+    def model_names(self) -> list[str]:
+        return list(self.supported_models)
+
+    def get_model_config(self, model_name: str) -> dict[str, Any]:
+        config = self.supported_models[model_name].model_dump()
+        if config["provider"] == "openai":
+            config["api_key"] = self.openai_api_key
+            config["base_url"] = config["base_url"] or self.openai_base_url
+        elif config["provider"] == "vertex_ai":
+            if not self.google_cloud_project:
+                raise ValueError("GOOGLE_CLOUD_PROJECT must be set for Vertex AI models.")
+            config["base_url"] = config["base_url"] or (
+                f"https://{self.google_cloud_location}-aiplatform.googleapis.com/v1/"
+                f"projects/{self.google_cloud_project}/locations/{self.google_cloud_location}/"
+                "endpoints/openapi"
+            )
+        return config
 
 
 @lru_cache

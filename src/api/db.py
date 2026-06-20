@@ -12,7 +12,7 @@ to create any missing tables.
 from uuid import uuid4
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, JSON, String, Text, create_engine
+from sqlalchemy import Column, JSON, String, Text, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from api.config import get_settings
@@ -57,6 +57,7 @@ class DBSession(Base):
     id = Column(String(36), primary_key=True)
     user_id = Column(String(255), nullable=False, default="anonymous")
     question = Column(Text, nullable=False)
+    model_name = Column(String(255), nullable=True)
     created_at = Column(String(50), nullable=False)
     exploration = Column(JSON, nullable=False)
     hypotheses = Column(JSON, nullable=False)
@@ -69,3 +70,12 @@ class DBSession(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _ensure_model_name_column()
+
+
+def _ensure_model_name_column() -> None:
+    columns = {column["name"] for column in inspect(engine).get_columns("sessions")}
+    if "model_name" in columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE sessions ADD COLUMN model_name VARCHAR(255)"))

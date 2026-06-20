@@ -12,6 +12,8 @@ from api.main import app
 from api import session_store
 from api.db import Base, engine
 
+MODEL_NAME = "gpt-5.4-mini"
+
 
 @pytest.fixture(autouse=True)
 def clear_sessions():
@@ -34,11 +36,15 @@ def client():
 
 
 def test_create_session_returns_valid_structure(client):
-    resp = client.post("/api/sessions", json={"question": "What drives ICL emergence?"})
+    resp = client.post(
+        "/api/sessions",
+        json={"question": "What drives ICL emergence?", "modelName": MODEL_NAME},
+    )
     assert resp.status_code == 200
     body = resp.json()
 
     assert body["question"] == "What drives ICL emergence?"
+    assert body["modelName"] == MODEL_NAME
     assert body["sessionId"]
     assert body["createdAt"]
 
@@ -65,8 +71,22 @@ def test_create_session_missing_question_returns_422(client):
 
 
 def test_create_session_is_persisted(client):
-    client.post("/api/sessions", json={"question": "MoE routing"})
+    client.post("/api/sessions", json={"question": "MoE routing", "modelName": MODEL_NAME})
     assert len(session_store.list_all()) == 1
+
+
+def test_create_session_unknown_model_returns_400(client):
+    resp = client.post(
+        "/api/sessions",
+        json={"question": "MoE routing", "modelName": "unknown-model"},
+    )
+    assert resp.status_code == 400
+
+
+def test_list_models(client):
+    resp = client.get("/api/models")
+    assert resp.status_code == 200
+    assert resp.json() == {"models": ["gpt-5.4-mini", "gemini-3-flash-preview"]}
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +101,10 @@ def test_list_sessions_empty(client):
 
 
 def test_list_sessions_shows_awaiting_status(client):
-    client.post("/api/sessions", json={"question": "Attention mechanism?"})
+    client.post(
+        "/api/sessions",
+        json={"question": "Attention mechanism?", "modelName": MODEL_NAME},
+    )
     sessions = client.get("/api/sessions").json()["sessions"]
     assert len(sessions) == 1
     assert sessions[0]["status"] == "awaiting"
@@ -100,6 +123,7 @@ def test_get_session_returns_full_data(client):
     body = resp.json()
     assert body["sessionId"] == sid
     assert body["question"] == "Full data test"
+    assert body["modelName"] == MODEL_NAME
     assert body["reasoningTrace"]
     assert body["knowledgeGraph"]
 
@@ -214,10 +238,14 @@ def test_multi_turn_conversation(client):
 def test_full_flow(client):
     question = "Why do large models exhibit emergent abilities?"
 
-    create_resp = client.post("/api/sessions", json={"question": question})
+    create_resp = client.post(
+        "/api/sessions",
+        json={"question": question, "modelName": MODEL_NAME},
+    )
     assert create_resp.status_code == 200
     session = create_resp.json()
     sid = session["sessionId"]
+    assert session["modelName"] == MODEL_NAME
 
     # Two hypotheses, each complete
     for h in session["hypotheses"]:
@@ -324,7 +352,7 @@ def test_sessions_are_scoped_to_user(client):
     # u1 creates a session
     client.post(
         "/api/sessions",
-        json={"question": "User 1 question"},
+        json={"question": "User 1 question", "modelName": MODEL_NAME},
         headers={"Authorization": f"Bearer {t1}"},
     )
 
@@ -341,6 +369,6 @@ def test_sessions_are_scoped_to_user(client):
 
 
 def _make_session(client: TestClient, question: str) -> str:
-    resp = client.post("/api/sessions", json={"question": question})
+    resp = client.post("/api/sessions", json={"question": question, "modelName": MODEL_NAME})
     assert resp.status_code == 200
     return resp.json()["sessionId"]

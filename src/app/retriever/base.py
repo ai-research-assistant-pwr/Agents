@@ -11,7 +11,13 @@ class BaseRetriever(ABC):
     """
 
     @abstractmethod
-    def retrieve(self, prompt: str, explorer_output: ExplorerResult) -> RetrieverResult:
+    def retrieve(
+        self,
+        prompt: str,
+        explorer_output: ExplorerResult,
+        model_name: str,
+        **kwargs,
+    ) -> RetrieverResult:
         """Filter and rank the explorer output for the most relevant information.
 
         Args:
@@ -29,6 +35,8 @@ class BaseRetriever(ABC):
         prompt: str,
         current_context: RetrieverResult,
         generator_feedback: str,
+        model_name: str,
+        **kwargs,
     ) -> RetrieverResult:
         """Refine retrieved context based on feedback from the generator.
 

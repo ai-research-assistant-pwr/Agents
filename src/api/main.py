@@ -6,6 +6,7 @@ POST  /api/auth/register                    Register a new user.
 POST  /api/auth/login                       Log in, receive a JWT.
 GET   /api/auth/me                          Get current user (requires JWT).
 POST  /api/sessions                         Run pipeline, return two hypotheses.
+GET   /api/models                           List supported pipeline models.
 GET   /api/sessions                         List sessions for the current user.
 GET   /api/sessions/{id}                    Fetch a full session.
 POST  /api/sessions/{id}/select             Save hypothesis choice + rationale.
@@ -45,6 +46,7 @@ from api.models import (
     CreateSessionRequest,
     LoginRequest,
     Message,
+    ModelListOut,
     RegisterRequest,
     SelectRequest,
     SelectResponse,
@@ -106,9 +108,16 @@ def create_session(
     body: CreateSessionRequest,
     user_id: str = Depends(get_current_user),
 ) -> SessionOut:
-    session = run_pipeline(body.question)
+    if body.modelName not in settings.supported_models:
+        raise HTTPException(status_code=400, detail=f"Unsupported model: {body.modelName!r}")
+    session = run_pipeline(body.question, body.modelName)
     session_store.save_session(session, user_id=user_id)
     return session
+
+
+@app.get("/api/models", response_model=ModelListOut)
+def list_models() -> ModelListOut:
+    return ModelListOut(models=settings.model_names)
 
 
 # ---------------------------------------------------------------------------

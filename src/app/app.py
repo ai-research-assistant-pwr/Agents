@@ -33,7 +33,13 @@ class Pipeline:
         self.retriever = retriever
         self.generator = generator
 
-    def run(self, prompt: str) -> GeneratorResult:
+    def run(
+        self,
+        prompt: str,
+        model_name: str,
+        retriever_kwargs: dict[str, Any] | None = None,
+        generator_kwargs: dict[str, Any] | None = None,
+    ) -> GeneratorResult:
         """Run the full hypothesis generation pipeline.
 
         Args:
@@ -43,6 +49,8 @@ class Pipeline:
             A GeneratorResult containing the generated hypotheses and metadata.
         """
         pipeline_cfg = self.config.get("pipeline", {})
+        retriever_kwargs = retriever_kwargs or {}
+        generator_kwargs = generator_kwargs or {}
         save_steps = pipeline_cfg.get("save_steps", False)
         save_dir = self._prepare_save_dir() if save_steps else None
 
@@ -57,7 +65,12 @@ class Pipeline:
             self._save_step(save_dir, "02_explorer", asdict(explorer_output))
 
         # Step 3: Retriever (initial pass)
-        retriever_output = self.retriever.retrieve(prompt, explorer_output)
+        retriever_output = self.retriever.retrieve(
+            prompt,
+            explorer_output,
+            model_name=model_name,
+            **retriever_kwargs,
+        )
         if save_dir:
             self._save_step(save_dir, "03_retriever", asdict(retriever_output))
 
@@ -65,7 +78,12 @@ class Pipeline:
         refinement_turns = pipeline_cfg.get("refinement_turns", 0)
 
         for i in range(refinement_turns):
-            feedback = self.generator.provide_feedback(prompt, retriever_output)
+            feedback = self.generator.provide_feedback(
+                prompt,
+                retriever_output,
+                model_name=model_name,
+                **generator_kwargs,
+            )
             if save_dir:
                 self._save_step(
                     save_dir,
@@ -73,7 +91,13 @@ class Pipeline:
                     {"feedback": feedback},
                 )
 
-            retriever_output = self.retriever.refine(prompt, retriever_output, feedback)
+            retriever_output = self.retriever.refine(
+                prompt,
+                retriever_output,
+                feedback,
+                model_name=model_name,
+                **retriever_kwargs,
+            )
             if save_dir:
                 self._save_step(
                     save_dir,
@@ -82,7 +106,12 @@ class Pipeline:
                 )
 
         # Step 5: Generator
-        result = self.generator.generate(prompt, retriever_output)
+        result = self.generator.generate(
+            prompt,
+            retriever_output,
+            model_name=model_name,
+            **generator_kwargs,
+        )
         if save_dir:
             self._save_step(save_dir, "05_generator", asdict(result))
 

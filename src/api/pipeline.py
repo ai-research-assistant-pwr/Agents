@@ -164,11 +164,11 @@ def _real_chat_reply(session: SessionOut, user_message: str, settings=None) -> s
 # ---------------------------------------------------------------------------
 
 
-def run_pipeline(question: str) -> SessionOut:
+def run_pipeline(question: str, model_name: str) -> SessionOut:
     settings = get_settings()
     if settings.pipeline_use_mock:
-        return run_mock(question)
-    return _run_real(question, settings=settings)
+        return run_mock(question, model_name)
+    return _run_real(question, model_name, settings=settings)
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ def run_pipeline(question: str) -> SessionOut:
 # ---------------------------------------------------------------------------
 
 
-def _run_real(question: str, settings=None) -> SessionOut:
+def _run_real(question: str, model_name: str, settings=None) -> SessionOut:
     """Run the full pipeline with real models and knowledge graph.
 
     Requires API settings, API keys, and DB connections.
@@ -185,28 +185,32 @@ def _run_real(question: str, settings=None) -> SessionOut:
     _ensure_src_on_path()
 
     from app.app import Pipeline  # noqa: PLC0415
-    from app.retriever.api_llm_retriever import APILLMRetriever  # noqa: PLC0415
-    from app.generator.api_llm_generator import APILLMGenerator  # noqa: PLC0415
+    from app.explorer.neo4j_random_walk_explorer import Neo4jRandomWalkExplorer  # noqa: PLC0415
+    from app.generator.openai_chat_generator import OpenAIChatGenerator  # noqa: PLC0415
+    from app.retriever.openai_chat_retriever import OpenAIChatRetriever  # noqa: PLC0415
 
     settings = settings or get_settings()
     config = settings.pipeline_config()
-    provider = config.get("api_client", {}).get("type", "openai")
-    model = config.get("api_client", {}).get("model", "gpt-4o-mini")
-    api_client = _build_api_client(provider, model)
+    model_configs = {model_name: settings.get_model_config(model_name)}
 
-    explorer = _build_explorer(config)
+    explorer = Neo4jRandomWalkExplorer(config)
     search_explorer = _build_search(config)
 
     pipeline = Pipeline(
         search_explorer=search_explorer,
         explorer=explorer,
-        retriever=APILLMRetriever(api_client=api_client),
-        generator=APILLMGenerator(api_client=api_client),
+        retriever=OpenAIChatRetriever(model_configs=model_configs),
+        generator=OpenAIChatGenerator(model_configs=model_configs),
         config=config,
     )
 
     t0 = time.monotonic()
-    result = pipeline.run(question)
+    result = pipeline.run(
+        question,
+        model_name=model_name,
+        retriever_kwargs=_completion_kwargs(config.get("retriever", {}), exclude={"type", "top_k"}),
+        generator_kwargs=_completion_kwargs(config.get("generator", {}), exclude={"type"}),
+    )
     elapsed = round(time.monotonic() - t0, 3)
 
     trace = [
@@ -221,43 +225,12 @@ def _run_real(question: str, settings=None) -> SessionOut:
     return SessionOut(
         sessionId=str(uuid4()),
         question=question,
+        modelName=model_name,
         createdAt=datetime.now(timezone.utc).isoformat(),
         exploration=ExplorationStats(durationSec=elapsed),
         hypotheses=_wrap_hypotheses(result.hypotheses),
         reasoningTrace=trace,
     )
-
-
-def _build_api_client(provider: str, model: str):
-    if provider in ("openai", "openai_compatible"):
-        from app.api_client.openai_compatible_client import OpenAICompatibleClient  # noqa: PLC0415
-        return OpenAICompatibleClient(model=model)
-    if provider == "google":
-        from app.api_client.google_client import GoogleAPIClient  # noqa: PLC0415
-        return GoogleAPIClient(model=model)
-    if provider == "cerebras":
-        from app.api_client.cerebras_client import CerebrasAPIClient  # noqa: PLC0415
-        return CerebrasAPIClient(model=model)
-    raise ValueError(f"Unknown provider: {provider!r}")
-
-
-def _build_explorer(config: dict):
-    from app.explorer.const_explorer import ConstExplorer  # noqa: PLC0415
-
-    t = config.get("explorer", {}).get("type", "const")
-    if t == "neo4j_bfs":
-        from app.explorer.neo4j_bfs_explorer import Neo4jBFSExplorer  # noqa: PLC0415
-        return Neo4jBFSExplorer(config)
-    if t == "neo4j_pagerank":
-        from app.explorer.neo4j_pagerank_explorer import Neo4jPageRankExplorer  # noqa: PLC0415
-        return Neo4jPageRankExplorer(config)
-    if t == "neo4j_random_walk":
-        from app.explorer.neo4j_random_walk_explorer import Neo4jRandomWalkExplorer  # noqa: PLC0415
-        return Neo4jRandomWalkExplorer(config)
-    if t == "agentic":
-        from app.explorer.agentic_explorer import AgenticExplorer  # noqa: PLC0415
-        return AgenticExplorer(config)
-    return ConstExplorer()
 
 
 def _build_search(config: dict):
@@ -266,6 +239,10 @@ def _build_search(config: dict):
         from app.explorer.weaviate_search_explorer import WeaviateSearchExplorer  # noqa: PLC0415
         return WeaviateSearchExplorer(config)
     return _NullSearch()
+
+
+def _completion_kwargs(config: dict, exclude: set[str]) -> dict:
+    return {key: value for key, value in config.items() if key not in exclude}
 
 
 class _NullSearch:

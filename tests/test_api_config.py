@@ -16,10 +16,9 @@ ENV_VARS = [
     "OPENAI_BASE_URL",
     "CHAT_MODEL",
     "OPENAI_MODEL",
-    "API_CLIENT__TYPE",
-    "API_CLIENT__MODEL",
-    "EXPLORER__TYPE",
-    "EXPLORER__NEO4J__TOP_N",
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_LOCATION",
+    "EXPLORER__NEO4J__STEPS",
 ]
 
 
@@ -36,8 +35,8 @@ def test_api_settings_defaults(monkeypatch):
     assert settings.api_title == "Hypothesis Forge API"
     assert settings.pipeline_use_mock is True
     assert settings.database_url == "sqlite:///./hypothesis_forge.db"
-    assert settings.api_client.type == "google"
-    assert settings.explorer.neo4j.top_n == 15
+    assert settings.model_names == ["gpt-5.4-mini", "gemini-3-flash-preview"]
+    assert settings.explorer.neo4j.steps == 5
     assert settings.cors_origin_list == ["*"]
 
 
@@ -75,18 +74,40 @@ def test_api_settings_openai_model_fallback(monkeypatch):
 
 def test_api_settings_nested_env_overrides(monkeypatch):
     _clear_env(monkeypatch)
-    monkeypatch.setenv("API_CLIENT__TYPE", "openai_compatible")
-    monkeypatch.setenv("API_CLIENT__MODEL", "gpt-4o-mini")
-    monkeypatch.setenv("EXPLORER__TYPE", "neo4j_pagerank")
-    monkeypatch.setenv("EXPLORER__NEO4J__TOP_N", "42")
+    monkeypatch.setenv("EXPLORER__NEO4J__STEPS", "42")
 
     settings = APISettings(_env_file=None)
     config = settings.pipeline_config()
 
-    assert config["api_client"]["type"] == "openai_compatible"
-    assert config["api_client"]["model"] == "gpt-4o-mini"
-    assert config["explorer"]["type"] == "neo4j_pagerank"
-    assert config["explorer"]["neo4j"]["top_n"] == 42
+    assert config["explorer"]["neo4j"]["steps"] == 42
+
+
+def test_api_settings_supported_model_config(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+
+    settings = APISettings(_env_file=None)
+    config = settings.get_model_config("gpt-5.4-mini")
+
+    assert config["provider"] == "openai"
+    assert config["api_model"] == "gpt-5.4-mini"
+    assert config["api_key"] == "openai-key"
+
+
+def test_api_settings_vertex_model_config(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "project-123")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "europe-west4")
+
+    settings = APISettings(_env_file=None)
+    config = settings.get_model_config("gemini-3-flash-preview")
+
+    assert config["provider"] == "vertex_ai"
+    assert config["api_model"] == "google/gemini-3-flash-preview"
+    assert config["base_url"] == (
+        "https://europe-west4-aiplatform.googleapis.com/v1/projects/project-123/"
+        "locations/europe-west4/endpoints/openapi"
+    )
 
 
 def test_pipeline_accepts_injected_config():
@@ -98,7 +119,7 @@ def test_pipeline_accepts_injected_config():
         config={"pipeline": {"save_steps": False, "refinement_turns": 0}},
     )
 
-    result = pipeline.run("question")
+    result = pipeline.run("question", model_name="gpt-5.4-mini")
 
     assert result.hypotheses == ["hypothesis"]
     assert pipeline.config["pipeline"]["save_steps"] is False
@@ -120,7 +141,13 @@ class _Explorer:
 
 
 class _Retriever:
-    def retrieve(self, prompt: str, explorer_output: ExplorerResult) -> RetrieverResult:
+    def retrieve(
+        self,
+        prompt: str,
+        explorer_output: ExplorerResult,
+        model_name: str,
+        **kwargs,
+    ) -> RetrieverResult:
         return RetrieverResult(content="retrieved")
 
     def refine(
@@ -128,13 +155,27 @@ class _Retriever:
         prompt: str,
         current_context: RetrieverResult,
         generator_feedback: str,
+        model_name: str,
+        **kwargs,
     ) -> RetrieverResult:
         return current_context
 
 
 class _Generator:
-    def generate(self, prompt: str, retriever_output: RetrieverResult) -> GeneratorResult:
+    def generate(
+        self,
+        prompt: str,
+        retriever_output: RetrieverResult,
+        model_name: str,
+        **kwargs,
+    ) -> GeneratorResult:
         return GeneratorResult(hypotheses=["hypothesis"], metadata={"model": "test"})
 
-    def provide_feedback(self, prompt: str, retriever_output: RetrieverResult) -> str:
+    def provide_feedback(
+        self,
+        prompt: str,
+        retriever_output: RetrieverResult,
+        model_name: str,
+        **kwargs,
+    ) -> str:
         return "feedback"
