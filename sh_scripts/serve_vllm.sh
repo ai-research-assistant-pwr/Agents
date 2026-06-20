@@ -45,7 +45,7 @@ else
       --gpu-memory-utilization 0.85 \
       --max-model-len 8192 \
       --max-num-seqs 4 \
-      --enable-chunked-prefill \
+      --enforce-eager \
       --reasoning-parser qwen3 \
       --port "$PORT" \
       --host 0.0.0.0
