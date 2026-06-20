@@ -39,7 +39,8 @@ if $USE_DOCKER; then
 else
   HOST_MODEL="$PROJECT_ROOT/$WEIGHTS"
   echo "Starting vLLM directly (model=$HOST_MODEL)"
-  vllm serve "$HOST_MODEL" \
+  PYTHONUNBUFFERED=1 vllm serve "$HOST_MODEL" \
+      --served-model-name Qwen/Qwen3-4B \
       --dtype bfloat16 \
       --gpu-memory-utilization 0.85 \
       --max-model-len 8192 \

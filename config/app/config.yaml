@@ -8,7 +8,7 @@ api_client:
   # Set type to "google" / "openai_compatible" for cloud providers.
   type: "vllm"
   model: "/models"          # path vLLM was started with (matches --model arg)
-  base_url: "http://localhost:8017/v1"
+  base_url: ""
   # --- cloud fallback (used when type != "vllm") ---
   # type: "google"
   # model: "gemini-3-flash-preview"

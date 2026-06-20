@@ -35,6 +35,7 @@ services:
     ipc: host
     command: >
       --model ${VLLM_MODEL:-/models}
+      --served-model-name Qwen/Qwen3-4B
       --dtype bfloat16
       --gpu-memory-utilization 0.85
       --max-model-len 8192
