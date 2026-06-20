@@ -36,7 +36,8 @@ class Pipeline:
     def run(
         self,
         prompt: str,
-        model_name: str,
+        retriever_model_name: str,
+        generator_model_name: str,
         retriever_kwargs: dict[str, Any] | None = None,
         generator_kwargs: dict[str, Any] | None = None,
     ) -> GeneratorResult:
@@ -68,7 +69,7 @@ class Pipeline:
         retriever_output = self.retriever.retrieve(
             prompt,
             explorer_output,
-            model_name=model_name,
+            model_name=retriever_model_name,
             **retriever_kwargs,
         )
         if save_dir:
@@ -81,7 +82,7 @@ class Pipeline:
             feedback = self.generator.provide_feedback(
                 prompt,
                 retriever_output,
-                model_name=model_name,
+                model_name=generator_model_name,
                 **generator_kwargs,
             )
             if save_dir:
@@ -95,7 +96,7 @@ class Pipeline:
                 prompt,
                 retriever_output,
                 feedback,
-                model_name=model_name,
+                model_name=retriever_model_name,
                 **retriever_kwargs,
             )
             if save_dir:
@@ -109,7 +110,7 @@ class Pipeline:
         result = self.generator.generate(
             prompt,
             retriever_output,
-            model_name=model_name,
+            model_name=generator_model_name,
             **generator_kwargs,
         )
         if save_dir:

@@ -108,16 +108,31 @@ def create_session(
     body: CreateSessionRequest,
     user_id: str = Depends(get_current_user),
 ) -> SessionOut:
-    if body.modelName not in settings.supported_models:
-        raise HTTPException(status_code=400, detail=f"Unsupported model: {body.modelName!r}")
-    session = run_pipeline(body.question, body.modelName)
+    if body.retrieverModelName not in settings.retriever_models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported retriever model: {body.retrieverModelName!r}",
+        )
+    if body.generatorModelName not in settings.generator_models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported generator model: {body.generatorModelName!r}",
+        )
+    session = run_pipeline(
+        body.question,
+        retriever_model_name=body.retrieverModelName,
+        generator_model_name=body.generatorModelName,
+    )
     session_store.save_session(session, user_id=user_id)
     return session
 
 
 @app.get("/api/models", response_model=ModelListOut)
 def list_models() -> ModelListOut:
-    return ModelListOut(models=settings.model_names)
+    return ModelListOut(
+        retrieverModels=settings.retriever_model_names,
+        generatorModels=settings.generator_model_names,
+    )
 
 
 # ---------------------------------------------------------------------------

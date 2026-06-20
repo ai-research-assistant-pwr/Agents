@@ -209,7 +209,7 @@ def mock_chat_reply(session: SessionOut, user_message: str) -> str:
     )
 
 
-def run_mock(question: str, model_name: str) -> SessionOut:
+def run_mock(question: str, retriever_model_name: str, generator_model_name: str) -> SessionOut:
     t0 = time.monotonic()
     session_id = str(uuid4())
     elapsed = round(time.monotonic() - t0 + 0.1, 3)
@@ -217,7 +217,8 @@ def run_mock(question: str, model_name: str) -> SessionOut:
     return SessionOut(
         sessionId=session_id,
         question=question,
-        modelName=model_name,
+        retrieverModelName=retriever_model_name,
+        generatorModelName=generator_model_name,
         createdAt=datetime.now(timezone.utc).isoformat(),
         exploration=ExplorationStats(
             nodesTraversed=127,

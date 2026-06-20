@@ -12,7 +12,8 @@ from api.main import app
 from api import session_store
 from api.db import Base, engine
 
-MODEL_NAME = "gpt-5.4-mini"
+RETRIEVER_MODEL_NAME = "gpt-5.4-mini"
+GENERATOR_MODEL_NAME = "gemini-3-flash-preview"
 
 
 @pytest.fixture(autouse=True)
@@ -38,13 +39,14 @@ def client():
 def test_create_session_returns_valid_structure(client):
     resp = client.post(
         "/api/sessions",
-        json={"question": "What drives ICL emergence?", "modelName": MODEL_NAME},
+        json=_create_session_payload("What drives ICL emergence?"),
     )
     assert resp.status_code == 200
     body = resp.json()
 
     assert body["question"] == "What drives ICL emergence?"
-    assert body["modelName"] == MODEL_NAME
+    assert body["retrieverModelName"] == RETRIEVER_MODEL_NAME
+    assert body["generatorModelName"] == GENERATOR_MODEL_NAME
     assert body["sessionId"]
     assert body["createdAt"]
 
@@ -71,14 +73,28 @@ def test_create_session_missing_question_returns_422(client):
 
 
 def test_create_session_is_persisted(client):
-    client.post("/api/sessions", json={"question": "MoE routing", "modelName": MODEL_NAME})
+    client.post("/api/sessions", json=_create_session_payload("MoE routing"))
     assert len(session_store.list_all()) == 1
 
 
-def test_create_session_unknown_model_returns_400(client):
+def test_create_session_unknown_retriever_model_returns_400(client):
     resp = client.post(
         "/api/sessions",
-        json={"question": "MoE routing", "modelName": "unknown-model"},
+        json={
+            **_create_session_payload("MoE routing"),
+            "retrieverModelName": "unknown-model",
+        },
+    )
+    assert resp.status_code == 400
+
+
+def test_create_session_unknown_generator_model_returns_400(client):
+    resp = client.post(
+        "/api/sessions",
+        json={
+            **_create_session_payload("MoE routing"),
+            "generatorModelName": "unknown-model",
+        },
     )
     assert resp.status_code == 400
 
@@ -86,7 +102,10 @@ def test_create_session_unknown_model_returns_400(client):
 def test_list_models(client):
     resp = client.get("/api/models")
     assert resp.status_code == 200
-    assert resp.json() == {"models": ["gpt-5.4-mini", "gemini-3-flash-preview"]}
+    assert resp.json() == {
+        "retrieverModels": ["gpt-5.4-mini", "gemini-3-flash-preview"],
+        "generatorModels": ["gpt-5.4-mini", "gemini-3-flash-preview"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +122,7 @@ def test_list_sessions_empty(client):
 def test_list_sessions_shows_awaiting_status(client):
     client.post(
         "/api/sessions",
-        json={"question": "Attention mechanism?", "modelName": MODEL_NAME},
+        json=_create_session_payload("Attention mechanism?"),
     )
     sessions = client.get("/api/sessions").json()["sessions"]
     assert len(sessions) == 1
@@ -123,7 +142,8 @@ def test_get_session_returns_full_data(client):
     body = resp.json()
     assert body["sessionId"] == sid
     assert body["question"] == "Full data test"
-    assert body["modelName"] == MODEL_NAME
+    assert body["retrieverModelName"] == RETRIEVER_MODEL_NAME
+    assert body["generatorModelName"] == GENERATOR_MODEL_NAME
     assert body["reasoningTrace"]
     assert body["knowledgeGraph"]
 
@@ -240,12 +260,13 @@ def test_full_flow(client):
 
     create_resp = client.post(
         "/api/sessions",
-        json={"question": question, "modelName": MODEL_NAME},
+        json=_create_session_payload(question),
     )
     assert create_resp.status_code == 200
     session = create_resp.json()
     sid = session["sessionId"]
-    assert session["modelName"] == MODEL_NAME
+    assert session["retrieverModelName"] == RETRIEVER_MODEL_NAME
+    assert session["generatorModelName"] == GENERATOR_MODEL_NAME
 
     # Two hypotheses, each complete
     for h in session["hypotheses"]:
@@ -352,7 +373,7 @@ def test_sessions_are_scoped_to_user(client):
     # u1 creates a session
     client.post(
         "/api/sessions",
-        json={"question": "User 1 question", "modelName": MODEL_NAME},
+        json=_create_session_payload("User 1 question"),
         headers={"Authorization": f"Bearer {t1}"},
     )
 
@@ -369,6 +390,14 @@ def test_sessions_are_scoped_to_user(client):
 
 
 def _make_session(client: TestClient, question: str) -> str:
-    resp = client.post("/api/sessions", json={"question": question, "modelName": MODEL_NAME})
+    resp = client.post("/api/sessions", json=_create_session_payload(question))
     assert resp.status_code == 200
     return resp.json()["sessionId"]
+
+
+def _create_session_payload(question: str) -> dict[str, str]:
+    return {
+        "question": question,
+        "retrieverModelName": RETRIEVER_MODEL_NAME,
+        "generatorModelName": GENERATOR_MODEL_NAME,
+    }

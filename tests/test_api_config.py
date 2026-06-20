@@ -35,7 +35,8 @@ def test_api_settings_defaults(monkeypatch):
     assert settings.api_title == "Hypothesis Forge API"
     assert settings.pipeline_use_mock is True
     assert settings.database_url == "sqlite:///./hypothesis_forge.db"
-    assert settings.model_names == ["gpt-5.4-mini", "gemini-3-flash-preview"]
+    assert settings.retriever_model_names == ["gpt-5.4-mini", "gemini-3-flash-preview"]
+    assert settings.generator_model_names == ["gpt-5.4-mini", "gemini-3-flash-preview"]
     assert settings.explorer.neo4j.steps == 5
     assert settings.cors_origin_list == ["*"]
 
@@ -80,6 +81,8 @@ def test_api_settings_nested_env_overrides(monkeypatch):
     config = settings.pipeline_config()
 
     assert config["explorer"]["neo4j"]["steps"] == 42
+    assert config["retriever_models"] == ["gpt-5.4-mini", "gemini-3-flash-preview"]
+    assert config["generator_models"] == ["gpt-5.4-mini", "gemini-3-flash-preview"]
 
 
 def test_api_settings_supported_model_config(monkeypatch):
@@ -111,18 +114,27 @@ def test_api_settings_vertex_model_config(monkeypatch):
 
 
 def test_pipeline_accepts_injected_config():
+    calls = {"retriever": None, "generator": None}
     pipeline = Pipeline(
         search_explorer=_Search(),
         explorer=_Explorer(),
-        retriever=_Retriever(),
-        generator=_Generator(),
+        retriever=_Retriever(calls),
+        generator=_Generator(calls),
         config={"pipeline": {"save_steps": False, "refinement_turns": 0}},
     )
 
-    result = pipeline.run("question", model_name="gpt-5.4-mini")
+    result = pipeline.run(
+        "question",
+        retriever_model_name="gpt-5.4-mini",
+        generator_model_name="gemini-3-flash-preview",
+    )
 
     assert result.hypotheses == ["hypothesis"]
     assert pipeline.config["pipeline"]["save_steps"] is False
+    assert calls == {
+        "retriever": "gpt-5.4-mini",
+        "generator": "gemini-3-flash-preview",
+    }
 
 
 def test_app_package_exports_pipeline_without_app_alias():
@@ -141,6 +153,9 @@ class _Explorer:
 
 
 class _Retriever:
+    def __init__(self, calls: dict[str, str | None]) -> None:
+        self.calls = calls
+
     def retrieve(
         self,
         prompt: str,
@@ -148,6 +163,7 @@ class _Retriever:
         model_name: str,
         **kwargs,
     ) -> RetrieverResult:
+        self.calls["retriever"] = model_name
         return RetrieverResult(content="retrieved")
 
     def refine(
@@ -162,6 +178,9 @@ class _Retriever:
 
 
 class _Generator:
+    def __init__(self, calls: dict[str, str | None]) -> None:
+        self.calls = calls
+
     def generate(
         self,
         prompt: str,
@@ -169,6 +188,7 @@ class _Generator:
         model_name: str,
         **kwargs,
     ) -> GeneratorResult:
+        self.calls["generator"] = model_name
         return GeneratorResult(hypotheses=["hypothesis"], metadata={"model": "test"})
 
     def provide_feedback(

@@ -78,7 +78,7 @@ class APISettings(BaseSettings):
     google_cloud_location: str = "us-central1"
 
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
-    supported_models: dict[str, SupportedModelConfig] = Field(
+    model_configs: dict[str, SupportedModelConfig] = Field(
         default_factory=lambda: {
             "gpt-5.4-mini": SupportedModelConfig(
                 provider="openai",
@@ -89,6 +89,12 @@ class APISettings(BaseSettings):
                 api_model="google/gemini-3-flash-preview",
             ),
         }
+    )
+    retriever_models: list[str] = Field(
+        default_factory=lambda: ["gpt-5.4-mini", "gemini-3-flash-preview"]
+    )
+    generator_models: list[str] = Field(
+        default_factory=lambda: ["gpt-5.4-mini", "gemini-3-flash-preview"]
     )
     search: SearchConfig = Field(default_factory=SearchConfig)
     explorer: ExplorerConfig = Field(default_factory=ExplorerConfig)
@@ -104,10 +110,12 @@ class APISettings(BaseSettings):
     def pipeline_config(self) -> dict[str, Any]:
         return {
             "pipeline": self.pipeline.model_dump(),
-            "supported_models": {
+            "model_configs": {
                 name: config.model_dump()
-                for name, config in self.supported_models.items()
+                for name, config in self.model_configs.items()
             },
+            "retriever_models": self.retriever_models,
+            "generator_models": self.generator_models,
             "search": self.search.model_dump(),
             "explorer": self.explorer.model_dump(),
             "retriever": self.retriever.model_dump(),
@@ -115,11 +123,15 @@ class APISettings(BaseSettings):
         }
 
     @property
-    def model_names(self) -> list[str]:
-        return list(self.supported_models)
+    def retriever_model_names(self) -> list[str]:
+        return self.retriever_models
+
+    @property
+    def generator_model_names(self) -> list[str]:
+        return self.generator_models
 
     def get_model_config(self, model_name: str) -> dict[str, Any]:
-        config = self.supported_models[model_name].model_dump()
+        config = self.model_configs[model_name].model_dump()
         if config["provider"] == "openai":
             config["api_key"] = self.openai_api_key
             config["base_url"] = config["base_url"] or self.openai_base_url

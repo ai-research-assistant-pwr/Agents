@@ -164,11 +164,20 @@ def _real_chat_reply(session: SessionOut, user_message: str, settings=None) -> s
 # ---------------------------------------------------------------------------
 
 
-def run_pipeline(question: str, model_name: str) -> SessionOut:
+def run_pipeline(
+    question: str,
+    retriever_model_name: str,
+    generator_model_name: str,
+) -> SessionOut:
     settings = get_settings()
     if settings.pipeline_use_mock:
-        return run_mock(question, model_name)
-    return _run_real(question, model_name, settings=settings)
+        return run_mock(question, retriever_model_name, generator_model_name)
+    return _run_real(
+        question,
+        retriever_model_name,
+        generator_model_name,
+        settings=settings,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +185,12 @@ def run_pipeline(question: str, model_name: str) -> SessionOut:
 # ---------------------------------------------------------------------------
 
 
-def _run_real(question: str, model_name: str, settings=None) -> SessionOut:
+def _run_real(
+    question: str,
+    retriever_model_name: str,
+    generator_model_name: str,
+    settings=None,
+) -> SessionOut:
     """Run the full pipeline with real models and knowledge graph.
 
     Requires API settings, API keys, and DB connections.
@@ -191,7 +205,10 @@ def _run_real(question: str, model_name: str, settings=None) -> SessionOut:
 
     settings = settings or get_settings()
     config = settings.pipeline_config()
-    model_configs = {model_name: settings.get_model_config(model_name)}
+    model_configs = {
+        model_name: settings.get_model_config(model_name)
+        for model_name in {retriever_model_name, generator_model_name}
+    }
 
     explorer = Neo4jRandomWalkExplorer(config)
     search_explorer = _build_search(config)
@@ -207,7 +224,8 @@ def _run_real(question: str, model_name: str, settings=None) -> SessionOut:
     t0 = time.monotonic()
     result = pipeline.run(
         question,
-        model_name=model_name,
+        retriever_model_name=retriever_model_name,
+        generator_model_name=generator_model_name,
         retriever_kwargs=_completion_kwargs(config.get("retriever", {}), exclude={"type", "top_k"}),
         generator_kwargs=_completion_kwargs(config.get("generator", {}), exclude={"type"}),
     )
@@ -225,7 +243,8 @@ def _run_real(question: str, model_name: str, settings=None) -> SessionOut:
     return SessionOut(
         sessionId=str(uuid4()),
         question=question,
-        modelName=model_name,
+        retrieverModelName=retriever_model_name,
+        generatorModelName=generator_model_name,
         createdAt=datetime.now(timezone.utc).isoformat(),
         exploration=ExplorationStats(durationSec=elapsed),
         hypotheses=_wrap_hypotheses(result.hypotheses),

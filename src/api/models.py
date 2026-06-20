@@ -66,7 +66,8 @@ class KnowledgeGraph(BaseModel):
 class SessionOut(BaseModel):
     sessionId: str
     question: str
-    modelName: str
+    retrieverModelName: str
+    generatorModelName: str
     createdAt: str
     exploration: ExplorationStats
     hypotheses: list[HypothesisOut]
@@ -130,11 +131,13 @@ class TokenOut(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     question: str
-    modelName: str
+    retrieverModelName: str
+    generatorModelName: str
 
 
 class ModelListOut(BaseModel):
-    models: list[str]
+    retrieverModels: list[str]
+    generatorModels: list[str]
 
 
 class SelectRequest(BaseModel):

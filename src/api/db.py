@@ -58,6 +58,8 @@ class DBSession(Base):
     user_id = Column(String(255), nullable=False, default="anonymous")
     question = Column(Text, nullable=False)
     model_name = Column(String(255), nullable=True)
+    retriever_model_name = Column(String(255), nullable=True)
+    generator_model_name = Column(String(255), nullable=True)
     created_at = Column(String(50), nullable=False)
     exploration = Column(JSON, nullable=False)
     hypotheses = Column(JSON, nullable=False)
@@ -70,12 +72,19 @@ class DBSession(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
-    _ensure_model_name_column()
+    _ensure_session_columns()
 
 
-def _ensure_model_name_column() -> None:
+def _ensure_session_columns() -> None:
     columns = {column["name"] for column in inspect(engine).get_columns("sessions")}
-    if "model_name" in columns:
-        return
     with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE sessions ADD COLUMN model_name VARCHAR(255)"))
+        if "model_name" not in columns:
+            connection.execute(text("ALTER TABLE sessions ADD COLUMN model_name VARCHAR(255)"))
+        if "retriever_model_name" not in columns:
+            connection.execute(
+                text("ALTER TABLE sessions ADD COLUMN retriever_model_name VARCHAR(255)")
+            )
+        if "generator_model_name" not in columns:
+            connection.execute(
+                text("ALTER TABLE sessions ADD COLUMN generator_model_name VARCHAR(255)")
+            )
