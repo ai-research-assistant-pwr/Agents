@@ -35,8 +35,16 @@ def test_api_settings_defaults(monkeypatch):
     assert settings.api_title == "Hypothesis Forge API"
     assert settings.pipeline_use_mock is False
     assert settings.database_url == "sqlite:///./hypothesis_forge.db"
-    assert settings.retriever_model_names == ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
-    assert settings.generator_model_names == ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
+    assert settings.retriever_model_names == [
+        "gpt-5.4-mini",
+        "gemini-3.1-flash-lite",
+        "Qwen3-4B",
+    ]
+    assert settings.generator_model_names == [
+        "gpt-5.4-mini",
+        "gemini-3.1-flash-lite",
+        "Qwen3-4B",
+    ]
     assert settings.explorer.neo4j.steps == 5
     assert settings.search.api_weaviate.embedding_model == "Qwen/Qwen3-Embedding-4B"
     assert settings.cors_origin_list == ["*"]
@@ -82,8 +90,16 @@ def test_api_settings_nested_env_overrides(monkeypatch):
     config = settings.pipeline_config()
 
     assert config["explorer"]["neo4j"]["steps"] == 42
-    assert config["retriever_models"] == ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
-    assert config["generator_models"] == ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
+    assert config["retriever_models"] == [
+        "gpt-5.4-mini",
+        "gemini-3.1-flash-lite",
+        "Qwen3-4B",
+    ]
+    assert config["generator_models"] == [
+        "gpt-5.4-mini",
+        "gemini-3.1-flash-lite",
+        "Qwen3-4B",
+    ]
     assert config["search"]["api_weaviate"]["embedding_model"] == "Qwen/Qwen3-Embedding-4B"
 
 
@@ -109,6 +125,17 @@ def test_api_settings_vertex_model_config(monkeypatch):
 
     assert config["provider"] == "vertex_ai"
     assert config["api_model"] == "gemini-3.1-flash-lite"
+
+
+def test_api_settings_qwen_model_config(monkeypatch):
+    _clear_env(monkeypatch)
+
+    settings = APISettings(_env_file=None)
+    config = settings.get_model_config("Qwen3-4B")
+
+    assert config["provider"] == "openai"
+    assert config["api_model"] == "Qwen/Qwen3-4B"
+    assert config["base_url"] == "http://localhost:8020/v1"
 
 
 def test_pipeline_accepts_injected_config():

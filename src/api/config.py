@@ -19,7 +19,7 @@ class PipelineConfig(BaseModel):
 
 
 class SupportedModelConfig(BaseModel):
-    provider: Literal["openai", "vertex_ai"]
+    provider: Literal["openai", "vertex_ai", "custom"]
     api_model: str
     base_url: str | None = None
 
@@ -89,6 +89,8 @@ class APISettings(BaseSettings):
     openai_base_url: str | None = None
     google_api_key: str | None = None
     google_base_url: str | None = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    vllm_api_key: str | None = None
+    vllm_base_url: str | None = "http://localhost:8021/v1"
 
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     model_configs: dict[str, SupportedModelConfig] = Field(
@@ -101,13 +103,24 @@ class APISettings(BaseSettings):
                 provider="vertex_ai",
                 api_model="gemini-3.1-flash-lite",
             ),
+            "Qwen3-4B": SupportedModelConfig(
+                provider="custom",
+                api_model="Qwen/Qwen3-4B",
+            ),
         }
     )
     retriever_models: list[str] = Field(
-        default_factory=lambda: ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
+        default_factory=lambda: [
+            "gpt-5.4-mini",
+            "gemini-3.1-flash-lite"
+        ]
     )
     generator_models: list[str] = Field(
-        default_factory=lambda: ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
+        default_factory=lambda: [
+            "gpt-5.4-mini",
+            "gemini-3.1-flash-lite",
+            "Qwen3-4B",
+        ]
     )
     search: SearchConfig = Field(default_factory=SearchConfig)
     explorer: ExplorerConfig = Field(default_factory=ExplorerConfig)
@@ -151,6 +164,9 @@ class APISettings(BaseSettings):
         elif config["provider"] == "vertex_ai":
             config["api_key"] = self.google_api_key
             config["base_url"] = config["base_url"] or self.google_base_url
+        elif config["provider"] == "custom":
+            config["api_key"] = self.vllm_api_key
+            config["base_url"] = config["base_url"] or self.vllm_base_url
         return config
 
 
