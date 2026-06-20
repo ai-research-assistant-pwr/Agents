@@ -37,7 +37,8 @@ if $USE_DOCKER; then
   echo "Starting vLLM via Docker Compose (VLLM_MODEL=$VLLM_MODEL, VLLM_PORT=$VLLM_PORT)"
   docker compose -f "$PROJECT_ROOT/docker/vllm/docker-compose.yml" up
 else
-  HOST_MODEL="$PROJECT_ROOT/$WEIGHTS"
+  #HOST_MODEL="$PROJECT_ROOT/$WEIGHTS"
+  HOST_MODEL=$WEIGHTS
   echo "Starting vLLM directly (model=$HOST_MODEL)"
   PYTHONUNBUFFERED=1 vllm serve "$HOST_MODEL" \
       --served-model-name Qwen/Qwen3-4B \

@@ -60,4 +60,4 @@ generator:
   type: "llm"
   temperature: 0.7
   port: 8017
-  weights: "models/example_checkpoint/global_step75_hf"  # local path to fine-tuned Qwen3-4B weights (relative to project root)
+  weights: "/workspace/models/example_checkpoint/global_step75_hf"  # local path to fine-tuned Qwen3-4B weights (relative to project root)
