@@ -1,25 +1,27 @@
 """JWT-based authentication helpers.
 
 Passwords are hashed with bcrypt.
-Tokens are signed HS256 JWTs; secret is read from JWT_SECRET env var.
+Tokens are signed HS256 JWTs.
 
 All endpoints that need a user call get_current_user() as a FastAPI Depends.
 It returns "anonymous" when no valid token is supplied so existing unauthenticated
 flows keep working.
 """
 
-import os
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
 from fastapi import Header, HTTPException
 
+from api.config import get_settings
 from api.db import DBUser, SessionLocal
 
-SECRET_KEY: str = os.getenv("JWT_SECRET", "change-me-in-production")
+settings = get_settings()
+
+SECRET_KEY: str = settings.jwt_secret
 ALGORITHM = "HS256"
-TOKEN_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "168"))  # 7 days
+TOKEN_HOURS = settings.jwt_expire_hours
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,11 @@ class BaseGenerator(ABC):
 
     @abstractmethod
     def generate(
-        self, prompt: str, retriever_output: RetrieverResult
+        self,
+        prompt: str,
+        retriever_output: RetrieverResult,
+        model_name: str,
+        **kwargs,
     ) -> GeneratorResult:
         """Generate scientific hypotheses based on the prompt and retrieved context.
 
@@ -26,7 +30,13 @@ class BaseGenerator(ABC):
         ...
 
     @abstractmethod
-    def provide_feedback(self, prompt: str, retriever_output: RetrieverResult) -> str:
+    def provide_feedback(
+        self,
+        prompt: str,
+        retriever_output: RetrieverResult,
+        model_name: str,
+        **kwargs,
+    ) -> str:
         """Review retriever output and request refinements.
 
         Called during multi-turn refinement between the retriever and generator.

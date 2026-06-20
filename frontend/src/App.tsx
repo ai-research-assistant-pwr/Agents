@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, authLogout, exportSessionAsMarkdown, setMockUserId } from './api';
 import { getAuthUser } from './auth';
 import type { AuthUser } from './auth';
-import type { HypothesisId, Session, SessionListItem } from './types';
+import type { HypothesisId, ModelList, Session, SessionListItem } from './types';
 import Sidebar from './components/Sidebar';
 import ChatView, { type ChatPhase } from './components/ChatView';
 import QuestionInput from './components/QuestionInput';
@@ -13,9 +13,15 @@ import { GraphIcon } from './components/icons';
 
 type AppPhase = { kind: 'idle' } | ChatPhase;
 
+const EMPTY_MODELS: ModelList = { retrieverModels: [], generatorModels: [] };
+
 export default function App() {
   const [phase, setPhase] = useState<AppPhase>({ kind: 'idle' });
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const [models, setModels] = useState<ModelList>(EMPTY_MODELS);
+  const [selectedRetrieverModel, setSelectedRetrieverModel] = useState('');
+  const [selectedGeneratorModel, setSelectedGeneratorModel] = useState('');
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
   const [kgOpen, setKgOpen] = useState(false);
@@ -42,6 +48,35 @@ export default function App() {
     setMockUserId(userId);
     api.listSessions().then(setSessions).catch(() => setSessions([]));
   }, [authUser]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setModelsLoading(true);
+    api.listModels()
+      .then((nextModels) => {
+        if (cancelled) return;
+        setModels(nextModels);
+        setSelectedRetrieverModel((current) => (
+          current && nextModels.retrieverModels.includes(current)
+            ? current
+            : nextModels.retrieverModels[0] ?? ''
+        ));
+        setSelectedGeneratorModel((current) => (
+          current && nextModels.generatorModels.includes(current)
+            ? current
+            : nextModels.generatorModels[0] ?? ''
+        ));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setModels(EMPTY_MODELS);
+        setError(e instanceof Error ? e.message : 'Failed to load models');
+      })
+      .finally(() => {
+        if (!cancelled) setModelsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   function refreshSidebar() {
     api.listSessions().then(setSessions).catch(() => {});
@@ -92,10 +127,18 @@ export default function App() {
   // ---------------------------------------------------------------------------
 
   async function handleAsk(question: string) {
+    if (!selectedRetrieverModel || !selectedGeneratorModel) {
+      setError('Choose a retriever and generator model before starting.');
+      return;
+    }
     setError(null);
     setPhase({ kind: 'exploring', question });
     try {
-      const session = await api.generate(question);
+      const session = await api.generate({
+        question,
+        retrieverModelName: selectedRetrieverModel,
+        generatorModelName: selectedGeneratorModel,
+      });
       setPhase({ kind: 'generated', session, rationale: '', submitting: false });
       refreshSidebar();
     } catch (e) {
@@ -296,7 +339,16 @@ export default function App() {
 
         <div className="chat-region">
           {phase.kind === 'idle' && (
-            <QuestionInput onSubmit={handleAsk} isMock={api.isMock} />
+            <QuestionInput
+              onSubmit={handleAsk}
+              isMock={api.isMock}
+              models={models}
+              retrieverModel={selectedRetrieverModel}
+              generatorModel={selectedGeneratorModel}
+              modelsLoading={modelsLoading}
+              onRetrieverModelChange={setSelectedRetrieverModel}
+              onGeneratorModelChange={setSelectedGeneratorModel}
+            />
           )}
           {phase.kind !== 'idle' && (
             <ChatView

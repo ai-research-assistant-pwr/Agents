@@ -2,18 +2,20 @@ import json
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Mapping
 
-from app.config import PROJECT_ROOT, load_config
 from app.explorer.base import BaseExplorer, BaseSearchExplorer
 from app.generator.base import BaseGenerator
 from app.models import GeneratorResult
 from app.retriever.base import BaseRetriever
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-class App:
+
+class Pipeline:
     """Orchestrator for the scientific hypothesis generation pipeline.
 
-    Reads configuration from a YAML file and runs the full pipeline:
+    Runs the full pipeline from an injected configuration mapping:
     search -> explorer -> retriever -> (optional refinement loop) -> generator.
     """
 
@@ -23,15 +25,22 @@ class App:
         explorer: BaseExplorer,
         retriever: BaseRetriever,
         generator: BaseGenerator,
-        config_path: str = "config/app/config.yaml",
+        config: Mapping[str, Any],
     ) -> None:
-        self.config = load_config(config_path)
+        self.config = dict(config)
         self.search_explorer = search_explorer
         self.explorer = explorer
         self.retriever = retriever
         self.generator = generator
 
-    def run(self, prompt: str) -> GeneratorResult:
+    def run(
+        self,
+        prompt: str,
+        retriever_model_name: str,
+        generator_model_name: str,
+        retriever_kwargs: dict[str, Any] | None = None,
+        generator_kwargs: dict[str, Any] | None = None,
+    ) -> GeneratorResult:
         """Run the full hypothesis generation pipeline.
 
         Args:
@@ -41,6 +50,8 @@ class App:
             A GeneratorResult containing the generated hypotheses and metadata.
         """
         pipeline_cfg = self.config.get("pipeline", {})
+        retriever_kwargs = retriever_kwargs or {}
+        generator_kwargs = generator_kwargs or {}
         save_steps = pipeline_cfg.get("save_steps", False)
         save_dir = self._prepare_save_dir() if save_steps else None
 
@@ -55,7 +66,12 @@ class App:
             self._save_step(save_dir, "02_explorer", asdict(explorer_output))
 
         # Step 3: Retriever (initial pass)
-        retriever_output = self.retriever.retrieve(prompt, explorer_output)
+        retriever_output = self.retriever.retrieve(
+            prompt,
+            explorer_output,
+            model_name=retriever_model_name,
+            **retriever_kwargs,
+        )
         if save_dir:
             self._save_step(save_dir, "03_retriever", asdict(retriever_output))
 
@@ -63,7 +79,12 @@ class App:
         refinement_turns = pipeline_cfg.get("refinement_turns", 0)
 
         for i in range(refinement_turns):
-            feedback = self.generator.provide_feedback(prompt, retriever_output)
+            feedback = self.generator.provide_feedback(
+                prompt,
+                retriever_output,
+                model_name=generator_model_name,
+                **generator_kwargs,
+            )
             if save_dir:
                 self._save_step(
                     save_dir,
@@ -71,7 +92,13 @@ class App:
                     {"feedback": feedback},
                 )
 
-            retriever_output = self.retriever.refine(prompt, retriever_output, feedback)
+            retriever_output = self.retriever.refine(
+                prompt,
+                retriever_output,
+                feedback,
+                model_name=retriever_model_name,
+                **retriever_kwargs,
+            )
             if save_dir:
                 self._save_step(
                     save_dir,
@@ -80,7 +107,12 @@ class App:
                 )
 
         # Step 5: Generator
-        result = self.generator.generate(prompt, retriever_output)
+        result = self.generator.generate(
+            prompt,
+            retriever_output,
+            model_name=generator_model_name,
+            **generator_kwargs,
+        )
         if save_dir:
             self._save_step(save_dir, "05_generator", asdict(result))
 

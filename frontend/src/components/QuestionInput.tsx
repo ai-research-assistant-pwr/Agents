@@ -1,8 +1,15 @@
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
+import type { ModelList } from '../types';
 
 interface Props {
   onSubmit: (question: string) => void;
   isMock: boolean;
+  models: ModelList;
+  retrieverModel: string;
+  generatorModel: string;
+  modelsLoading: boolean;
+  onRetrieverModelChange: (model: string) => void;
+  onGeneratorModelChange: (model: string) => void;
 }
 
 const EXAMPLES = [
@@ -11,13 +18,23 @@ const EXAMPLES = [
   'Can sparse autoencoder feature density predict downstream task transfer?',
 ];
 
-export default function QuestionInput({ onSubmit, isMock }: Props) {
+export default function QuestionInput({
+  onSubmit,
+  isMock,
+  models,
+  retrieverModel,
+  generatorModel,
+  modelsLoading,
+  onRetrieverModelChange,
+  onGeneratorModelChange,
+}: Props) {
   const [q, setQ] = useState('');
+  const canSubmit = !!q.trim() && !!retrieverModel && !!generatorModel;
 
   function submit(e?: FormEvent) {
     e?.preventDefault();
     const v = q.trim();
-    if (v) onSubmit(v);
+    if (v && retrieverModel && generatorModel) onSubmit(v);
   }
 
   function handleKey(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -43,9 +60,42 @@ export default function QuestionInput({ onSubmit, isMock }: Props) {
         autoFocus
       />
 
+      <div className="model-controls">
+        <label className="model-field">
+          <span className="micro-label">Retriever model</span>
+          <select
+            value={retrieverModel}
+            onChange={(e) => onRetrieverModelChange(e.target.value)}
+            disabled={modelsLoading || models.retrieverModels.length === 0}
+          >
+            {models.retrieverModels.length === 0 && (
+              <option value="">{modelsLoading ? 'Loading models...' : 'No models available'}</option>
+            )}
+            {models.retrieverModels.map((model) => (
+              <option key={model} value={model}>{model}</option>
+            ))}
+          </select>
+        </label>
+        <label className="model-field">
+          <span className="micro-label">Generator model</span>
+          <select
+            value={generatorModel}
+            onChange={(e) => onGeneratorModelChange(e.target.value)}
+            disabled={modelsLoading || models.generatorModels.length === 0}
+          >
+            {models.generatorModels.length === 0 && (
+              <option value="">{modelsLoading ? 'Loading models...' : 'No models available'}</option>
+            )}
+            {models.generatorModels.map((model) => (
+              <option key={model} value={model}>{model}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       <div className="qinput-footer">
         <span className="qinput-hint">⌘+Enter to submit{isMock ? ' · running in mock mode' : ''}</span>
-        <button type="submit" className="primary-btn primary-btn-inline" disabled={!q.trim()}>
+        <button type="submit" className="primary-btn primary-btn-inline" disabled={!canSubmit}>
           Explore knowledge graph →
         </button>
       </div>

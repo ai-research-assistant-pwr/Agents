@@ -1,22 +1,23 @@
 """SQLAlchemy database layer.
 
 DATABASE_URL controls the backend:
-  - Not set / empty → defaults to  sqlite:///./hypothesis_forge.db  (dev)
-  - sqlite:///:memory: → in-process SQLite, useful for tests (use StaticPool)
-  - postgresql://user:pass@host/db → production PostgreSQL
+  - Not set / empty -> defaults to sqlite:///./hypothesis_forge.db (dev)
+  - sqlite:///:memory: -> in-process SQLite, useful for tests (use StaticPool)
+  - postgresql://user:pass@host/db -> production PostgreSQL
 
 The engine and table definitions live here.  Call init_db() once at startup
 to create any missing tables.
 """
 
-import os
 from uuid import uuid4
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, JSON, String, Text, create_engine
+from sqlalchemy import Column, JSON, String, Text, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./hypothesis_forge.db")
+from api.config import get_settings
+
+DATABASE_URL: str = get_settings().database_url
 
 _kwargs: dict = {}
 _pool_kwargs: dict = {}
@@ -56,6 +57,9 @@ class DBSession(Base):
     id = Column(String(36), primary_key=True)
     user_id = Column(String(255), nullable=False, default="anonymous")
     question = Column(Text, nullable=False)
+    model_name = Column(String(255), nullable=True)
+    retriever_model_name = Column(String(255), nullable=True)
+    generator_model_name = Column(String(255), nullable=True)
     created_at = Column(String(50), nullable=False)
     exploration = Column(JSON, nullable=False)
     hypotheses = Column(JSON, nullable=False)
@@ -68,3 +72,19 @@ class DBSession(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _ensure_session_columns()
+
+
+def _ensure_session_columns() -> None:
+    columns = {column["name"] for column in inspect(engine).get_columns("sessions")}
+    with engine.begin() as connection:
+        if "model_name" not in columns:
+            connection.execute(text("ALTER TABLE sessions ADD COLUMN model_name VARCHAR(255)"))
+        if "retriever_model_name" not in columns:
+            connection.execute(
+                text("ALTER TABLE sessions ADD COLUMN retriever_model_name VARCHAR(255)")
+            )
+        if "generator_model_name" not in columns:
+            connection.execute(
+                text("ALTER TABLE sessions ADD COLUMN generator_model_name VARCHAR(255)")
+            )

@@ -6,6 +6,7 @@ POST  /api/auth/register                    Register a new user.
 POST  /api/auth/login                       Log in, receive a JWT.
 GET   /api/auth/me                          Get current user (requires JWT).
 POST  /api/sessions                         Run pipeline, return two hypotheses.
+GET   /api/models                           List supported pipeline models.
 GET   /api/sessions                         List sessions for the current user.
 GET   /api/sessions/{id}                    Fetch a full session.
 POST  /api/sessions/{id}/select             Save hypothesis choice + rationale.
@@ -19,18 +20,18 @@ with tests and dev use.
 
 Configuration
 -------------
-PIPELINE_USE_MOCK   "true" (default) → mock, no external services.
+PIPELINE_USE_MOCK   "true" (default) -> mock, no external services.
 DATABASE_URL        SQLAlchemy URL; defaults to sqlite:///./hypothesis_forge.db.
 JWT_SECRET          Secret for signing tokens. Override in production.
 CORS_ORIGINS        Comma-separated allowed origins (defaults to "*").
 """
 
-import os
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from api import session_store
 from api.auth import (
     authenticate_user,
     create_token,
@@ -38,12 +39,14 @@ from api.auth import (
     get_user_by_id,
     register_user,
 )
+from api.config import get_settings
 from api.models import (
     ChatRequest,
     ChatResponse,
     CreateSessionRequest,
     LoginRequest,
     Message,
+    ModelListOut,
     RegisterRequest,
     SelectRequest,
     SelectResponse,
@@ -54,18 +57,13 @@ from api.models import (
     UserOut,
 )
 from api.pipeline import generate_chat_reply, run_pipeline
-from api import session_store
 
-app = FastAPI(title="Hypothesis Forge API", version="0.3.0")
+settings = get_settings()
 
-_cors_origins = (
-    os.getenv("CORS_ORIGINS", "").split(",")
-    if os.getenv("CORS_ORIGINS")
-    else ["*"]
-)
+app = FastAPI(title=settings.api_title, version=settings.api_version)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
+    allow_origins=settings.cors_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -110,9 +108,31 @@ def create_session(
     body: CreateSessionRequest,
     user_id: str = Depends(get_current_user),
 ) -> SessionOut:
-    session = run_pipeline(body.question)
+    if body.retrieverModelName not in settings.retriever_models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported retriever model: {body.retrieverModelName!r}",
+        )
+    if body.generatorModelName not in settings.generator_models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported generator model: {body.generatorModelName!r}",
+        )
+    session = run_pipeline(
+        body.question,
+        retriever_model_name=body.retrieverModelName,
+        generator_model_name=body.generatorModelName,
+    )
     session_store.save_session(session, user_id=user_id)
     return session
+
+
+@app.get("/api/models", response_model=ModelListOut)
+def list_models() -> ModelListOut:
+    return ModelListOut(
+        retrieverModels=settings.retriever_model_names,
+        generatorModels=settings.generator_model_names,
+    )
 
 
 # ---------------------------------------------------------------------------
