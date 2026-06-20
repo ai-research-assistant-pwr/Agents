@@ -59,6 +59,8 @@ export interface Session {
   sessionId: string;
   question: string;
   createdAt: string;
+  retrieverModelName: string;
+  generatorModelName: string;
   exploration: ExplorerResult;
   hypotheses: [Hypothesis, Hypothesis];
   selectedId?: HypothesisId;
@@ -78,4 +80,15 @@ export interface SessionListItem {
 export interface SelectPayload {
   selectedId: HypothesisId;
   rationale?: string;
+}
+
+export interface ModelList {
+  retrieverModels: string[];
+  generatorModels: string[];
+}
+
+export interface GeneratePayload {
+  question: string;
+  retrieverModelName: string;
+  generatorModelName: string;
 }

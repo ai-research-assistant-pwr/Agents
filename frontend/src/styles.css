@@ -40,14 +40,14 @@ button {
   color: inherit;
 }
 button:disabled { cursor: not-allowed; }
-input, textarea {
+input, textarea, select {
   font-family: inherit;
-  resize: none;
   outline: none;
   border: none;
   background: transparent;
   color: inherit;
 }
+textarea { resize: none; }
 
 /* ============ App shell ============ */
 
@@ -362,6 +362,44 @@ input, textarea {
 }
 .qinput-area::placeholder { color: var(--softer); }
 .qinput-area:focus { border-color: var(--border-2); }
+.model-controls {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.model-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.model-field .micro-label { margin-bottom: 0; }
+.model-field select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 34px 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--soft) 50%),
+    linear-gradient(135deg, var(--soft) 50%, transparent 50%);
+  background-position:
+    calc(100% - 17px) 50%,
+    calc(100% - 12px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.model-field select:focus { border-color: var(--border-2); }
+.model-field select:disabled {
+  background-color: var(--subtle);
+  color: var(--softer);
+}
 .qinput-footer {
   margin-top: 14px;
   display: flex;
@@ -1258,4 +1296,14 @@ input, textarea {
   font-size: 12px;
   padding: 6px 12px;
   width: fit-content;
+}
+
+@media (max-width: 760px) {
+  .app { height: auto; min-height: 100vh; }
+  .model-controls { grid-template-columns: 1fr; }
+  .qinput-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .qinput .primary-btn-inline { width: 100%; }
 }

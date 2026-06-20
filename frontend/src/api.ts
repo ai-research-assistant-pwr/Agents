@@ -1,6 +1,6 @@
 import type { AuthUser } from './auth';
 import { getAuthHeader, saveAuth, clearAuth } from './auth';
-import type { Session, SelectPayload, SessionListItem } from './types';
+import type { GeneratePayload, ModelList, Session, SelectPayload, SessionListItem } from './types';
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
 const API_BASE = '/api';
@@ -70,11 +70,15 @@ export function authLogout(): void {
 // Real REST calls
 // ---------------------------------------------------------------------------
 
-async function realGenerate(question: string): Promise<Session> {
+async function realGenerate(payload: GeneratePayload): Promise<Session> {
   return jsonFetch<Session>(`${API_BASE}/sessions`, {
     method: 'POST',
-    body: JSON.stringify({ question }),
+    body: JSON.stringify(payload),
   });
+}
+
+async function realListModels(): Promise<ModelList> {
+  return jsonFetch<ModelList>(`${API_BASE}/models`);
 }
 
 async function realSelect(sessionId: string, payload: SelectPayload): Promise<void> {
@@ -193,12 +197,22 @@ const MOCK_KG = {
   ],
 };
 
-async function mockGenerate(question: string): Promise<Session> {
+async function mockListModels(): Promise<ModelList> {
+  await sleep(120);
+  return {
+    retrieverModels: ['gpt-5.4-mini', 'gemini-3.1-flash-lite'],
+    generatorModels: ['gpt-5.4-mini', 'gemini-3.1-flash-lite', 'Qwen3-4B'],
+  };
+}
+
+async function mockGenerate(payload: GeneratePayload): Promise<Session> {
   await sleep(MOCK_DELAY_MS);
   const session: Session = {
     sessionId: 'mock-' + Math.random().toString(36).slice(2, 8),
-    question,
+    question: payload.question,
     createdAt: new Date().toISOString(),
+    retrieverModelName: payload.retrieverModelName,
+    generatorModelName: payload.generatorModelName,
     exploration: {
       nodesTraversed: 127, relations: 43, sourcePapers: 8, clusters: 4,
       communities: ['Mechanistic interpretability', 'Scaling laws', 'Training dynamics', 'Evaluation methods'],
@@ -279,6 +293,7 @@ async function mockSendMessage(sessionId: string, message: string): Promise<stri
 
 export const api = {
   generate:     USE_MOCK ? mockGenerate     : realGenerate,
+  listModels:   USE_MOCK ? mockListModels   : realListModels,
   select:       USE_MOCK ? mockSelect       : realSelect,
   listSessions: USE_MOCK ? mockListSessions : realListSessions,
   getSession:   USE_MOCK ? mockGetSession   : realGetSession,
