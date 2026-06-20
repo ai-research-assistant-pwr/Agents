@@ -29,9 +29,22 @@ class SearchWeaviateConfig(BaseModel):
     rerank_top_k: int = 3
 
 
+class ApiWeaviateConfig(BaseModel):
+    url: str = "http://localhost:8080"
+    grpc_port: int = 50051
+    collection: str = "ResearchPapers"
+    embedding_host: str = "localhost"
+    embedding_port: int = 8005
+    embedding_model: str = "Qwen/Qwen3-Embedding-4B"
+    embedding_api_key: str | None = None
+    top_k: int = 10
+    api_key: str | None = None
+
+
 class SearchConfig(BaseModel):
     type: str = "weaviate"
     weaviate: SearchWeaviateConfig = Field(default_factory=SearchWeaviateConfig)
+    api_weaviate: ApiWeaviateConfig = Field(default_factory=ApiWeaviateConfig)
 
 
 class Neo4jRandomWalkConfig(BaseModel):
@@ -63,7 +76,7 @@ class APISettings(BaseSettings):
 
     api_title: str = "Hypothesis Forge API"
     api_version: str = "0.3.0"
-    pipeline_use_mock: bool = True
+    pipeline_use_mock: bool = False
     database_url: str = "sqlite:///./hypothesis_forge.db"
     jwt_secret: str = "change-me-in-production"
     jwt_expire_hours: int = 168
@@ -74,8 +87,8 @@ class APISettings(BaseSettings):
     )
     openai_api_key: str = "dummy"
     openai_base_url: str | None = None
-    google_cloud_project: str | None = None
-    google_cloud_location: str = "us-central1"
+    google_api_key: str | None = None
+    google_base_url: str | None = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     model_configs: dict[str, SupportedModelConfig] = Field(
@@ -84,17 +97,17 @@ class APISettings(BaseSettings):
                 provider="openai",
                 api_model="gpt-5.4-mini",
             ),
-            "gemini-3-flash-preview": SupportedModelConfig(
+            "gemini-3.1-flash-lite": SupportedModelConfig(
                 provider="vertex_ai",
-                api_model="google/gemini-3-flash-preview",
+                api_model="gemini-3.1-flash-lite",
             ),
         }
     )
     retriever_models: list[str] = Field(
-        default_factory=lambda: ["gpt-5.4-mini", "gemini-3-flash-preview"]
+        default_factory=lambda: ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
     )
     generator_models: list[str] = Field(
-        default_factory=lambda: ["gpt-5.4-mini", "gemini-3-flash-preview"]
+        default_factory=lambda: ["gpt-5.4-mini", "gemini-3.1-flash-lite"]
     )
     search: SearchConfig = Field(default_factory=SearchConfig)
     explorer: ExplorerConfig = Field(default_factory=ExplorerConfig)
@@ -136,13 +149,8 @@ class APISettings(BaseSettings):
             config["api_key"] = self.openai_api_key
             config["base_url"] = config["base_url"] or self.openai_base_url
         elif config["provider"] == "vertex_ai":
-            if not self.google_cloud_project:
-                raise ValueError("GOOGLE_CLOUD_PROJECT must be set for Vertex AI models.")
-            config["base_url"] = config["base_url"] or (
-                f"https://{self.google_cloud_location}-aiplatform.googleapis.com/v1/"
-                f"projects/{self.google_cloud_project}/locations/{self.google_cloud_location}/"
-                "endpoints/openapi"
-            )
+            config["api_key"] = self.google_api_key
+            config["base_url"] = config["base_url"] or self.google_base_url
         return config
 
 

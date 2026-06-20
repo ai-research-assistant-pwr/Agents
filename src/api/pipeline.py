@@ -199,6 +199,7 @@ def _run_real(
     _ensure_src_on_path()
 
     from app.app import Pipeline  # noqa: PLC0415
+    from app.explorer.api_weaviate_search_explorer import ApiWeaviateSearchExplorer  # noqa: PLC0415
     from app.explorer.neo4j_random_walk_explorer import Neo4jRandomWalkExplorer  # noqa: PLC0415
     from app.generator.openai_chat_generator import OpenAIChatGenerator  # noqa: PLC0415
     from app.retriever.openai_chat_retriever import OpenAIChatRetriever  # noqa: PLC0415
@@ -211,7 +212,7 @@ def _run_real(
     }
 
     explorer = Neo4jRandomWalkExplorer(config)
-    search_explorer = _build_search(config)
+    search_explorer = ApiWeaviateSearchExplorer(config)
 
     pipeline = Pipeline(
         search_explorer=search_explorer,
@@ -252,21 +253,8 @@ def _run_real(
     )
 
 
-def _build_search(config: dict):
-    t = config.get("search", {}).get("type", "const")
-    if t == "weaviate":
-        from app.explorer.weaviate_search_explorer import WeaviateSearchExplorer  # noqa: PLC0415
-        return WeaviateSearchExplorer(config)
-    return _NullSearch()
-
-
 def _completion_kwargs(config: dict, exclude: set[str]) -> dict:
     return {key: value for key, value in config.items() if key not in exclude}
-
-
-class _NullSearch:
-    def search(self, prompt: str) -> list[str]:  # noqa: ARG002
-        return []
 
 
 def _ensure_src_on_path() -> None:

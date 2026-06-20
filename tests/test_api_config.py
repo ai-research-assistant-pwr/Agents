@@ -33,11 +33,12 @@ def test_api_settings_defaults(monkeypatch):
     settings = APISettings(_env_file=None)
 
     assert settings.api_title == "Hypothesis Forge API"
-    assert settings.pipeline_use_mock is True
+    assert settings.pipeline_use_mock is False
     assert settings.database_url == "sqlite:///./hypothesis_forge.db"
     assert settings.retriever_model_names == ["gpt-5.4-mini", "gemini-3-flash-preview"]
     assert settings.generator_model_names == ["gpt-5.4-mini", "gemini-3-flash-preview"]
     assert settings.explorer.neo4j.steps == 5
+    assert settings.search.api_weaviate.embedding_model == "Qwen/Qwen3-Embedding-4B"
     assert settings.cors_origin_list == ["*"]
 
 
@@ -83,6 +84,7 @@ def test_api_settings_nested_env_overrides(monkeypatch):
     assert config["explorer"]["neo4j"]["steps"] == 42
     assert config["retriever_models"] == ["gpt-5.4-mini", "gemini-3-flash-preview"]
     assert config["generator_models"] == ["gpt-5.4-mini", "gemini-3-flash-preview"]
+    assert config["search"]["api_weaviate"]["embedding_model"] == "Qwen/Qwen3-Embedding-4B"
 
 
 def test_api_settings_supported_model_config(monkeypatch):

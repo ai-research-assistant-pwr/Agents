@@ -17,6 +17,9 @@ PORT                Override the listen port (default 8000).
 
 import os
 import sys
+import dotenv
+
+dotenv.load_dotenv()  # Load .env file if presents
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 

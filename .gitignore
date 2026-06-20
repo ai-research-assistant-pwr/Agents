@@ -3,6 +3,7 @@ data/
 *.egg-info/
 .env
 venv/
+venv3/
 outputs/
 wandb/
 logs/
