@@ -9,6 +9,7 @@ wandb/
 logs/
 out/
 MARTI
+models/
 
 .idea/
 *.db
