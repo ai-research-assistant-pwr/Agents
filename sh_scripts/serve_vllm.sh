@@ -81,6 +81,7 @@ export CUDA_DEVICE_ORDER=PCI_BUS_ID
 # ---------------------------------------------------------------------------
 # Cache environment variables
 # ---------------------------------------------------------------------------
+export HF_HUB_ENABLE_HF_TRANSFER=0
 export TORCHINDUCTOR_CACHE_DIR="${ROOT_PATH}/.cache/torch_inductor"
 export VLLM_CACHE_ROOT="${ROOT_PATH}/.cache/vllm"
 export HF_HOME="${ROOT_PATH}/.cache/hf"
