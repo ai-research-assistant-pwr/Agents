@@ -1,4 +1,4 @@
-# Integration Guide — Hypothesis Forge
+# Integration Guide — Hypothesis Forge (DEPRECATED)
 
 This document explains how to swap the mock pipeline for real models and
 databases so the app can be deployed as a production service.

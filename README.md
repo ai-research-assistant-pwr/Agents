@@ -1,6 +1,20 @@
 # Agents
 
-...
+# API
+
+To run backend server use
+
+    python run_api.py
+
+.env.example shows the environment variables that you need to set for the API server.
+- OPENAI_API_KEY, GOOGLE_API_KEY, VLLM_API_KEY - you need to set at least one of them. If you don't set one of them it will cause error when trying to use models thtat require the corresponding API key.
+- vllm_base_url - default url for vllm is localhost:8020, but you can change it if you have vllm running on different url.
+- search__api_weaviate__embedding_port, search__api_weaviate__embedding_host, search__api_weaviate__embedding_api_key - these are used for embedding service, they are neccessary to run api.
+- search__api_weaviate__api_key - weaviate api key, neccessary to run api (use the one for serice hosted by Martin)
+- search__api_weaviate__url, VPS_IP - url to weaviate instance, neccessary to run api (use the one for serice hosted by Martin)
+- NEO4J_PASSWORD, NEO4J_USER - neo4j credentials, neccessary to run api (use the ones for serice hosted by Martin)
+
+Look into 'src/api/config.py' for more details on environment variables and their usage.
 
 # RL
 ## Venv setup on WCSS
