@@ -16,6 +16,7 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "python-dotenv",
+    "boto3",
     "langchain-core",
     "langchain-google-genai",
     "torch",

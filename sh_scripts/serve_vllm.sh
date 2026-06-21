@@ -168,6 +168,11 @@ echo "Embedder PID ${EMB_PID} → ${TMP_DIR}/vllm_embedding.pid"
 
 echo "Waiting for ${EMB_MODEL} to load..."
 while [ "$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${EMB_PORT}/health")" != "200" ]; do
+    if ! kill -0 "${EMB_PID}" 2>/dev/null; then
+        echo "ERROR: Embedder process (PID ${EMB_PID}) exited unexpectedly."
+        echo "       Check logs: tail -50 ${TMP_DIR}/vllm_embedding.log"
+        exit 1
+    fi
     sleep 10
     echo "  Still loading ${EMB_MODEL}..."
 done
@@ -201,6 +206,11 @@ echo "Chat model PID ${CHAT_PID} → ${TMP_DIR}/vllm_chat.pid"
 
 echo "Waiting for ${CHAT_MODEL_PATH} to load..."
 while [ "$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${CHAT_PORT}/health")" != "200" ]; do
+    if ! kill -0 "${CHAT_PID}" 2>/dev/null; then
+        echo "ERROR: Chat model process (PID ${CHAT_PID}) exited unexpectedly."
+        echo "       Check logs: tail -50 ${TMP_DIR}/vllm_chat.log"
+        exit 1
+    fi
     sleep 10
     echo "  Still loading chat model..."
 done
