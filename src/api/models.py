@@ -23,6 +23,7 @@ class HypothesisOut(BaseModel):
     statement: str
     drawnFrom: list[str]
     falsifiablePrediction: str
+    reasoning: str | None = None
 
 
 class ReasoningStep(BaseModel):

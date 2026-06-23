@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, authLogout, exportSessionAsMarkdown, setMockUserId } from './api';
 import { getAuthUser } from './auth';
 import type { AuthUser } from './auth';
-import type { HypothesisId, ModelList, Persona, Session, SessionListItem } from './types';
+import type { Hypothesis, HypothesisId, ModelList, Persona, Session, SessionListItem } from './types';
 import Sidebar from './components/Sidebar';
 import ChatView, { type ChatPhase } from './components/ChatView';
 import QuestionInput from './components/QuestionInput';
@@ -393,6 +393,7 @@ export default function App() {
 
       {traceOpen && session?.reasoningTrace && (
         <ReasoningTraceModal
+          hypotheses={session.hypotheses as [Hypothesis, Hypothesis]}
           steps={session.reasoningTrace}
           onClose={() => setTraceOpen(false)}
         />

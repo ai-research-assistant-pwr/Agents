@@ -25,7 +25,7 @@ export default function ConversationInput({
   }, [messages.length]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (canSend) onSend();
     }
@@ -35,7 +35,7 @@ export default function ConversationInput({
 
   return (
     <div className="conversation">
-      {messages.length > 0 && (
+      {(messages.length > 0 || pending) && (
         <div className="conversation-messages">
           {messages.map((m, i) => (
             <div key={i} className={`conv-msg conv-msg-${m.role}`}>
@@ -66,7 +66,7 @@ export default function ConversationInput({
             className="conv-textarea"
             rows={3}
             maxLength={MAX_CHARS}
-            placeholder="Ask a follow-up question, request experimental design ideas, challenge the prediction…  (⌘ Enter to send)"
+            placeholder="Ask a follow-up question, request experimental design ideas, challenge the prediction…  (Enter to send, Shift+Enter for new line)"
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             onKeyDown={handleKeyDown}

@@ -1,14 +1,15 @@
-import { useState } from 'react';
-import type { ReasoningStep } from '../types';
+import type { Hypothesis, ReasoningStep } from '../types';
 
 interface Props {
+  hypotheses: [Hypothesis, Hypothesis];
   steps: ReasoningStep[];
   onClose: () => void;
 }
 
-export default function ReasoningTraceModal({ steps, onClose }: Props) {
-  const [expanded, setExpanded] = useState<number | null>(null);
+export default function ReasoningTraceModal({ hypotheses, steps, onClose }: Props) {
+  const hasReasoning = hypotheses.some((h) => h.reasoning);
 
+  const generatorStep = steps.find((s) => s.step === 'Generator');
   const total = steps.reduce((s, step) => s + step.durationSec, 0);
 
   return (
@@ -16,9 +17,10 @@ export default function ReasoningTraceModal({ steps, onClose }: Props) {
       <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
-            <div className="modal-title">Reasoning trace</div>
+            <div className="modal-title">Generator reasoning</div>
             <div className="modal-subtitle">
-              {steps.length} pipeline steps · {total.toFixed(2)}s total
+              How each hypothesis was derived from the knowledge graph
+              {generatorStep && ` · ${generatorStep.durationSec.toFixed(2)}s · ${total.toFixed(2)}s total`}
             </div>
           </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
@@ -27,27 +29,24 @@ export default function ReasoningTraceModal({ steps, onClose }: Props) {
         </div>
 
         <div className="trace-list">
-          {steps.map((step, i) => {
-            const isOpen = expanded === i;
-            return (
-              <div key={i} className="trace-item">
-                <button
-                  type="button"
-                  className="trace-header"
-                  onClick={() => setExpanded(isOpen ? null : i)}
-                >
-                  <span className="trace-index">{i + 1}</span>
-                  <span className="trace-step-name">{step.step}</span>
-                  <span className="trace-desc">{step.description}</span>
-                  <span className="trace-dur">{step.durationSec.toFixed(2)}s</span>
-                  <span className="trace-chevron">{isOpen ? '▲' : '▼'}</span>
-                </button>
-                {isOpen && step.details && (
-                  <div className="trace-details">{step.details}</div>
-                )}
+          {hasReasoning ? (
+            hypotheses.map((h) => (
+              <div key={h.id} className="trace-item">
+                <div className="trace-header" style={{ cursor: 'default' }}>
+                  <span className="trace-index">{h.id}</span>
+                  <span className="trace-step-name">{h.headline}</span>
+                  <span className="trace-desc">{h.classification}</span>
+                </div>
+                <div className="trace-details" style={{ whiteSpace: 'pre-wrap' }}>
+                  {h.reasoning ?? '(No reasoning captured for this hypothesis.)'}
+                </div>
               </div>
-            );
-          })}
+            ))
+          ) : (
+            <div className="trace-details" style={{ padding: '1rem' }}>
+              {generatorStep?.details ?? 'No generator reasoning available.'}
+            </div>
+          )}
         </div>
       </div>
     </div>

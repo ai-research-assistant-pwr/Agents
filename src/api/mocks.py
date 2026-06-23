@@ -30,6 +30,23 @@ H_A = HypothesisOut(
         "Synthetic-task ICL accuracy shows a sharp discontinuity locatable within "
         "a ±5% parameter band across model families."
     ),
+    reasoning=(
+        "The mechanistic interpretability community provides the strongest evidence thread "
+        "here. Olsson et al. (2022) showed that induction heads form abruptly during training "
+        "and are directly responsible for in-context pattern matching. The explorer traversal "
+        "found consistent co-occurrence of induction-head formation with sharp drops in "
+        "loss — a signature of phase transitions rather than smooth capability growth.\n\n"
+        "Connecting this to grokking literature: both phenomena involve a latent circuit "
+        "that exists in a disordered state below a critical scale, then snaps into a coherent "
+        "configuration. The depth×width product is the natural capacity measure because "
+        "multi-head attention compositions require sufficient depth to route information "
+        "across multiple steps.\n\n"
+        "I'm grounding this hypothesis in the capacity-side framing because the circuit "
+        "formation account directly explains *why* the transition is sharp: it is a "
+        "combinatorial threshold in the attention composition graph, not a gradual improvement "
+        "in any single parameter. This makes the claim precise and the prediction falsifiable "
+        "at a specific parameter band."
+    ),
 )
 
 H_B = HypothesisOut(
@@ -52,6 +69,23 @@ H_B = HypothesisOut(
     falsifiablePrediction=(
         "No smooth continuous metric reveals a discontinuity at the same critical "
         "scale across at least three model families."
+    ),
+    reasoning=(
+        "The evaluation methods community offers a parsimonious alternative: the apparent "
+        "discontinuity is an artifact of how we measure, not what models can do. "
+        "Schaeffer et al. (2023) demonstrated this directly — switching from exact-match "
+        "to continuous proxies (e.g., edit distance, token probability) erases the "
+        "emergence signature across multiple benchmarks and model families.\n\n"
+        "The explorer also surfaced the distributional learning thread: pretraining corpora "
+        "don't simply grow in size, they grow in coverage. At some scale the corpus "
+        "crosses a coverage-density threshold where few-shot meta-patterns (e.g., "
+        "\"answer after example pairs\") become reliably present in training data. "
+        "This is a data-composition threshold, not a model-capacity threshold.\n\n"
+        "I'm framing this as the measurement-side hypothesis because it requires no "
+        "special mechanism in the model itself — only a change in the experimenter's "
+        "evaluation choice. That makes it a strong null hypothesis: if continuous metrics "
+        "still show a discontinuity at the same critical scale, the measurement account "
+        "is falsified and the capacity account gains evidential weight."
     ),
 )
 

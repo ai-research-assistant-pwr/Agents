@@ -14,6 +14,17 @@ interface Props {
 
 const MAX_RATIONALE = 600;
 
+function handleRationaleKeyDown(
+  e: React.KeyboardEvent<HTMLTextAreaElement>,
+  canSubmit: boolean,
+  onSubmit: () => void,
+) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (canSubmit) onSubmit();
+  }
+}
+
 export default function SelectionForm({
   hypotheses,
   selected,
@@ -74,9 +85,10 @@ export default function SelectionForm({
           id="rationale"
           rows={4}
           maxLength={MAX_RATIONALE}
-          placeholder="Optional: what made this one more compelling? A sentence or two is enough — mechanism, falsifiability, fit with prior evidence…"
+          placeholder="Optional: what made this one more compelling? A sentence or two is enough — mechanism, falsifiability, fit with prior evidence… (Enter to submit)"
           value={rationale}
           onChange={(e) => onRationaleChange(e.target.value)}
+          onKeyDown={(e) => handleRationaleKeyDown(e, canSubmit, onSubmit)}
           disabled={submitted || submitting}
         />
       </div>

@@ -19,6 +19,7 @@ export interface Hypothesis {
   statement: string;
   drawnFrom: string[];
   falsifiablePrediction: string;
+  reasoning?: string;
 }
 
 export interface ReasoningStep {
