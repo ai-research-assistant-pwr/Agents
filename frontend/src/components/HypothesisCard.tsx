@@ -1,4 +1,5 @@
 import type { Hypothesis } from '../types';
+import Md from './Md';
 
 interface Props {
   hypothesis: Hypothesis;
@@ -33,7 +34,7 @@ export default function HypothesisCard({ hypothesis, selected, dimmed, disabled,
         <span className={`radio${selected ? ' on' : ''}`} aria-hidden="true" />
       </div>
 
-      <p className="hyp-card-statement">{hypothesis.statement}</p>
+      <div className="hyp-card-statement"><Md>{hypothesis.statement}</Md></div>
 
       <div className="hyp-card-bottom">
         {hypothesis.drawnFrom.length > 0 && (
@@ -49,7 +50,7 @@ export default function HypothesisCard({ hypothesis, selected, dimmed, disabled,
         {hypothesis.falsifiablePrediction && (
           <div className={`prediction${selected ? ' prediction-selected' : ''}`}>
             <div className="micro-label">Falsifiable prediction</div>
-            <div className="prediction-text">{hypothesis.falsifiablePrediction}</div>
+            <div className="prediction-text"><Md>{hypothesis.falsifiablePrediction}</Md></div>
           </div>
         )}
       </div>

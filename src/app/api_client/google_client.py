@@ -9,10 +9,40 @@ from app.api_client.base import BaseAPIClient, CallResult, Message
 T = TypeVar("T")
 
 
+def _split_parts(response) -> tuple[str, str]:
+    """Separate ``thought=True`` parts (reasoning) from answer parts.
+
+    Returns ``(reasoning, answer)`` — both stripped; empty string when absent.
+    Gemini thinking models tag internal reasoning parts with ``thought=True``.
+    """
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return "", ""
+
+    content = getattr(candidates[0], "content", None)
+    parts = getattr(content, "parts", None) or []
+
+    reasoning_parts: list[str] = []
+    answer_parts: list[str] = []
+
+    for part in parts:
+        text = getattr(part, "text", None) or ""
+        if getattr(part, "thought", False):
+            reasoning_parts.append(text)
+        else:
+            answer_parts.append(text)
+
+    reasoning = "\n\n".join(filter(None, reasoning_parts)).strip()
+    answer = "\n\n".join(filter(None, answer_parts)).strip()
+    return reasoning, answer
+
+
 class GoogleAPIClient(BaseAPIClient):
     """Google Gemini API client using the google-genai SDK.
 
     Loads the API key from the GOOGLE_API_KEY environment variable.
+    Reasoning content from thinking models (e.g. gemini-2.5-flash with
+    thinking enabled) is captured in ``CallResult.reasoning``.
     """
 
     def __init__(self, model: str = "gemini-2.5-flash") -> None:
@@ -42,6 +72,7 @@ class GoogleAPIClient(BaseAPIClient):
             A CallResult with .model set to the Gemini model identifier.
             .content is a plain string when response_schema is None, or a
             parsed instance of response_schema otherwise.
+            .reasoning contains the model's thinking trace when available.
         """
         system_parts: list[str] = []
         contents: list[types.Content] = []
@@ -72,14 +103,23 @@ class GoogleAPIClient(BaseAPIClient):
             config=config,
         )
 
+        reasoning, answer = _split_parts(response)
+
         if response_schema is not None:
             if response.parsed is None:
                 raise RuntimeError(
                     "Google API returned an empty structured response. "
                     "Check that the model supports structured output."
                 )
-            return CallResult(content=response.parsed, model=self.model)  # type: ignore[return-value]
+            return CallResult(  # type: ignore[return-value]
+                content=response.parsed,
+                model=self.model,
+                reasoning=reasoning,
+            )
 
-        if response.text is None:
+        # Fall back to response.text when no non-thought parts are present
+        # (e.g. model without thinking enabled).
+        text = answer or response.text
+        if text is None:
             raise RuntimeError("Google API returned an empty response.")
-        return CallResult(content=response.text, model=self.model)
+        return CallResult(content=text, model=self.model, reasoning=reasoning)

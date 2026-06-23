@@ -1,4 +1,5 @@
 import type { Hypothesis, ReasoningStep } from '../types';
+import Md from './Md';
 
 interface Props {
   hypotheses: [Hypothesis, Hypothesis];
@@ -31,7 +32,7 @@ export default function ReasoningTraceModal({ hypotheses, steps, onClose }: Prop
         </div>
 
         <div className="reasoning-body">
-          {displayText}
+          <Md>{displayText}</Md>
         </div>
       </div>
     </div>

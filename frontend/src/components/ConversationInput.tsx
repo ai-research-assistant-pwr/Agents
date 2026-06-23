@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react';
 import type { Message } from '../types';
+import Md from './Md';
 
 interface Props {
   messages: Message[];
@@ -42,7 +43,9 @@ export default function ConversationInput({
               <div className="conv-msg-role">
                 {m.role === 'user' ? 'You' : 'Assistant'}
               </div>
-              <div className="conv-msg-text">{m.content}</div>
+              <div className="conv-msg-text">
+                {m.role === 'assistant' ? <Md>{m.content}</Md> : m.content}
+              </div>
             </div>
           ))}
           {pending && (
