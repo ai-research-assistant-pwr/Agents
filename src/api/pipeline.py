@@ -289,15 +289,13 @@ def _build_knowledge_graph(explorer_meta: dict, question: str) -> KnowledgeGraph
         if not pid or pid in added:
             continue
         added.add(pid)
-        title = _first_text(paper, "title", "name", "label") or pid
-        abstract = _first_text(paper, "abstract")
         nodes.append(KGNode(
             id=pid,
-            label=title,
+            label=(paper.get("title") or pid)[:80],
             type="paper",
             paperId=pid,
-            abstract=abstract,
-            summary=None,
+            abstract=paper.get("abstract") or None,
+            summary=paper.get("summary") or None,
         ))
         level = paper.get("level", 0)
         source = paper.get("source_id", "query") if level > 0 else "query"
@@ -306,16 +304,6 @@ def _build_knowledge_graph(explorer_meta: dict, question: str) -> KnowledgeGraph
         edges.append(KGEdge(source=source, target=pid, relation="explored"))
 
     return KnowledgeGraph(nodes=nodes, edges=edges)
-
-
-def _first_text(source: dict, *keys: str) -> str | None:
-    for key in keys:
-        value = source.get(key)
-        if isinstance(value, str):
-            stripped = value.strip()
-            if stripped:
-                return stripped
-    return None
 
 
 def _completion_kwargs(config: dict, exclude: set[str]) -> dict:

@@ -67,7 +67,7 @@ def bfs_from_papers(
             MATCH (p:Paper) WHERE p.paperId IN $paperIds
             RETURN p.paperId AS id, p.title AS title,
                    coalesce(p.abstract, '') AS abstract,
-                   '' AS summary
+                   coalesce(p.summary, '') AS summary
             """,
             paperIds=list(start_paper_ids),
         )
@@ -99,7 +99,7 @@ def bfs_from_papers(
                        [node IN nodes(path) | node.paperId][-1] AS id,
                        [node IN nodes(path) | node.title][-1] AS title,
                        [node IN nodes(path) | coalesce(node.abstract, '')][-1] AS abstract,
-                       '' AS summary,
+                       [node IN nodes(path) | coalesce(node.summary, '')][-1] AS summary,
                        size(nodes(path)) - 1 AS level,
                        [node IN nodes(path) | node.paperId][0] AS source_id
                 ORDER BY level
@@ -178,7 +178,7 @@ def random_walk(
                 MATCH (p:Paper {paperId: $startId})
                 RETURN p.paperId AS id, p.title AS title,
                        coalesce(p.abstract, '') AS abstract,
-                       '' AS summary
+                       coalesce(p.summary, '') AS summary
                 """,
                 startId=start_id
             )
@@ -232,7 +232,7 @@ def random_walk(
                             "id": node_id,
                             "title": node.get("title", ""),
                             "abstract": node.get("abstract", ""),
-                            "summary": "",
+                            "summary": node.get("summary", ""),
                             "level": len(visited_ids) - 1,
                             "source_id": start_id,
                         })
