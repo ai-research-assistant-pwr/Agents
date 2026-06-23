@@ -18,7 +18,7 @@ from app.openai_chat import OpenAIChatRouter
 
 logger = logging.getLogger(__name__)
 
-_MAX_RETRIES = 3
+_MAX_RETRIES = 6
 
 
 def _correction_messages(original_messages: list[dict], raw: str) -> list[dict]:
