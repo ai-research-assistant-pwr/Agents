@@ -344,4 +344,3 @@ def personalized_pagerank(
             session.run("CALL gds.graph.drop('ppr-papers-graph')")
 
     return results
-

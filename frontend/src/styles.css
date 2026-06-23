@@ -974,7 +974,8 @@ textarea { resize: none; }
 /* ============ Knowledge graph panel ============ */
 
 .kg-body {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -983,7 +984,9 @@ textarea { resize: none; }
 }
 .kg-svg {
   width: 100%;
-  flex: 1;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
   border: 1px solid var(--border-soft);
   border-radius: 6px;
   background: var(--bg);
@@ -1245,17 +1248,29 @@ textarea { resize: none; }
 /* =====================================================================
    Knowledge graph — interactive layout
    ===================================================================== */
-.kg-panel-outer { max-width: 1060px; width: 95vw; }
+.kg-panel-outer {
+  max-width: min(1060px, calc(100vw - 32px));
+  width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  height: min(760px, calc(100vh - 32px));
+}
 .kg-body-split {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 0;
   gap: 0;
-  min-height: 480px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.kg-body-split.kg-has-selection {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+  gap: 14px;
 }
 .kg-graph-area {
-  flex: 1;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 .kg-hint {
   font-size: 10.5px;
@@ -1268,23 +1283,32 @@ textarea { resize: none; }
   border-radius: 6px;
 }
 .kg-details-panel {
-  width: 0;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
   transition: width 0.2s ease, padding 0.2s ease;
-  border-left: 0 solid var(--border);
-  display: flex;
-  flex-direction: column;
+  border: 0 solid var(--border);
   gap: 10px;
   padding: 0;
   box-sizing: border-box;
 }
 .kg-details-panel.kg-details-visible {
-  width: 280px;
-  border-left-width: 1px;
-  padding: 20px 16px;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  align-self: stretch;
+  background: var(--bg);
+  border-width: 1px;
+  border-radius: 6px;
+  padding: 18px 16px;
   overflow-y: auto;
 }
 .kg-details-type {
+  margin-bottom: 10px;
   font-family: var(--font-mono);
   font-size: 10px;
   text-transform: uppercase;
@@ -1292,12 +1316,14 @@ textarea { resize: none; }
   color: var(--softer);
 }
 .kg-details-label {
+  margin-bottom: 10px;
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
   line-height: 1.3;
 }
 .kg-details-paperid {
+  margin-bottom: 12px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: #92400e;
@@ -1313,13 +1339,14 @@ textarea { resize: none; }
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--muted);
-  margin-top: 8px;
+  margin: 12px 0 6px;
 }
 .kg-details-text {
   font-size: 12.5px;
   line-height: 1.6;
   color: var(--text);
   margin: 0;
+  overflow-wrap: anywhere;
 }
 .kg-details-empty {
   font-size: 12px;
@@ -1328,7 +1355,7 @@ textarea { resize: none; }
 }
 .kg-details-hint { margin: auto; text-align: center; padding: 20px 16px; }
 .kg-details-close {
-  margin-top: auto;
+  margin-top: 14px;
   font-size: 12px;
   padding: 6px 12px;
   width: fit-content;
@@ -1336,6 +1363,38 @@ textarea { resize: none; }
 
 @media (max-width: 760px) {
   .app { height: auto; min-height: 100vh; }
+  .modal-overlay { padding: 12px; align-items: stretch; }
+  .kg-panel-outer {
+    width: 100%;
+    max-width: none;
+    height: calc(100vh - 24px);
+    max-height: calc(100vh - 24px);
+  }
+  .kg-body { overflow: hidden; padding: 12px; }
+  .kg-body-split {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 0;
+    gap: 0;
+  }
+  .kg-body-split.kg-has-selection {
+    grid-template-rows: minmax(280px, 58%) minmax(180px, 42%);
+    gap: 10px;
+  }
+  .kg-graph-area {
+    min-height: 0;
+  }
+  .kg-details-panel,
+  .kg-details-panel.kg-details-visible {
+    align-self: stretch;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    max-width: none;
+    max-height: none;
+    padding: 12px;
+    border-width: 1px;
+  }
   .model-controls { grid-template-columns: 1fr; }
   .qinput-footer {
     align-items: stretch;
