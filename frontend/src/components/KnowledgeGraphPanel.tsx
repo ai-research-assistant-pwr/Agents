@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KnowledgeGraph, KGNode } from '../types';
 
 interface Props {
@@ -10,34 +10,54 @@ interface Props {
 // Layout constants
 // ---------------------------------------------------------------------------
 
-const W = 900;
-const H = 620;
-const CX = W / 2;
-const CY = H / 2;
-const COMMUNITY_R = 160;
-const CONCEPT_R = 72;
-const PAPER_R_OFFSET = 90; // distance from parent community
+const BASE_W = 900;
+const BASE_H = 620;
+const MIN_NODE_GAP = 34;
+
+const NODE_COLORS: Record<KGNode['type'], string> = {
+  query: '#0c0a09',
+  community: '#292524',
+  concept: '#57534e',
+  paper: '#a16207',
+};
+
+const NODE_RADIUS: Record<KGNode['type'], number> = {
+  query: 22,
+  community: 16,
+  concept: 10,
+  paper: 12,
+};
 
 function toRad(deg: number) { return (deg * Math.PI) / 180; }
 
 interface NodePos { id: string; x: number; y: number; node: KGNode }
+interface GraphLayout { positions: Map<string, NodePos>; width: number; height: number }
 
-function computePositions(graph: KnowledgeGraph): Map<string, NodePos> {
+function computeLayout(graph: KnowledgeGraph): GraphLayout {
   const pos = new Map<string, NodePos>();
+  const paperCount = graph.nodes.filter((n) => n.type === 'paper').length;
+  const layoutWidth = Math.max(BASE_W, 520 + Math.ceil(Math.sqrt(Math.max(1, paperCount))) * 190);
+  const layoutHeight = Math.max(BASE_H, 420 + Math.ceil(Math.sqrt(Math.max(1, paperCount))) * 150);
+  const cx = layoutWidth / 2;
+  const cy = layoutHeight / 2;
 
   const queryNode = graph.nodes.find((n) => n.type === 'query');
-  if (queryNode) pos.set(queryNode.id, { id: queryNode.id, x: CX, y: CY, node: queryNode });
+  if (queryNode) pos.set(queryNode.id, { id: queryNode.id, x: cx, y: cy, node: queryNode });
 
   const communities = graph.nodes.filter((n) => n.type === 'community');
 
   if (communities.length > 0) {
     // Community-based layout (mock / structured data)
+    const communityR = Math.min(layoutWidth, layoutHeight) * 0.25;
+    const conceptR = 90;
+    const paperROffset = 125;
+
     communities.forEach((c, i) => {
       const angle = toRad((360 / communities.length) * i - 90);
       pos.set(c.id, {
         id: c.id,
-        x: CX + COMMUNITY_R * Math.cos(angle),
-        y: CY + COMMUNITY_R * Math.sin(angle),
+        x: cx + communityR * Math.cos(angle),
+        y: cy + communityR * Math.sin(angle),
         node: c,
       });
     });
@@ -58,7 +78,7 @@ function computePositions(graph: KnowledgeGraph): Map<string, NodePos> {
         const startAngle = communityAngle - toRad(spread / 2);
         const step = children.length > 1 ? toRad(spread / (children.length - 1)) : 0;
         const angle = startAngle + step * j;
-        const r = child.type === 'paper' ? PAPER_R_OFFSET : CONCEPT_R;
+        const r = child.type === 'paper' ? paperROffset : conceptR;
         pos.set(child.id, {
           id: child.id,
           x: comPos.x + r * Math.cos(angle),
@@ -73,19 +93,18 @@ function computePositions(graph: KnowledgeGraph): Map<string, NodePos> {
       graph.edges.filter((e) => e.source === 'query').map((e) => e.target)
     );
     const sourcePapers = graph.nodes.filter((n) => n.type === 'paper' && queryTargets.has(n.id));
-    const walkedPapers = graph.nodes.filter((n) => n.type === 'paper' && !queryTargets.has(n.id));
 
     // Scale rings to number of papers so they don't crowd
-    const innerR = Math.max(120, sourcePapers.length * 20);
-    const outerR = innerR + Math.max(100, walkedPapers.length * 6);
+    const innerR = Math.max(160, sourcePapers.length * 28);
+    const outerR = Math.min(layoutWidth, layoutHeight) * 0.43;
 
     // Inner ring: source papers evenly distributed
     sourcePapers.forEach((p, i) => {
       const angle = toRad((360 / Math.max(1, sourcePapers.length)) * i - 90);
       pos.set(p.id, {
         id: p.id,
-        x: CX + innerR * Math.cos(angle),
-        y: CY + innerR * Math.sin(angle),
+        x: cx + innerR * Math.cos(angle),
+        y: cy + innerR * Math.sin(angle),
         node: p,
       });
     });
@@ -103,16 +122,16 @@ function computePositions(graph: KnowledgeGraph): Map<string, NodePos> {
     childrenBySource.forEach((children, sourceId) => {
       const srcPos = pos.get(sourceId);
       if (!srcPos) return;
-      const baseAngle = Math.atan2(srcPos.y - CY, srcPos.x - CX);
-      const spread = toRad(Math.min(55, 13 * children.length));
+      const baseAngle = Math.atan2(srcPos.y - cy, srcPos.x - cx);
+      const spread = toRad(Math.min(85, 18 * children.length));
       children.forEach((child, j) => {
         if (pos.has(child.id)) return;
         const step = children.length > 1 ? (2 * spread) / (children.length - 1) : 0;
         const angle = baseAngle - spread + step * j;
         pos.set(child.id, {
           id: child.id,
-          x: CX + outerR * Math.cos(angle),
-          y: CY + outerR * Math.sin(angle),
+          x: cx + outerR * Math.cos(angle),
+          y: cy + outerR * Math.sin(angle),
           node: child,
         });
       });
@@ -126,45 +145,85 @@ function computePositions(graph: KnowledgeGraph): Map<string, NodePos> {
       const angle = toRad(fallbackIdx * 47);
       pos.set(n.id, {
         id: n.id,
-        x: CX + 190 * Math.cos(angle),
-        y: CY + 190 * Math.sin(angle),
+        x: cx + 230 * Math.cos(angle),
+        y: cy + 230 * Math.sin(angle),
         node: n,
       });
       fallbackIdx++;
     }
   });
 
-  return pos;
+  relaxCollisions(pos, layoutWidth, layoutHeight);
+
+  return { positions: pos, width: layoutWidth, height: layoutHeight };
 }
 
-const NODE_COLORS: Record<KGNode['type'], string> = {
-  query: '#0c0a09',
-  community: '#292524',
-  concept: '#57534e',
-  paper: '#a16207',
-};
+function nodeClearance(node: KGNode) {
+  if (node.type === 'query') return 70;
+  if (node.type === 'community') return 58;
+  return NODE_RADIUS[node.type] + MIN_NODE_GAP;
+}
 
-const NODE_RADIUS: Record<KGNode['type'], number> = {
-  query: 22,
-  community: 16,
-  concept: 10,
-  paper: 12,
-};
+function relaxCollisions(pos: Map<string, NodePos>, width: number, height: number) {
+  const nodes = Array.from(pos.values());
+  const margin = 46;
+
+  for (let iter = 0; iter < 80; iter++) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i];
+        const b = nodes[j];
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let dist = Math.hypot(dx, dy);
+        if (dist < 0.001) {
+          dx = Math.cos(i + j);
+          dy = Math.sin(i + j);
+          dist = 1;
+        }
+
+        const minDist = nodeClearance(a.node) + nodeClearance(b.node);
+        if (dist >= minDist) continue;
+
+        const push = (minDist - dist) / 2;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        if (a.node.type !== 'query') {
+          a.x -= nx * push;
+          a.y -= ny * push;
+        }
+        if (b.node.type !== 'query') {
+          b.x += nx * push;
+          b.y += ny * push;
+        }
+      }
+    }
+
+    nodes.forEach((n) => {
+      if (n.node.type === 'query') return;
+      n.x = Math.min(width - margin, Math.max(margin, n.x));
+      n.y = Math.min(height - margin, Math.max(margin, n.y));
+    });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
-  const positions = computePositions(graph);
+  const { positions, width, height } = useMemo(() => computeLayout(graph), [graph]);
+  const homeOffsetX = (BASE_W - width) / 2;
+  const homeOffsetY = (BASE_H - height) / 2;
 
   // Pan / zoom state
-  const [offsetX, setOffsetX] = useState(0);
-  const [offsetY, setOffsetY] = useState(0);
+  const [offsetX, setOffsetX] = useState(homeOffsetX);
+  const [offsetY, setOffsetY] = useState(homeOffsetY);
   const [scale, setScale] = useState(1);
   const dragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
+  const nodePointerStart = useRef<{ id: string; x: number; y: number } | null>(null);
 
   // Selected node for detail panel
   const [selectedNode, setSelectedNode] = useState<KGNode | null>(null);
@@ -217,9 +276,17 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
     (e.currentTarget as SVGElement).removeEventListener('mouseup', onMouseUp as EventListener);
   }
 
-  // Node clicks — fired from the <g> onClick; use hasDragged to ignore drag-ends
-  function handleNodeClick(node: KGNode) {
-    if (hasDragged.current) return;
+  function handleNodePointerDown(e: React.PointerEvent, node: KGNode) {
+    e.stopPropagation();
+    nodePointerStart.current = { id: node.id, x: e.clientX, y: e.clientY };
+  }
+
+  function handleNodePointerUp(e: React.PointerEvent, node: KGNode) {
+    e.stopPropagation();
+    const start = nodePointerStart.current;
+    nodePointerStart.current = null;
+    if (!start || start.id !== node.id) return;
+    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) return;
     setSelectedNode((prev) => (prev?.id === node.id ? null : node));
   }
 
@@ -230,12 +297,13 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
   }
 
   function resetView() {
-    setOffsetX(0);
-    setOffsetY(0);
+    setOffsetX(homeOffsetX);
+    setOffsetY(homeOffsetY);
     setScale(1);
   }
 
   const transform = `translate(${offsetX} ${offsetY}) scale(${scale})`;
+  const selectedBody = selectedNode?.summary || selectedNode?.abstract;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -261,7 +329,7 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
           <div className="kg-graph-area">
             <svg
               ref={svgRef}
-              viewBox={`0 0 ${W} ${H}`}
+              viewBox={`0 0 ${BASE_W} ${BASE_H}`}
               className="kg-svg"
               style={{ cursor: 'grab' }}
               aria-label="Knowledge graph visualisation"
@@ -305,7 +373,8 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
                   return (
                     <g
                       key={id}
-                      onClick={() => handleNodeClick(node)}
+                      onPointerDown={(e) => handleNodePointerDown(e, node)}
+                      onPointerUp={(e) => handleNodePointerUp(e, node)}
                       style={{ cursor: 'pointer' }}
                     >
                       {isSelected && (
@@ -380,19 +449,25 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
                 {selectedNode.paperId && (
                   <div className="kg-details-paperid">{selectedNode.paperId}</div>
                 )}
-                {selectedNode.abstract && (
-                  <>
-                    <div className="kg-details-section">Abstract</div>
-                    <p className="kg-details-text">{selectedNode.abstract}</p>
-                  </>
-                )}
                 {selectedNode.summary && (
                   <>
                     <div className="kg-details-section">Summary</div>
                     <p className="kg-details-text">{selectedNode.summary}</p>
                   </>
                 )}
-                {!selectedNode.abstract && !selectedNode.summary && (
+                {!selectedNode.summary && selectedNode.abstract && (
+                  <>
+                    <div className="kg-details-section">Abstract</div>
+                    <p className="kg-details-text">{selectedNode.abstract}</p>
+                  </>
+                )}
+                {selectedNode.summary && selectedNode.abstract && selectedNode.abstract !== selectedNode.summary && (
+                  <>
+                    <div className="kg-details-section">Abstract</div>
+                    <p className="kg-details-text">{selectedNode.abstract}</p>
+                  </>
+                )}
+                {!selectedBody && (
                   <p className="kg-details-text kg-details-empty">
                     No additional metadata for this node.
                   </p>

@@ -974,7 +974,8 @@ textarea { resize: none; }
 /* ============ Knowledge graph panel ============ */
 
 .kg-body {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -983,7 +984,9 @@ textarea { resize: none; }
 }
 .kg-svg {
   width: 100%;
-  flex: 1;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
   border: 1px solid var(--border-soft);
   border-radius: 6px;
   background: var(--bg);
@@ -1245,17 +1248,23 @@ textarea { resize: none; }
 /* =====================================================================
    Knowledge graph — interactive layout
    ===================================================================== */
-.kg-panel-outer { max-width: 1060px; width: 95vw; }
+.kg-panel-outer {
+  max-width: min(1060px, calc(100vw - 32px));
+  width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+}
 .kg-body-split {
   display: flex;
   gap: 0;
-  min-height: 480px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .kg-graph-area {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 .kg-hint {
   font-size: 10.5px;
@@ -1280,6 +1289,8 @@ textarea { resize: none; }
 }
 .kg-details-panel.kg-details-visible {
   width: 280px;
+  min-width: 240px;
+  max-width: 34%;
   border-left-width: 1px;
   padding: 20px 16px;
   overflow-y: auto;
@@ -1336,6 +1347,22 @@ textarea { resize: none; }
 
 @media (max-width: 760px) {
   .app { height: auto; min-height: 100vh; }
+  .modal-overlay { padding: 12px; align-items: stretch; }
+  .kg-panel-outer {
+    width: 100%;
+    max-width: none;
+    max-height: calc(100vh - 24px);
+  }
+  .kg-body-split { flex-direction: column; }
+  .kg-details-panel,
+  .kg-details-panel.kg-details-visible {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    max-height: 38vh;
+    border-left-width: 0;
+    border-top: 1px solid var(--border);
+  }
   .model-controls { grid-template-columns: 1fr; }
   .qinput-footer {
     align-items: stretch;
