@@ -12,6 +12,7 @@ interface Props {
   userMenuRef: RefObject<HTMLDivElement> | MutableRefObject<HTMLDivElement | null>;
   onNewHypothesis: () => void;
   onSessionClick: (id: string) => void;
+  onDeleteSession: (id: string) => void;
   onOpenAuthModal: () => void;
   onToggleUserMenu: () => void;
   onLogout: () => void;
@@ -19,7 +20,7 @@ interface Props {
 
 export default function Sidebar({
   sessions, activeId, authUser, userMenuOpen, userMenuRef,
-  onNewHypothesis, onSessionClick, onOpenAuthModal, onToggleUserMenu, onLogout,
+  onNewHypothesis, onSessionClick, onDeleteSession, onOpenAuthModal, onToggleUserMenu, onLogout,
 }: Props) {
   const groups = groupByBucket(sessions);
 
@@ -48,18 +49,27 @@ export default function Sidebar({
             {items.map((s) => {
               const isActive = s.id === activeId;
               return (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={`sidebar-item${isActive ? ' active' : ''}`}
-                  onClick={() => onSessionClick(s.id)}
-                >
-                  {isActive && <span className="active-dot" />}
-                  <span className="sidebar-item-title">{s.title}</span>
-                  {s.status === 'developed' && (
-                    <span className="sidebar-status-dot" title="Developed" />
-                  )}
-                </button>
+                <div key={s.id} className={`sidebar-item-wrap${isActive ? ' active' : ''}`}>
+                  <button
+                    type="button"
+                    className={`sidebar-item${isActive ? ' active' : ''}`}
+                    onClick={() => onSessionClick(s.id)}
+                  >
+                    {isActive && <span className="active-dot" />}
+                    <span className="sidebar-item-title">{s.title}</span>
+                    {s.status === 'developed' && (
+                      <span className="sidebar-status-dot" title="Developed" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="sidebar-delete-btn"
+                    title="Delete session"
+                    onClick={(e) => { e.stopPropagation(); onDeleteSession(s.id); }}
+                  >
+                    ✕
+                  </button>
+                </div>
               );
             })}
           </div>

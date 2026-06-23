@@ -6,6 +6,7 @@ from app.generator.prompts import (
     GENERATE_USER_TEMPLATE,
     GENERATOR_SYSTEM_PROMPT,
     HypothesesResponse,
+    build_persona_section,
 )
 from app.models import GeneratorResult, RetrieverResult
 
@@ -17,7 +18,7 @@ class APILLMGenerator(BaseGenerator):
         self.api_client = api_client
 
     def generate(
-        self, prompt: str, retriever_output: RetrieverResult
+        self, prompt: str, retriever_output: RetrieverResult, **kwargs
     ) -> GeneratorResult:
         """Call the LLM to generate hypotheses using structured output.
 
@@ -28,12 +29,17 @@ class APILLMGenerator(BaseGenerator):
         Returns:
             A GeneratorResult containing the list of hypotheses.
         """
+        persona = kwargs.pop("persona", None)
+        system_prompt = GENERATOR_SYSTEM_PROMPT
+        if persona:
+            system_prompt = system_prompt + build_persona_section(persona)
+
         user_content = GENERATE_USER_TEMPLATE.format(
             prompt=prompt,
             retriever_output=retriever_output.content,
         )
         messages = [
-            Message(role="system", content=GENERATOR_SYSTEM_PROMPT),
+            Message(role="system", content=system_prompt),
             Message(role="user", content=user_content),
         ]
 

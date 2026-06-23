@@ -1,10 +1,45 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+_PERSONA_TEMPLATE = (
+    "\n\n## Scientific Persona: {display_name}\n\n"
+    "You are generating hypotheses AS this persona. Fully adopt this perspective.\n\n"
+    "- Name: {display_name}\n"
+    "- Core Philosophy: {core_philosophy}\n"
+    "- Areas of Expertise: {areas_of_expertise}\n"
+    "- What I Look For (your hypothesis MUST embody these criteria): {what_i_look_for}\n"
+    "- What I Reject (your hypothesis MUST avoid these): {what_i_reject}\n"
+    "- Communication Style: {communication_style}\n"
+    "- Hypothesis Signature (structural elements your hypothesis MUST contain): {hypothesis_signature}\n"
+    "- Vocabulary Markers (terms native to your voice — use several of these naturally, do not list them): {vocabulary_markers}\n\n"
+    "## Persona Adherence Guidance\n\n"
+    "1. **Persona Embodiment.** Read your persona's Core Philosophy, What I Look For, What I Reject, "
+    "and Hypothesis Signature. Your hypothesis must:\n"
+    "   - Address the user's question — but interpret what's worth answering through THIS persona's priorities.\n"
+    "   - Contain ALL elements listed in the persona's Hypothesis Signature.\n"
+    "   - Use vocabulary natural to this persona — incorporate several Vocabulary Markers organically.\n"
+    "   - Avoid every element listed in What I Reject."
+)
+
+
+def build_persona_section(persona: dict) -> str:
+    """Format a persona dict into a system-prompt block."""
+    return _PERSONA_TEMPLATE.format(
+        display_name=persona["display_name"],
+        core_philosophy=persona["core_philosophy"],
+        areas_of_expertise=", ".join(persona.get("areas_of_expertise", [])),
+        what_i_look_for="; ".join(persona.get("what_i_look_for", [])),
+        what_i_reject="; ".join(persona.get("what_i_reject", [])),
+        communication_style=persona["communication_style"],
+        hypothesis_signature="; ".join(persona.get("hypothesis_signature", [])),
+        vocabulary_markers=", ".join(persona.get("vocabulary_markers", [])),
+    )
 
 
 class HypothesesResponse(BaseModel):
     """Structured output schema for the hypothesis generator."""
 
-    hypotheses: list[str]
+    hypotheses: list[str] = Field(..., description="A list of two scientific hypotheses, each 2-3 sentences long.")
 
 
 GENERATOR_SYSTEM_PROMPT = (
@@ -13,6 +48,7 @@ GENERATOR_SYSTEM_PROMPT = (
     "agent has already analyzed source materials and provided you with a structured "
     "summary of relevant evidence. Your task is to generate high-quality scientific "
     "hypotheses based on this evidence and the user's research prompt.\n\n"
+    "The hypotheses should be 2-3 sentences long.\n"
     "## Hypothesis Quality Criteria\n\n"
     "Every hypothesis you generate MUST satisfy ALL of the following criteria:\n\n"
     "1. **Clear and precisely stated.** Each hypothesis should be unambiguous, with "
@@ -60,7 +96,8 @@ GENERATE_USER_TEMPLATE = (
     "Based on the research prompt and supporting evidence above, generate a list of "
     "scientific hypotheses. Ensure each hypothesis is clear, relevant, grounded in the "
     "evidence, diverse from the others, and novel beyond what the evidence already states. "
-    "Prioritize quality and scientific rigor over quantity."
+    # "Prioritize quality and scientific rigor over quantity."
+    "The hypotheses should be 2-3 sentences long."
 )
 
 FEEDBACK_SYSTEM_PROMPT = (

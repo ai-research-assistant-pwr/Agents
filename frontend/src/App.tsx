@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, authLogout, exportSessionAsMarkdown, setMockUserId } from './api';
 import { getAuthUser } from './auth';
 import type { AuthUser } from './auth';
-import type { HypothesisId, ModelList, Session, SessionListItem } from './types';
+import type { HypothesisId, ModelList, Persona, Session, SessionListItem } from './types';
 import Sidebar from './components/Sidebar';
 import ChatView, { type ChatPhase } from './components/ChatView';
 import QuestionInput from './components/QuestionInput';
@@ -19,6 +19,8 @@ export default function App() {
   const [phase, setPhase] = useState<AppPhase>({ kind: 'idle' });
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [models, setModels] = useState<ModelList>(EMPTY_MODELS);
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string>('');
   const [selectedRetrieverModel, setSelectedRetrieverModel] = useState('');
   const [selectedGeneratorModel, setSelectedGeneratorModel] = useState('');
   const [modelsLoading, setModelsLoading] = useState(true);
@@ -76,6 +78,10 @@ export default function App() {
         if (!cancelled) setModelsLoading(false);
       });
     return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    api.listPersonas().then(setPersonas).catch(() => setPersonas([]));
   }, []);
 
   function refreshSidebar() {
@@ -138,6 +144,7 @@ export default function App() {
         question,
         retrieverModelName: selectedRetrieverModel,
         generatorModelName: selectedGeneratorModel,
+        personaId: selectedPersonaId || undefined,
       });
       setPhase({ kind: 'generated', session, rationale: '', submitting: false });
       refreshSidebar();
@@ -197,6 +204,20 @@ export default function App() {
     setTraceOpen(false);
     setKgOpen(false);
     setPhase({ kind: 'idle' });
+  }
+
+  async function handleDeleteSession(id: string) {
+    try {
+      await api.deleteSession(id);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+      if (activeSessionId() === id) {
+        setPhase({ kind: 'idle' });
+        setTraceOpen(false);
+        setKgOpen(false);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete session');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -299,6 +320,7 @@ export default function App() {
         userMenuRef={userMenuRef}
         onNewHypothesis={handleNewHypothesis}
         onSessionClick={handleSessionClick}
+        onDeleteSession={handleDeleteSession}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         onToggleUserMenu={() => setUserMenuOpen((v) => !v)}
         onLogout={handleLogout}
@@ -348,6 +370,9 @@ export default function App() {
               modelsLoading={modelsLoading}
               onRetrieverModelChange={setSelectedRetrieverModel}
               onGeneratorModelChange={setSelectedGeneratorModel}
+              personas={personas}
+              selectedPersonaId={selectedPersonaId}
+              onPersonaChange={setSelectedPersonaId}
             />
           )}
           {phase.kind !== 'idle' && (
@@ -360,6 +385,7 @@ export default function App() {
               onConvInputChange={handleConvInputChange}
               onConvSend={handleConvSend}
               onViewTrace={() => setTraceOpen(true)}
+              onViewGraph={() => setKgOpen(true)}
             />
           )}
         </div>

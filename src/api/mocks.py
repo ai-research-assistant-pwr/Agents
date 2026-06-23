@@ -209,7 +209,12 @@ def mock_chat_reply(session: SessionOut, user_message: str) -> str:
     )
 
 
-def run_mock(question: str, retriever_model_name: str, generator_model_name: str) -> SessionOut:
+def run_mock(
+    question: str,
+    retriever_model_name: str,
+    generator_model_name: str,
+    persona_id: str | None = None,
+) -> SessionOut:
     t0 = time.monotonic()
     session_id = str(uuid4())
     elapsed = round(time.monotonic() - t0 + 0.1, 3)

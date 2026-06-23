@@ -36,6 +36,7 @@ interface Props {
   onConvInputChange: (text: string) => void;
   onConvSend: () => void;
   onViewTrace: () => void;
+  onViewGraph: () => void;
 }
 
 export default function ChatView({
@@ -47,6 +48,7 @@ export default function ChatView({
   onConvInputChange,
   onConvSend,
   onViewTrace,
+  onViewGraph,
 }: Props) {
   const question = phase.kind === 'exploring' ? phase.question : phase.session.question;
   const session: Session | null = phase.kind !== 'exploring' ? phase.session : null;
@@ -82,7 +84,9 @@ export default function ChatView({
           </div>
           <ExplorerCard
             exploration={session?.exploration ?? null}
+            hasGraph={!!session?.knowledgeGraph}
             onViewTrace={onViewTrace}
+            onViewGraph={onViewGraph}
           />
         </div>
       </div>

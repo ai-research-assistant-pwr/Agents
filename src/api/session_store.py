@@ -58,6 +58,7 @@ def _row_to_out(row: DBSession) -> SessionOut:
         createdAt=row.created_at,
         exploration=exploration,
         hypotheses=hypotheses,
+        personaId=getattr(row, "persona_id", None),
         selectedId=row.selected_id,
         rationale=row.rationale,
         messages=messages,
@@ -79,6 +80,7 @@ def save_session(session: SessionOut, user_id: str = "anonymous") -> None:
             question=session.question,
             retriever_model_name=session.retrieverModelName,
             generator_model_name=session.generatorModelName,
+            persona_id=session.personaId,
             created_at=session.createdAt,
             exploration=session.exploration.model_dump(),
             hypotheses=[h.model_dump() for h in session.hypotheses],
@@ -127,6 +129,15 @@ def list_all(user_id: str | None = None) -> list[SessionOut]:
             query = query.filter(DBSession.user_id == user_id)
         rows = query.order_by(DBSession.created_at.desc()).all()
         return [_row_to_out(r) for r in rows]
+
+
+def delete_session(session_id: str) -> bool:
+    with _db() as db:
+        row = db.get(DBSession, session_id)
+        if row is None:
+            return False
+        db.delete(row)
+        return True
 
 
 def clear() -> None:

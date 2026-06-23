@@ -1,6 +1,6 @@
 import type { AuthUser } from './auth';
 import { getAuthHeader, saveAuth, clearAuth } from './auth';
-import type { GeneratePayload, ModelList, Session, SelectPayload, SessionListItem } from './types';
+import type { GeneratePayload, ModelList, Persona, PersonaList, Session, SelectPayload, SessionListItem } from './types';
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
 const API_BASE = '/api';
@@ -81,6 +81,11 @@ async function realListModels(): Promise<ModelList> {
   return jsonFetch<ModelList>(`${API_BASE}/models`);
 }
 
+async function realListPersonas(): Promise<Persona[]> {
+  const r = await jsonFetch<PersonaList>(`${API_BASE}/personas`);
+  return r.personas;
+}
+
 async function realSelect(sessionId: string, payload: SelectPayload): Promise<void> {
   await jsonFetch<{ ok: true }>(`${API_BASE}/sessions/${sessionId}/select`, {
     method: 'POST',
@@ -103,6 +108,18 @@ async function realSendMessage(sessionId: string, message: string): Promise<stri
     body: JSON.stringify({ message }),
   });
   return r.reply;
+}
+
+async function realDeleteSession(sessionId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+    method: 'DELETE',
+    headers: { ...getAuthHeader() },
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { const body = await res.json(); detail = body.detail ?? detail; } catch { /* ignore */ }
+    throw new Error(`${res.status} ${detail}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +222,17 @@ async function mockListModels(): Promise<ModelList> {
   };
 }
 
+async function mockListPersonas(): Promise<Persona[]> {
+  await sleep(80);
+  return [
+    { personaId: 'domain_expert',    displayName: 'The Domain Applicationist',    corePhilosophy: 'I am problem-first, not method-first. My loyalty is to the domain, not the algorithm. I judge models solely by their ability to solve real-world problems.' },
+    { personaId: 'rigorous_skeptic', displayName: 'The Rigorous Skeptic',         corePhilosophy: 'A result without a strong theoretical foundation and an auditable decision process is not a result — it is an anecdote with compute.' },
+    { personaId: 'efficient_compute', displayName: 'The Efficient Compute Engineer', corePhilosophy: 'A model that can\'t run in the real world due to latency, cost, or hardware constraints is not a useful model — it is a research artifact.' },
+    { personaId: 'data_engineer',    displayName: 'The Data-Centric Engineer',    corePhilosophy: 'Improvements in data quality, augmentation, and curation have a far higher return on investment than minor model architecture tweaks.' },
+    { personaId: 'sota_chaser',      displayName: 'The SOTA Chaser',              corePhilosophy: 'Theory is nice, but progress is ultimately measured by what works in practice to beat state-of-the-art benchmarks.' },
+  ];
+}
+
 async function mockGenerate(payload: GeneratePayload): Promise<Session> {
   await sleep(MOCK_DELAY_MS);
   const session: Session = {
@@ -268,6 +296,12 @@ async function mockGetSession(sessionId: string): Promise<Session> {
   return { ...s };
 }
 
+async function mockDeleteSession(sessionId: string): Promise<void> {
+  await sleep(200);
+  _mockSessions.delete(sessionId);
+  for (const ids of _userSessionIds.values()) ids.delete(sessionId);
+}
+
 async function mockSendMessage(sessionId: string, message: string): Promise<string> {
   await sleep(800);
   const s = _mockSessions.get(sessionId);
@@ -292,12 +326,14 @@ async function mockSendMessage(sessionId: string, message: string): Promise<stri
 // ---------------------------------------------------------------------------
 
 export const api = {
-  generate:     USE_MOCK ? mockGenerate     : realGenerate,
-  listModels:   USE_MOCK ? mockListModels   : realListModels,
-  select:       USE_MOCK ? mockSelect       : realSelect,
-  listSessions: USE_MOCK ? mockListSessions : realListSessions,
-  getSession:   USE_MOCK ? mockGetSession   : realGetSession,
-  sendMessage:  USE_MOCK ? mockSendMessage  : realSendMessage,
+  generate:      USE_MOCK ? mockGenerate       : realGenerate,
+  listModels:    USE_MOCK ? mockListModels     : realListModels,
+  listPersonas:  USE_MOCK ? mockListPersonas   : realListPersonas,
+  select:        USE_MOCK ? mockSelect         : realSelect,
+  listSessions:  USE_MOCK ? mockListSessions   : realListSessions,
+  getSession:    USE_MOCK ? mockGetSession     : realGetSession,
+  sendMessage:   USE_MOCK ? mockSendMessage    : realSendMessage,
+  deleteSession: USE_MOCK ? mockDeleteSession  : realDeleteSession,
   isMock: USE_MOCK,
 };
 

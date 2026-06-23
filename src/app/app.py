@@ -116,6 +116,8 @@ class Pipeline:
         if save_dir:
             self._save_step(save_dir, "05_generator", asdict(result))
 
+        # Surface explorer metadata so the API layer can build the knowledge graph.
+        result.metadata["explorer"] = explorer_output.metadata
         return result
 
     def _prepare_save_dir(self) -> Path:

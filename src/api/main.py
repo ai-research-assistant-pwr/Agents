@@ -26,10 +26,14 @@ JWT_SECRET          Secret for signing tokens. Override in production.
 CORS_ORIGINS        Comma-separated allowed origins (defaults to "*").
 """
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
+_PERSONAS_PATH = Path(__file__).resolve().parents[2] / "personas" / "personas_all.json"
 
 from api import session_store
 from api.auth import (
@@ -47,6 +51,8 @@ from api.models import (
     LoginRequest,
     Message,
     ModelListOut,
+    PersonaListOut,
+    PersonaOut,
     RegisterRequest,
     SelectRequest,
     SelectResponse,
@@ -57,6 +63,7 @@ from api.models import (
     UserOut,
 )
 from api.pipeline import generate_chat_reply, run_pipeline
+from api.session_store import delete_session as _delete_session
 
 settings = get_settings()
 
@@ -122,6 +129,7 @@ def create_session(
         body.question,
         retriever_model_name=body.retrieverModelName,
         generator_model_name=body.generatorModelName,
+        persona_id=body.personaId,
     )
     session_store.save_session(session, user_id=user_id)
     return session
@@ -132,6 +140,22 @@ def list_models() -> ModelListOut:
     return ModelListOut(
         retrieverModels=settings.retriever_model_names,
         generatorModels=settings.generator_model_names,
+    )
+
+
+@app.get("/api/personas", response_model=PersonaListOut)
+def list_personas() -> PersonaListOut:
+    with open(_PERSONAS_PATH) as f:
+        raw = json.load(f)
+    return PersonaListOut(
+        personas=[
+            PersonaOut(
+                personaId=p["persona_id"],
+                displayName=p["display_name"],
+                corePhilosophy=p["core_philosophy"],
+            )
+            for p in raw
+        ]
     )
 
 
@@ -172,6 +196,16 @@ def select_hypothesis(session_id: str, body: SelectRequest) -> SelectResponse:
     if not ok:
         raise HTTPException(status_code=404, detail=f"Session {session_id!r} not found.")
     return SelectResponse(ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Session deletion
+# ---------------------------------------------------------------------------
+
+
+@app.delete("/api/sessions/{session_id}", status_code=204)
+def delete_session(session_id: str) -> None:
+    _delete_session(session_id)  # no-op if already gone — idempotent
 
 
 # ---------------------------------------------------------------------------

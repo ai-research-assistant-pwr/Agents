@@ -3,10 +3,12 @@ import { ArrowUpRight } from './icons';
 
 interface Props {
   exploration: ExplorerResult | null;
+  hasGraph?: boolean;
   onViewTrace?: () => void;
+  onViewGraph?: () => void;
 }
 
-export default function ExplorerCard({ exploration, onViewTrace }: Props) {
+export default function ExplorerCard({ exploration, hasGraph, onViewTrace, onViewGraph }: Props) {
   if (!exploration) {
     return (
       <div className="explorer-card">
@@ -15,14 +17,6 @@ export default function ExplorerCard({ exploration, onViewTrace }: Props) {
             <span className="status-dot pulsing" />
             <span>Traversing knowledge graph…</span>
           </span>
-        </div>
-        <div className="explorer-stats">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="stat">
-              <div className="skel skel-num" />
-              <div className="skel skel-label" />
-            </div>
-          ))}
         </div>
       </div>
     );
@@ -33,37 +27,22 @@ export default function ExplorerCard({ exploration, onViewTrace }: Props) {
       <div className="explorer-head">
         <span className="status-row">
           <span className="status-dot green" />
-          <span>Knowledge graph traversed</span>
+          <span>
+            Knowledge graph traversed
+            {exploration.nodesTraversed > 0 && ` · ${exploration.nodesTraversed} nodes`}
+          </span>
         </span>
-        <button type="button" className="link-btn" onClick={onViewTrace}>
-          View reasoning trace <ArrowUpRight />
-        </button>
+        <span className="explorer-actions">
+          {hasGraph && (
+            <button type="button" className="link-btn" onClick={onViewGraph}>
+              View graph <ArrowUpRight />
+            </button>
+          )}
+          <button type="button" className="link-btn" onClick={onViewTrace}>
+            View reasoning trace <ArrowUpRight />
+          </button>
+        </span>
       </div>
-      <div className="explorer-stats">
-        <Stat n={exploration.nodesTraversed} label="nodes traversed" />
-        <Stat n={exploration.relations} label="typed relations" />
-        <Stat n={exploration.sourcePapers} label="source papers" />
-        <Stat n={exploration.clusters} label="subgraph clusters" />
-      </div>
-      {exploration.communities.length > 0 && (
-        <div className="explorer-communities">
-          <div className="micro-label">Communities surfaced</div>
-          <div className="chip-row">
-            {exploration.communities.map((c) => (
-              <span key={c} className="chip chip-soft">{c}</span>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Stat({ n, label }: { n: number; label: string }) {
-  return (
-    <div className="stat">
-      <div className="stat-num">{n}</div>
-      <div className="stat-label">{label}</div>
     </div>
   );
 }

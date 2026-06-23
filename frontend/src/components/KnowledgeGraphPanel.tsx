@@ -10,8 +10,8 @@ interface Props {
 // Layout constants
 // ---------------------------------------------------------------------------
 
-const W = 700;
-const H = 460;
+const W = 900;
+const H = 620;
 const CX = W / 2;
 const CY = H / 2;
 const COMMUNITY_R = 160;
@@ -29,44 +29,109 @@ function computePositions(graph: KnowledgeGraph): Map<string, NodePos> {
   if (queryNode) pos.set(queryNode.id, { id: queryNode.id, x: CX, y: CY, node: queryNode });
 
   const communities = graph.nodes.filter((n) => n.type === 'community');
-  communities.forEach((c, i) => {
-    const angle = toRad((360 / communities.length) * i - 90);
-    pos.set(c.id, {
-      id: c.id,
-      x: CX + COMMUNITY_R * Math.cos(angle),
-      y: CY + COMMUNITY_R * Math.sin(angle),
-      node: c,
-    });
-  });
 
-  communities.forEach((c, ci) => {
-    const communityAngle = toRad((360 / communities.length) * ci - 90);
-    const children = graph.edges
-      .filter((e) => e.source === c.id)
-      .map((e) => graph.nodes.find((n) => n.id === e.target))
-      .filter((n): n is KGNode => n !== undefined && n.type !== 'community' && n.type !== 'query');
-
-    const comPos = pos.get(c.id);
-    if (!comPos) return;
-
-    children.forEach((child, j) => {
-      if (pos.has(child.id)) return;
-      const spread = Math.min(80, 20 * children.length);
-      const startAngle = communityAngle - toRad(spread / 2);
-      const step = children.length > 1 ? toRad(spread / (children.length - 1)) : 0;
-      const angle = startAngle + step * j;
-      const r = child.type === 'paper' ? PAPER_R_OFFSET : CONCEPT_R;
-      pos.set(child.id, {
-        id: child.id,
-        x: comPos.x + r * Math.cos(angle),
-        y: comPos.y + r * Math.sin(angle),
-        node: child,
+  if (communities.length > 0) {
+    // Community-based layout (mock / structured data)
+    communities.forEach((c, i) => {
+      const angle = toRad((360 / communities.length) * i - 90);
+      pos.set(c.id, {
+        id: c.id,
+        x: CX + COMMUNITY_R * Math.cos(angle),
+        y: CY + COMMUNITY_R * Math.sin(angle),
+        node: c,
       });
     });
-  });
 
+    communities.forEach((c, ci) => {
+      const communityAngle = toRad((360 / communities.length) * ci - 90);
+      const children = graph.edges
+        .filter((e) => e.source === c.id)
+        .map((e) => graph.nodes.find((n) => n.id === e.target))
+        .filter((n): n is KGNode => n !== undefined && n.type !== 'community' && n.type !== 'query');
+
+      const comPos = pos.get(c.id);
+      if (!comPos) return;
+
+      children.forEach((child, j) => {
+        if (pos.has(child.id)) return;
+        const spread = Math.min(80, 20 * children.length);
+        const startAngle = communityAngle - toRad(spread / 2);
+        const step = children.length > 1 ? toRad(spread / (children.length - 1)) : 0;
+        const angle = startAngle + step * j;
+        const r = child.type === 'paper' ? PAPER_R_OFFSET : CONCEPT_R;
+        pos.set(child.id, {
+          id: child.id,
+          x: comPos.x + r * Math.cos(angle),
+          y: comPos.y + r * Math.sin(angle),
+          node: child,
+        });
+      });
+    });
+  } else {
+    // Flat layout for real Neo4j data: query → source papers → walked papers
+    const queryTargets = new Set(
+      graph.edges.filter((e) => e.source === 'query').map((e) => e.target)
+    );
+    const sourcePapers = graph.nodes.filter((n) => n.type === 'paper' && queryTargets.has(n.id));
+    const walkedPapers = graph.nodes.filter((n) => n.type === 'paper' && !queryTargets.has(n.id));
+
+    // Scale rings to number of papers so they don't crowd
+    const innerR = Math.max(120, sourcePapers.length * 20);
+    const outerR = innerR + Math.max(100, walkedPapers.length * 6);
+
+    // Inner ring: source papers evenly distributed
+    sourcePapers.forEach((p, i) => {
+      const angle = toRad((360 / Math.max(1, sourcePapers.length)) * i - 90);
+      pos.set(p.id, {
+        id: p.id,
+        x: CX + innerR * Math.cos(angle),
+        y: CY + innerR * Math.sin(angle),
+        node: p,
+      });
+    });
+
+    // Outer ring: walked papers grouped behind their source
+    const childrenBySource = new Map<string, KGNode[]>();
+    graph.edges.forEach((e) => {
+      if (e.source === 'query') return;
+      const target = graph.nodes.find((n) => n.id === e.target);
+      if (!target) return;
+      if (!childrenBySource.has(e.source)) childrenBySource.set(e.source, []);
+      childrenBySource.get(e.source)!.push(target);
+    });
+
+    childrenBySource.forEach((children, sourceId) => {
+      const srcPos = pos.get(sourceId);
+      if (!srcPos) return;
+      const baseAngle = Math.atan2(srcPos.y - CY, srcPos.x - CX);
+      const spread = toRad(Math.min(55, 13 * children.length));
+      children.forEach((child, j) => {
+        if (pos.has(child.id)) return;
+        const step = children.length > 1 ? (2 * spread) / (children.length - 1) : 0;
+        const angle = baseAngle - spread + step * j;
+        pos.set(child.id, {
+          id: child.id,
+          x: CX + outerR * Math.cos(angle),
+          y: CY + outerR * Math.sin(angle),
+          node: child,
+        });
+      });
+    });
+  }
+
+  // Fallback for any node still without a position
+  let fallbackIdx = 0;
   graph.nodes.forEach((n) => {
-    if (!pos.has(n.id)) pos.set(n.id, { id: n.id, x: CX, y: CY + 20, node: n });
+    if (!pos.has(n.id)) {
+      const angle = toRad(fallbackIdx * 47);
+      pos.set(n.id, {
+        id: n.id,
+        x: CX + 190 * Math.cos(angle),
+        y: CY + 190 * Math.sin(angle),
+        node: n,
+      });
+      fallbackIdx++;
+    }
   });
 
   return pos;
@@ -104,6 +169,9 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
   // Selected node for detail panel
   const [selectedNode, setSelectedNode] = useState<KGNode | null>(null);
 
+  // Track whether mouse has moved since mousedown (to distinguish click from drag)
+  const hasDragged = useRef(false);
+
   // Non-passive wheel listener for zoom-toward-cursor
   useEffect(() => {
     const svg = svgRef.current;
@@ -128,6 +196,7 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
     dragging.current = true;
+    hasDragged.current = false;
     dragStart.current = { x: e.clientX, y: e.clientY, ox: offsetX, oy: offsetY };
     e.currentTarget.addEventListener('mousemove', onMouseMove as EventListener);
     e.currentTarget.addEventListener('mouseup', onMouseUp as EventListener);
@@ -135,8 +204,11 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
 
   function onMouseMove(e: MouseEvent) {
     if (!dragging.current) return;
-    setOffsetX(dragStart.current.ox + (e.clientX - dragStart.current.x));
-    setOffsetY(dragStart.current.oy + (e.clientY - dragStart.current.y));
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasDragged.current = true;
+    setOffsetX(dragStart.current.ox + dx);
+    setOffsetY(dragStart.current.oy + dy);
   }
 
   function onMouseUp(e: MouseEvent) {
@@ -145,12 +217,15 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
     (e.currentTarget as SVGElement).removeEventListener('mouseup', onMouseUp as EventListener);
   }
 
-  function handleNodeClick(e: React.MouseEvent, node: KGNode) {
-    e.stopPropagation();
+  // Node clicks — fired from the <g> onClick; use hasDragged to ignore drag-ends
+  function handleNodeClick(node: KGNode) {
+    if (hasDragged.current) return;
     setSelectedNode((prev) => (prev?.id === node.id ? null : node));
   }
 
+  // Background rect click — only fires when clicking empty canvas area
   function handleBgClick() {
+    if (hasDragged.current) return;
     setSelectedNode(null);
   }
 
@@ -188,12 +263,19 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
               ref={svgRef}
               viewBox={`0 0 ${W} ${H}`}
               className="kg-svg"
-              style={{ cursor: dragging.current ? 'grabbing' : 'grab' }}
+              style={{ cursor: 'grab' }}
               aria-label="Knowledge graph visualisation"
               onMouseDown={handleMouseDown}
-              onClick={handleBgClick}
             >
               <g transform={transform}>
+                {/* Background click target — separate sibling from nodes so
+                    node clicks never propagate here */}
+                <rect
+                  x={-9999} y={-9999} width={99999} height={99999}
+                  fill="transparent"
+                  onClick={handleBgClick}
+                  style={{ cursor: 'grab' }}
+                />
                 {/* Edges */}
                 {graph.edges.map((edge, i) => {
                   const from = positions.get(edge.source);
@@ -223,7 +305,7 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
                   return (
                     <g
                       key={id}
-                      onClick={(e) => handleNodeClick(e, node)}
+                      onClick={() => handleNodeClick(node)}
                       style={{ cursor: 'pointer' }}
                     >
                       {isSelected && (
@@ -259,7 +341,7 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
                           {node.label.length > 22 ? node.label.slice(0, 20) + '…' : node.label}
                         </text>
                       )}
-                      {(isPaper) && (
+                      {isPaper && isSelected && (
                         <text
                           x={x} y={y + r + 11}
                           textAnchor="middle"
@@ -268,7 +350,7 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
                           fontFamily="var(--font-mono)"
                           style={{ pointerEvents: 'none', userSelect: 'none' }}
                         >
-                          {node.label.length > 18 ? node.label.slice(0, 16) + '…' : node.label}
+                          {node.label.length > 22 ? node.label.slice(0, 20) + '…' : node.label}
                         </text>
                       )}
                     </g>
@@ -278,12 +360,14 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
             </svg>
 
             <div className="kg-legend">
-              {(['query', 'community', 'concept', 'paper'] as const).map((t) => (
-                <div key={t} className="kg-legend-item">
-                  <span className="kg-legend-dot" style={{ background: NODE_COLORS[t] }} />
-                  <span>{t}</span>
-                </div>
-              ))}
+              {(['query', 'community', 'concept', 'paper'] as const)
+                .filter((t) => graph.nodes.some((n) => n.type === t))
+                .map((t) => (
+                  <div key={t} className="kg-legend-item">
+                    <span className="kg-legend-dot" style={{ background: NODE_COLORS[t] }} />
+                    <span>{t}</span>
+                  </div>
+                ))}
             </div>
           </div>
 

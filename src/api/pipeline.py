@@ -20,13 +20,27 @@ import os
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
+
+_PERSONAS_PATH = Path(__file__).resolve().parents[2] / "personas" / "personas_all.json"
+
+
+def _load_persona(persona_id: str | None) -> dict | None:
+    if not persona_id:
+        return None
+    with open(_PERSONAS_PATH) as f:
+        personas = json.load(f)
+    return next((p for p in personas if p["persona_id"] == persona_id), None)
 
 from api.config import get_settings
 from api.mocks import mock_chat_reply, run_mock
 from api.models import (
     ExplorationStats,
     HypothesisOut,
+    KGEdge,
+    KGNode,
+    KnowledgeGraph,
     ReasoningStep,
     SessionOut,
 )
@@ -40,6 +54,21 @@ def _build_system_prompt(session: SessionOut) -> str:
         "",
         f"## Research Question\n{session.question}",
         "",
+    ]
+
+    if session.personaId:
+        persona = _load_persona(session.personaId)
+        if persona:
+            lines += [
+                "## Active Persona",
+                f"The hypotheses were generated under the **{persona['display_name']}** persona.",
+                f"Core philosophy: {persona['core_philosophy']}",
+                f"Communication style: {persona['communication_style']}",
+                "Continue the conversation in this persona's voice and analytical frame.",
+                "",
+            ]
+
+    lines += [
         "## Generated Hypotheses",
     ]
     for h in session.hypotheses:
@@ -91,72 +120,39 @@ def generate_chat_reply(session: SessionOut, user_message: str) -> str:
 
 
 def _real_chat_reply(session: SessionOut, user_message: str, settings=None) -> str:
-    """Context-aware chat using OpenAI-compatible tool calling.
+    """Stateless chat continuation using the session's generator model endpoint.
 
-    Works with any OpenAI-compatible endpoint:
-      - OpenAI:  set OPENAI_API_KEY
-      - vLLM:    set OPENAI_BASE_URL=http://host:8000/v1  OPENAI_API_KEY=dummy
-      - Ollama:  set OPENAI_BASE_URL=http://localhost:11434/v1
-
-    Model is read from API settings.
+    Passes the full conversation history (system prompt + prior turns + new
+    message) in a single call — no tool calling, which requires special vLLM
+    server flags that may not be present.
     """
     from openai import OpenAI  # noqa: PLC0415
 
     settings = settings or get_settings()
-    client = OpenAI(
-        api_key=settings.openai_api_key,
-        base_url=settings.openai_base_url,
-    )
+
+    # Use the session's generator model endpoint for continuations.
+    try:
+        model_cfg = settings.get_model_config(session.generatorModelName)
+        chat_model = model_cfg["api_model"]
+        api_key = model_cfg.get("api_key", "dummy")
+        base_url = model_cfg.get("base_url")
+    except KeyError:
+        chat_model = settings.chat_model
+        api_key = settings.openai_api_key
+        base_url = settings.openai_base_url
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
 
     messages: list[dict] = [{"role": "system", "content": _build_system_prompt(session)}]
 
-    # Replay last 20 messages (10 turns) to stay within context limits
+    # Replay last 20 messages (10 turns) to stay within context limits.
     for msg in session.messages[-20:]:
         messages.append({"role": msg.role, "content": msg.content})
 
     messages.append({"role": "user", "content": user_message})
 
-    # Tool-calling loop (capped at 5 iterations to prevent runaway)
-    last_content = ""
-    for _ in range(5):
-        response = client.chat.completions.create(
-            model=settings.chat_model,
-            messages=messages,
-            tools=CHAT_TOOLS,
-            tool_choice="auto",
-        )
-        choice = response.choices[0]
-        last_content = choice.message.content or ""
-
-        if choice.finish_reason == "stop" or not choice.message.tool_calls:
-            return last_content
-
-        # Append assistant turn with tool_calls
-        messages.append(
-            {
-                "role": "assistant",
-                "content": last_content,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                    }
-                    for tc in choice.message.tool_calls
-                ],
-            }
-        )
-
-        # Execute each tool and append results
-        for tc in choice.message.tool_calls:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            result = execute_tool(tc.function.name, args, session)
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
-
-    return last_content or "Context gathered. Please ask your follow-up question."
+    response = client.chat.completions.create(model=chat_model, messages=messages)
+    return response.choices[0].message.content or ""
 
 
 # ---------------------------------------------------------------------------
@@ -168,14 +164,16 @@ def run_pipeline(
     question: str,
     retriever_model_name: str,
     generator_model_name: str,
+    persona_id: str | None = None,
 ) -> SessionOut:
     settings = get_settings()
     if settings.pipeline_use_mock:
-        return run_mock(question, retriever_model_name, generator_model_name)
+        return run_mock(question, retriever_model_name, generator_model_name, persona_id=persona_id)
     return _run_real(
         question,
         retriever_model_name,
         generator_model_name,
+        persona_id=persona_id,
         settings=settings,
     )
 
@@ -189,6 +187,7 @@ def _run_real(
     question: str,
     retriever_model_name: str,
     generator_model_name: str,
+    persona_id: str | None = None,
     settings=None,
 ) -> SessionOut:
     """Run the full pipeline with real models and knowledge graph.
@@ -222,22 +221,39 @@ def _run_real(
         config=config,
     )
 
+    persona = _load_persona(persona_id)
+
+    # Route to the dedicated persona model when one is configured.
+    effective_generator = generator_model_name
+    if persona and settings.persona_model and settings.persona_model in settings.model_configs:
+        effective_generator = settings.persona_model
+        model_configs[effective_generator] = settings.get_model_config(effective_generator)
+
+    generator_kwargs = _completion_kwargs(config.get("generator", {}), exclude={"type"})
+    if persona:
+        generator_kwargs["persona"] = persona
+
     t0 = time.monotonic()
     result = pipeline.run(
         question,
         retriever_model_name=retriever_model_name,
-        generator_model_name=generator_model_name,
+        generator_model_name=effective_generator,
         retriever_kwargs=_completion_kwargs(config.get("retriever", {}), exclude={"type", "top_k"}),
-        generator_kwargs=_completion_kwargs(config.get("generator", {}), exclude={"type"}),
+        generator_kwargs=generator_kwargs,
     )
     elapsed = round(time.monotonic() - t0, 3)
+
+    explorer_meta = result.metadata.get("explorer", {})
+    kg = _build_knowledge_graph(explorer_meta, question)
+    papers = explorer_meta.get("papers", [])
+    starting = explorer_meta.get("starting_papers", [])
 
     trace = [
         ReasoningStep(
             step="Pipeline",
             description="Full search → explorer → retriever → generator run",
             durationSec=elapsed,
-            details=f"Model: {result.metadata.get('model', 'unknown')}",
+            details=f"Model: {result.metadata.get('model', effective_generator)}",
         )
     ]
 
@@ -245,12 +261,49 @@ def _run_real(
         sessionId=str(uuid4()),
         question=question,
         retrieverModelName=retriever_model_name,
-        generatorModelName=generator_model_name,
+        generatorModelName=effective_generator,
+        personaId=persona_id,
         createdAt=datetime.now(timezone.utc).isoformat(),
-        exploration=ExplorationStats(durationSec=elapsed),
+        exploration=ExplorationStats(
+            nodesTraversed=len(papers),
+            relations=len(kg.edges),
+            sourcePapers=len(starting),
+            durationSec=elapsed,
+        ),
         hypotheses=_wrap_hypotheses(result.hypotheses),
         reasoningTrace=trace,
+        knowledgeGraph=kg if kg.nodes else None,
     )
+
+
+def _build_knowledge_graph(explorer_meta: dict, question: str) -> KnowledgeGraph:
+    """Convert Neo4j explorer metadata into a KnowledgeGraph for the frontend."""
+    papers: list[dict] = explorer_meta.get("papers", [])
+    nodes: list[KGNode] = [KGNode(id="query", label=question[:80], type="query")]
+    edges: list[KGEdge] = []
+    added: set[str] = {"query"}
+
+    # Sort by level so source papers exist before their children are linked.
+    for paper in sorted(papers, key=lambda p: p.get("level", 0)):
+        pid = paper.get("id", "")
+        if not pid or pid in added:
+            continue
+        added.add(pid)
+        nodes.append(KGNode(
+            id=pid,
+            label=(paper.get("title") or pid)[:80],
+            type="paper",
+            paperId=pid,
+            abstract=paper.get("abstract") or None,
+            summary=paper.get("summary") or None,
+        ))
+        level = paper.get("level", 0)
+        source = paper.get("source_id", "query") if level > 0 else "query"
+        if source not in added:
+            source = "query"
+        edges.append(KGEdge(source=source, target=pid, relation="explored"))
+
+    return KnowledgeGraph(nodes=nodes, edges=edges)
 
 
 def _completion_kwargs(config: dict, exclude: set[str]) -> dict:

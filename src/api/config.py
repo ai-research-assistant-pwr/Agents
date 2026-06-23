@@ -37,7 +37,8 @@ class ApiWeaviateConfig(BaseModel):
     embedding_port: int = 8005
     embedding_model: str = "Qwen/Qwen3-Embedding-4B"
     embedding_api_key: str | None = None
-    top_k: int = 10
+    embedding_url: str | None = None
+    top_k: int = 7
     api_key: str | None = None
 
 
@@ -64,6 +65,7 @@ class RetrieverConfig(BaseModel):
 class GeneratorConfig(BaseModel):
     type: str = "llm"
     temperature: float = 0.7
+    max_tokens: int = 2048
 
 
 class APISettings(BaseSettings):
@@ -91,6 +93,10 @@ class APISettings(BaseSettings):
     google_base_url: str | None = "https://generativelanguage.googleapis.com/v1beta/openai/"
     vllm_api_key: str | None = None
     vllm_base_url: str | None = "http://localhost:8021/v1"
+    # When a persona is selected, generation is routed to this model (name must
+    # appear in model_configs). Typically set to a more capable model such as
+    # a GPT-5 variant. Leave unset to use the user-chosen generator model.
+    persona_model: str | None = None
 
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     model_configs: dict[str, SupportedModelConfig] = Field(

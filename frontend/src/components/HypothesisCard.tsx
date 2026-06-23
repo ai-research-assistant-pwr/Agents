@@ -29,14 +29,10 @@ export default function HypothesisCard({ hypothesis, selected, dimmed, disabled,
       {selected && <span className="hyp-card-badge">Selected</span>}
 
       <div className="hyp-card-head">
-        <div>
-          <div className="hyp-card-id">Hypothesis {hypothesis.id}</div>
-          <div className="hyp-card-class">{hypothesis.classification}</div>
-        </div>
+        <div className="hyp-card-class">{hypothesis.classification}</div>
         <span className={`radio${selected ? ' on' : ''}`} aria-hidden="true" />
       </div>
 
-      <h3 className="hyp-card-headline">{hypothesis.headline}</h3>
       <p className="hyp-card-statement">{hypothesis.statement}</p>
 
       <div className="hyp-card-bottom">

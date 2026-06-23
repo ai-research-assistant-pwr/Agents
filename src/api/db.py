@@ -68,6 +68,7 @@ class DBSession(Base):
     messages = Column(JSON, nullable=False, default=list)
     reasoning_trace = Column(JSON, nullable=False, default=list)
     knowledge_graph = Column(JSON, nullable=True)
+    persona_id = Column(String(255), nullable=True)
 
 
 def init_db() -> None:
@@ -87,4 +88,8 @@ def _ensure_session_columns() -> None:
         if "generator_model_name" not in columns:
             connection.execute(
                 text("ALTER TABLE sessions ADD COLUMN generator_model_name VARCHAR(255)")
+            )
+        if "persona_id" not in columns:
+            connection.execute(
+                text("ALTER TABLE sessions ADD COLUMN persona_id VARCHAR(255)")
             )

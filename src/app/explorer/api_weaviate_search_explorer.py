@@ -30,6 +30,7 @@ class ApiWeaviateSearchExplorer(BaseSearchExplorer):
         self.embedding_host = weaviate_cfg.get("embedding_host", "localhost")
         self.embedding_port = weaviate_cfg.get("embedding_port", 8000)
         self.embedding_api_key = weaviate_cfg.get("embedding_api_key")
+        self.embedding_url = weaviate_cfg.get("embedding_url", None)
 
         url = weaviate_cfg.get("url", "http://localhost:8080")
         grpc_port = weaviate_cfg.get("grpc_port", 50051)
@@ -68,7 +69,7 @@ class ApiWeaviateSearchExplorer(BaseSearchExplorer):
 
         self._embed_client = OpenAI(
             api_key=self.embedding_api_key,
-            base_url=f"http://{self.embedding_host}:{self.embedding_port}/v1",
+            base_url=f"{self.embedding_url}/v1" if self.embedding_url else f"http://{self.embedding_host}:{self.embedding_port}/v1",
         )
 
         logger.info(

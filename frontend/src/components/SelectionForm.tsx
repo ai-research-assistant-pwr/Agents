@@ -96,7 +96,7 @@ export default function SelectionForm({
           onClick={onSubmit}
           disabled={!canSubmit}
         >
-          {submitted ? 'Submitted ✓' : submitting ? 'Submitting…' : 'Develop hypothesis →'}
+          {submitted ? 'Submitted ✓' : submitting ? 'Submitting…' : 'Submit'}
         </button>
       </div>
     </div>

@@ -87,8 +87,19 @@ export interface ModelList {
   generatorModels: string[];
 }
 
+export interface Persona {
+  personaId: string;
+  displayName: string;
+  corePhilosophy: string;
+}
+
+export interface PersonaList {
+  personas: Persona[];
+}
+
 export interface GeneratePayload {
   question: string;
   retrieverModelName: string;
   generatorModelName: string;
+  personaId?: string;
 }

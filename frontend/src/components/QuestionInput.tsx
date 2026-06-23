@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
-import type { ModelList } from '../types';
+import type { ModelList, Persona } from '../types';
 
 interface Props {
   onSubmit: (question: string) => void;
@@ -10,6 +10,9 @@ interface Props {
   modelsLoading: boolean;
   onRetrieverModelChange: (model: string) => void;
   onGeneratorModelChange: (model: string) => void;
+  personas: Persona[];
+  selectedPersonaId: string;
+  onPersonaChange: (id: string) => void;
 }
 
 const EXAMPLES = [
@@ -27,6 +30,9 @@ export default function QuestionInput({
   modelsLoading,
   onRetrieverModelChange,
   onGeneratorModelChange,
+  personas,
+  selectedPersonaId,
+  onPersonaChange,
 }: Props) {
   const [q, setQ] = useState('');
   const canSubmit = !!q.trim() && !!retrieverModel && !!generatorModel;
@@ -91,7 +97,26 @@ export default function QuestionInput({
             ))}
           </select>
         </label>
+        <label className="model-field">
+          <span className="micro-label">Scientific Persona · optional</span>
+          <select
+            value={selectedPersonaId}
+            onChange={(e) => onPersonaChange(e.target.value)}
+            disabled={personas.length === 0}
+          >
+            <option value="">No persona (default)</option>
+            {personas.map((p) => (
+              <option key={p.personaId} value={p.personaId}>{p.displayName}</option>
+            ))}
+          </select>
+        </label>
       </div>
+      {selectedPersonaId && (() => {
+        const p = personas.find((x) => x.personaId === selectedPersonaId);
+        return p ? (
+          <div className="persona-hint">{p.corePhilosophy}</div>
+        ) : null;
+      })()}
 
       <div className="qinput-footer">
         <span className="qinput-hint">⌘+Enter to submit{isMock ? ' · running in mock mode' : ''}</span>

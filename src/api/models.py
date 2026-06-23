@@ -71,6 +71,7 @@ class SessionOut(BaseModel):
     createdAt: str
     exploration: ExplorationStats
     hypotheses: list[HypothesisOut]
+    personaId: str | None = None
     # populated after selection
     selectedId: str | None = None
     rationale: str | None = None
@@ -129,10 +130,21 @@ class TokenOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class PersonaOut(BaseModel):
+    personaId: str
+    displayName: str
+    corePhilosophy: str
+
+
+class PersonaListOut(BaseModel):
+    personas: list[PersonaOut]
+
+
 class CreateSessionRequest(BaseModel):
     question: str
     retrieverModelName: str
     generatorModelName: str
+    personaId: str | None = None
 
 
 class ModelListOut(BaseModel):
