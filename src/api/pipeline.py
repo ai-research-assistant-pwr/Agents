@@ -248,12 +248,16 @@ def _run_real(
     papers = explorer_meta.get("papers", [])
     starting = explorer_meta.get("starting_papers", [])
 
+    generator_details = f"Model: {result.metadata.get('model', effective_generator)}"
+    if result.reasoning:
+        generator_details = result.reasoning
+
     trace = [
         ReasoningStep(
             step="Pipeline",
             description="Full search → explorer → retriever → generator run",
             durationSec=elapsed,
-            details=f"Model: {result.metadata.get('model', effective_generator)}",
+            details=generator_details,
         )
     ]
 
@@ -270,7 +274,7 @@ def _run_real(
             sourcePapers=len(starting),
             durationSec=elapsed,
         ),
-        hypotheses=_wrap_hypotheses(result.hypotheses),
+        hypotheses=_wrap_hypotheses(result.hypotheses, reasoning=result.reasoning),
         reasoningTrace=trace,
         knowledgeGraph=kg if kg.nodes else None,
     )
@@ -317,7 +321,7 @@ def _ensure_src_on_path() -> None:
         sys.path.insert(0, src)
 
 
-def _wrap_hypotheses(raw: list[str]) -> list[HypothesisOut]:
+def _wrap_hypotheses(raw: list[str], reasoning: str = "") -> list[HypothesisOut]:
     ids = ["A", "B"]
     out: list[HypothesisOut] = []
     for i, text in enumerate(raw[:2]):
@@ -330,6 +334,7 @@ def _wrap_hypotheses(raw: list[str]) -> list[HypothesisOut]:
                 statement=text,
                 drawnFrom=[],
                 falsifiablePrediction="",
+                reasoning=reasoning or None,
             )
         )
     while len(out) < 2:

@@ -47,6 +47,7 @@ class APILLMGenerator(BaseGenerator):
 
         return GeneratorResult(
             hypotheses=result.content.hypotheses,
+            reasoning=result.reasoning,
             metadata={
                 "source": "api_llm_generator",
                 "model": result.model,

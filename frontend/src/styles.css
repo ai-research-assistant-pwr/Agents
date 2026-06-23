@@ -877,7 +877,7 @@ textarea { resize: none; }
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(0,0,0,0.18);
 }
-.modal-wide { max-width: 760px; }
+.modal-wide { max-width: 860px; }
 .modal-header {
   padding: 20px 24px 18px;
   border-bottom: 1px solid var(--border-soft);
@@ -969,6 +969,15 @@ textarea { resize: none; }
   color: var(--muted);
   line-height: 1.6;
   font-family: var(--font-serif);
+}
+.reasoning-body {
+  padding: 20px 24px 24px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.7;
+  font-family: var(--font-serif);
+  white-space: pre-wrap;
+  overflow-y: auto;
 }
 
 /* ============ Knowledge graph panel ============ */

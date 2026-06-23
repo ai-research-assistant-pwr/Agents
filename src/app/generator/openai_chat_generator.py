@@ -84,7 +84,7 @@ class OpenAIChatGenerator(BaseGenerator):
 
                 message = response.choices[0].message
                 raw = message.content or "{}"
-                reasoning = getattr(message, "reasoning", None) or getattr(message, "reasoning_content", None)
+                reasoning = getattr(message, "reasoning", None) or getattr(message, "reasoning_content", None) or ""
                 if reasoning:
                     logger.info("Generator reasoning:\n%s", reasoning)
                 parsed = self._parse_hypotheses(raw)
@@ -92,6 +92,7 @@ class OpenAIChatGenerator(BaseGenerator):
                     logger.info("Generator parse succeeded on attempt %d", attempt)
                 return GeneratorResult(
                     hypotheses=parsed.hypotheses,
+                    reasoning=reasoning,
                     metadata={"source": "openai_chat_generator", "model": model_name},
                 )
             except ValueError as exc:

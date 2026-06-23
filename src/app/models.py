@@ -23,3 +23,4 @@ class GeneratorResult:
 
     hypotheses: list[str]
     metadata: dict = field(default_factory=dict)
+    reasoning: str = ""  # inner monologue from reasoning models, covers all hypotheses
