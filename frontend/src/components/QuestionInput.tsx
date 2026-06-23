@@ -44,7 +44,10 @@ export default function QuestionInput({
   }
 
   function handleKey(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
   }
 
   return (
@@ -119,7 +122,7 @@ export default function QuestionInput({
       })()}
 
       <div className="qinput-footer">
-        <span className="qinput-hint">⌘+Enter to submit{isMock ? ' · running in mock mode' : ''}</span>
+        <span className="qinput-hint">Enter to submit · Shift+Enter for new line{isMock ? ' · running in mock mode' : ''}</span>
         <button type="submit" className="primary-btn primary-btn-inline" disabled={!canSubmit}>
           Explore knowledge graph →
         </button>
