@@ -324,7 +324,7 @@ export default function KnowledgeGraphPanel({ graph, onClose }: Props) {
           </div>
         </div>
 
-        <div className="kg-body kg-body-split">
+        <div className={`kg-body kg-body-split${selectedNode ? ' kg-has-selection' : ''}`}>
           {/* Graph */}
           <div className="kg-graph-area">
             <svg
