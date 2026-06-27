@@ -23,19 +23,19 @@ The repository also includes a modular inference pipeline backed by Weaviate (ve
 
 The multi-agent setup is a one-way, single-turn communication game. The Sender (Retriever) has full access to the hidden environment state (query + paper fragments) and must compress it into a message. The Receiver (Generator) sees only that message and produces scientific hypotheses that are scored against source knowledge.
 
-![Sender-Receiver environment](schemes/scheme_sender_receiver.pdf)
+![Sender-Receiver environment](schemes/scheme_sender_receiver.png)
 
 ### Shared Policy
 
 A single Qwen3-4B + LoRA checkpoint plays both roles. Role assignment is done at inference time via system-prompt injection — no separate model copies are needed.
 
-![Shared policy architecture](schemes/scheme_shared_policy.pdf)
+![Shared policy architecture](schemes/scheme_shared_policy.png)
 
 ### Channel Pressure (EmCom Techniques)
 
 Two complementary pressures are applied to the communication channel during GRPO training to induce emergent compression:
 
-![Channel pressure: bottleneck and noise](schemes/scheme_channel_pressure.pdf)
+![Channel pressure: bottleneck and noise](schemes/scheme_channel_pressure.png)
 
 The reward signal is:
 
